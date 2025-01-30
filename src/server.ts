@@ -39,10 +39,6 @@ server.use(cidadeRoutes);
 server.use(ClienteFornecedorRoutes);
 server.use(empresaRoutes);
 server.use(enderecoRoutes);
-server.use(blindRoutes);
-server.use(estruturaRoutes);
-server.use(torneioRoutes);
-server.use(ticketRoutes)
 
 // Tratamento de erros
 server.use(errorHandler);
