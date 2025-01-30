@@ -1,0 +1,27 @@
+services:
+  nodeerp:
+    build: .
+    # command: npm start
+    ports:
+      - "9000:9000"
+    volumes:
+      - .:/home/dev/ERP_Concessionaria/nodeERP
+    networks:
+      - app-network
+    environment:
+      - PORT=9000
+
+networks:
+  app-network:
+    driver: bridge      
+
+  # mysqlerp:
+  #   image: mysql:8.0.30-debian
+  #   environment:
+  #     MYSQL_ROOT_PASSWORD: root
+  #     MYSQL_DATABASE: tanz
+  #   # ports:
+  #   #   - 3306:3306
+  #   volumes:
+  #     - ./.docker/mysql:/docker-entrypoint-initdb.d
+  #     # - ./.docker/dbdata:/var/lib/mysql

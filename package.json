@@ -1,0 +1,49 @@
+{
+  "name": "nodeerp",
+  "version": "1.0.0",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node dist/server.js",
+    "startdev": "nodemon dist/server.js",
+    "build": "tsc",
+    "dev": "nodemon",
+    "watch": "tsc --watch"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "axios": "^1.7.2",
+    "bcrypt": "^5.1.1",
+    "carbone": "^3.5.6",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "express-fileupload": "^1.5.1",
+    "express-validator": "^7.1.0",
+    "git": "^0.1.5",
+    "imap-simple": "^1.6.3",
+    "mimemessage": "^1.0.5",
+    "mysql2": "^3.10.2",
+    "nodemailer": "^6.9.14",
+    "sequelize": "^6.37.3",
+    "socket.io": "^4.8.0",
+    "tedious": "^18.2.4",
+    "typescript": "^5.5.4",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.0.2",
+    "@types/ws": "^8.5.12",
+    "nodemon": "^3.1.4",
+    "sequelize-auto-migrations": "^1.0.3",
+    "sequelize-cli": "^6.6.2",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.5.4"
+  },
+  "files": [
+    "dist/**/*"
+  ]
+}

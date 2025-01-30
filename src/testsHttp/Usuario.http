@@ -1,0 +1,82 @@
+GET http://localhost:9000/usuario?page=1&pageSize=10&sortBy=email&order=asc&search=a
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6MywiZW1haWwiOiJhZGFtczMyMjF3MjJAZW1haWwuY29tIiwiaWF0IjoxNzIzNjUzNjkyLCJleHAiOjE3MjM2NTcyOTJ9.7hYfyoznwU3aatpOmEtm8tPvzJkKtTU6OHD4GRGlfKU
+
+###
+GET http://localhost:9000/usuario?page=1&pageSize=10&sortBy=email&order=asc&filters={"email":"admin"}
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6MywiZW1haWwiOiJhZGFtczMyMjF3MjJAZW1haWwuY29tIiwiaWF0IjoxNzIzNjUzNjkyLCJleHAiOjE3MjM2NTcyOTJ9.7hYfyoznwU3aatpOmEtm8tPvzJkKtTU6OHD4GRGlfKU
+
+###
+GET http://localhost:9000/funcaousuario?page=1&pageSize=10&order=asc
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6MiwiZW1haWwiOiJhZGFtc0B0YW56dGVjbm9sb2dpYS5jb20uYnIiLCJpYXQiOjE3MjUwMzEwNDcsImV4cCI6MTcyNTA3NDI0N30.eM5uteXWJbcoWy35xI33f-8vycmcM1MDc8vTvqWIft8
+
+
+GET http://localhost:9000/usuario?page=1&pageSize=10&search=test&sortBy=email&order=asc&filters={"ativo":"1"}
+
+###
+POST http://localhost:9000/usuario
+Content-Type: application/json
+Accept: application/json
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6MiwiZW1haWwiOiJhZGFtczMyMjEyMkBlbWFpbC5jb20iLCJpYXQiOjE3MjI1MTM2ODUsImV4cCI6MTcyMjUxNzI4NX0.ppsrnaaIsIVGnZdguH9hby3w4akRqYlVtxl00Q4C_-E
+
+{
+  "email": "adams32@email.com",
+  "login": "adams2",
+  "senha": "senha",
+  "nomeCompleto": "testeteste"
+
+}
+
+###
+POST http://localhost:9000/usuario
+Content-Type: application/json
+Accept: application/json
+
+{
+  "email": "adams2@email.com",
+  "login": "adams2",
+  "senha": "senha",
+  "nomeCompleto": "testeteste"
+
+}
+
+
+###
+PUT  http://localhost:9000/usuario/2
+Content-Type: application/json
+Accept: application/json
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6MTAsImVtYWlsIjoiYWRhbXMxMEB0YW56dGVjbm9sb2dpYS5jb20uYnIiLCJpYXQiOjE3MjYyMjE4ODYsImV4cCI6MTcyNjI2NTA4Nn0.N-madf_9QhMAFmasYaO3hh87Sw1jSgxZu6oN1dYDjFw
+
+{
+  "email": "adams@tanztecnologia.com.br",
+  "ativo": "true",
+  "senha": "123"
+}
+
+
+###
+DELETE  http://localhost:9000/usuario/8
+
+
+###
+POST http://localhost:9000/login
+Content-Type: application/json
+Accept: application/json
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6MiwiZW1haWwiOiJhZGFtczMyMjEyMkBlbWFpbC5jb20iLCJpYXQiOjE3MjI1MTM2ODUsImV4cCI6MTcyMjUxNzI4NX0.ppsrnaaIsIVGnZdguH9hby3w4akRqYlVtxl00Q4C_-E
+
+{
+  "login": "adams10@tanztecnologia.com.br",  
+  "senha": "123"
+}
+
+
+###
+POST http://localhost:9000/addlogin
+Content-Type: application/json
+Accept: application/json
+
+{
+  "email": "adams3221w22@email.com",
+  "login": "adams2212w3",
+  "senha": "senha",
+  "nomeCompleto": "nomeCompleto"
+}

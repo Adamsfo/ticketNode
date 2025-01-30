@@ -1,0 +1,57 @@
+GET http://localhost:9000/clientefornecedor?page=1&pageSize=10&sortBy=id&order=desc
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6MSwiZW1haWwiOiJhZG1pbkB0YW56dGVjbm9sb2dpYS5jb20uYnIiLCJpYXQiOjE3MjQyODYzMjMsImV4cCI6MTcyNDI4OTkyM30.v75Nz8xvuXA6bzilt7OlJDWQLxyf5itE-MM3Yera_8M
+
+###
+GET http://localhost:9000/clientefornecedor?page=1&pageSize=10&sortBy=id&order=desc
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6MywiZW1haWwiOiJhZGFtczMyMjF3MjJAZW1haWwuY29tIiwiaWF0IjoxNzIzNTc5NjU5LCJleHAiOjE3MjM1ODMyNTl9.yrWlmkE8PRcX8R8wxflvc-zFQJvv8ucGBHnj14RzxdE
+
+###
+GET http://localhost:9000/funcaousuarioacesso?page=1&pageSize=10&sortBy=id&order=desc
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6MSwiZW1haWwiOiJhZG1pbkB0YW56dGVjbm9sb2dpYS5jb20uYnIiLCJpYXQiOjE3MjU0NDkzNjQsImV4cCI6MTcyNTQ5MjU2NH0.c6KADJfXQzCW6CqYjSQ5oXBfOpmS6ILt2G7OYooBKMs
+
+
+###
+POST http://localhost:9000/login
+Content-Type: application/json
+Accept: application/json
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6MiwiZW1haWwiOiJhZGFtczMyMjEyMkBlbWFpbC5jb20iLCJpYXQiOjE3MjI1MTM2ODUsImV4cCI6MTcyMjUxNzI4NX0.ppsrnaaIsIVGnZdguH9hby3w4akRqYlVtxl00Q4C_-E
+
+{
+  "login": "Admin",  
+  "senha": "123456"
+}
+
+###
+PUT http://localhost:9000/clientefornecedor/7
+Content-Type: application/json
+Accept: application/json
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6MSwiZW1haWwiOiJhZG1pbkB0YW56dGVjbm9sb2dpYS5jb20uYnIiLCJpYXQiOjE3MjQzMjk2MzIsImV4cCI6MTcyNDMzMzIzMn0.T6OYw0oH-Yq_8ulJmd4jh7PcBUeo0kbuCkk18Ya6PVQ
+
+{  
+  "tipo": "Cliente",
+  "cnpjCpf": "12345678901",
+  "razaoSocialNome": "Cliente Teste",
+  "nomeFantasia": "Cliente Teste",  
+  "consumidorFinal": "Sim",
+  "contribuinte": "Sim"  
+}
+
+
+###
+POST http://localhost:9000/clientefornecedor
+Content-Type: application/json
+Accept: application/json
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6MSwiZW1haWwiOiJhZG1pbkB0YW56dGVjbm9sb2dpYS5jb20uYnIiLCJpYXQiOjE3MjQ0NTQwNzIsImV4cCI6MTcyNDQ5NzI3Mn0.Hh6QEr-0Pj-YjSNQNvCxjofnprKrPN-QiXJgzu19-_w
+
+{
+  "empresaId": "1",  
+  "cnpjCpf": "12345678906",
+  "razaoSocialNome": "Cliente Teste",
+  "consumidorFinal": "Sim"
+}
+
+###
+DELETE  http://localhost:9000/clientefornecedor/6
+Content-Type: application/json
+Accept: application/json
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6MSwiZW1haWwiOiJhZG1pbkB0YW56dGVjbm9sb2dpYS5jb20uYnIiLCJpYXQiOjE3MjQyODYzMjMsImV4cCI6MTcyNDI4OTkyM30.v75Nz8xvuXA6bzilt7OlJDWQLxyf5itE-MM3Yera_8M

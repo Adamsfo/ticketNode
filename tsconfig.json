@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "target": "ES2021", // ou "ES2020", dependendo das funcionalidades que você deseja usar
+    "module": "commonjs", // ou "commonjs" se preferir esse estilo de módulo
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "strict": true,
+    "esModuleInterop": true,
+    "moduleResolution": "Node",
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "outDir": "dist/",    
+    "rootDir": "./src",
+    "baseUrl": ".",
+    "paths": {
+      "@/components/*": ["components/*"],
+      "@/utils/*": ["utils/*"]
+    }
+  },
+  "include": ["next-env.d.ts", "src/**/*.ts", "**/*.tsx"],
+  "exclude": ["node_modules"]
+}
