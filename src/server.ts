@@ -1,6 +1,5 @@
 require('dotenv').config();
 import express from 'express';
-import { iniciarServidorWebSocket } from './controllers/TorneioWebSocket';
 import http from 'http'; // Importa o http para criar um servidor HTTP
 const authRoutes = require('./routes/authRoutes');
 const usuarioRoutes = require('./routes/usuarioRoutes');
@@ -53,7 +52,6 @@ server.get('/', (req: any, res: any) => {
 
 // Inicia o WebSocket
 const httpServer = http.createServer(server);
-iniciarServidorWebSocket(httpServer)
 
 // Define a porta a partir do arquivo de configuração e inicia o servidor
 const PORT = process.env.PORT || 9000; // Define a porta padrão como 9000 se não estiver no .env

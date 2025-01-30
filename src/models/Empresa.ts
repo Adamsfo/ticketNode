@@ -3,7 +3,7 @@ import { DataTypes, Model, Optional, Sequelize } from 'sequelize';
 interface EmpresaAttributes {
     id: number;
     nomeFantasia: string;
-    razaoSocial: string;    
+    razaoSocial: string;
     cnpj: string;
     inscricaoEstadual: string;
     inscricaoMunicipal: string;
@@ -13,7 +13,7 @@ interface EmpresaAttributes {
     numero: string;
     complemento?: string;
     bairro?: string;
-    idCidade: number;
+    idCidade?: number;
     logradouro?: string;
     telefone?: string;
     ultimoNumeroNFe?: number;
@@ -27,7 +27,7 @@ interface EmpresaAttributes {
     CSC?: string;
 }
 
-interface EmpresaCreationAttributes extends Optional<EmpresaAttributes, 'id'> {}
+interface EmpresaCreationAttributes extends Optional<EmpresaAttributes, 'id'> { }
 
 class Empresa extends Model<EmpresaAttributes, EmpresaCreationAttributes> implements EmpresaAttributes {
     public id!: number;
@@ -109,7 +109,7 @@ class Empresa extends Model<EmpresaAttributes, EmpresaCreationAttributes> implem
             },
             idCidade: {
                 type: DataTypes.INTEGER,
-                allowNull: false,
+                allowNull: true,
                 references: {
                     model: 'Cidade',
                     key: 'id'
@@ -175,7 +175,7 @@ class Empresa extends Model<EmpresaAttributes, EmpresaCreationAttributes> implem
         Empresa.belongsTo(models.Cidade, {
             foreignKey: 'idCidade',
             as: 'cidade'
-        });      
+        });
     }
 }
 
