@@ -7,10 +7,7 @@ const cidadeRoutes = require('./routes/cidadeRoutes');
 const ClienteFornecedorRoutes = require('./routes/clienteFornecedorRoutes');
 const empresaRoutes = require('./routes/empresaRoutes');
 const enderecoRoutes = require('./routes/enderecoRoutes');
-const blindRoutes = require('./routes/blindRoutes');
-const estruturaRoutes = require('./routes/estruturaRoutes');
-const torneioRoutes = require('./routes/torneioRoutes');
-const ticketRoutes = require('./routes/ticketRoutes');
+const tipoIngressoRoutes = require('./routes/tipoIngressoRoutes');
 
 // Inicializa o banco de dados
 require('./database/index');
@@ -38,6 +35,7 @@ server.use(cidadeRoutes);
 server.use(ClienteFornecedorRoutes);
 server.use(empresaRoutes);
 server.use(enderecoRoutes);
+server.use(tipoIngressoRoutes);
 
 // Tratamento de erros
 server.use(errorHandler);
