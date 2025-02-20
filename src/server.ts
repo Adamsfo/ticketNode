@@ -1,5 +1,5 @@
 require('dotenv').config();
-import express from 'express';
+import express, { Request, Response } from 'express';
 import http from 'http'; // Importa o http para criar um servidor HTTP
 const authRoutes = require('./routes/authRoutes');
 const usuarioRoutes = require('./routes/usuarioRoutes');
@@ -8,6 +8,8 @@ const ClienteFornecedorRoutes = require('./routes/clienteFornecedorRoutes');
 const empresaRoutes = require('./routes/empresaRoutes');
 const enderecoRoutes = require('./routes/enderecoRoutes');
 const tipoIngressoRoutes = require('./routes/tipoIngressoRoutes');
+const produtorRoutes = require('./routes/produtorRoutes');
+import fs from 'fs'
 
 // Inicializa o banco de dados
 require('./database/index');
@@ -21,9 +23,10 @@ const server = express();
 
 // Middleware
 server.use(cors());
-server.use(express.json());
-server.use(express.urlencoded({ extended: true }));
+server.use(express.json({ limit: '4mb' }));
+server.use(express.urlencoded({ extended: true, limit: '4mb' }));
 server.use(fileupload());
+
 
 // Servindo arquivos estáticos
 server.use('/', express.static(publicDir));
@@ -36,6 +39,7 @@ server.use(ClienteFornecedorRoutes);
 server.use(empresaRoutes);
 server.use(enderecoRoutes);
 server.use(tipoIngressoRoutes);
+server.use(produtorRoutes);
 
 // Tratamento de erros
 server.use(errorHandler);
@@ -45,8 +49,28 @@ server.get('/', (req: any, res: any) => {
     res.send('Hello World');
 });
 
-// Cria um servidor HTTP
+// Rota de upload
+server.post('/upload', (req: Request, res: Response) => {
+    if (!req.body || !req.body.file) {
+        return res.status(400).send('No files were uploaded.');
+    }
 
+    // O campo "file" deve conter a string em base64
+    const base64Data = req.body.file;
+    const buffer = Buffer.from(base64Data, 'base64');
+
+    // Mover o arquivo para a pasta desejada
+    let filename = "LogoProdutor_" + Date.now() + ".png"
+    const uploadPath = path.join(__dirname, '/public/uploads', filename);
+
+    fs.writeFile(uploadPath, new Uint8Array(buffer), (err) => {
+        if (err) {
+            return res.status(500).send('Error saving file.');
+        }
+
+        res.send({ filename: filename });
+    });
+});
 
 // Inicia o WebSocket
 const httpServer = http.createServer(server);

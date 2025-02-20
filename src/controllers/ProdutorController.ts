@@ -1,23 +1,22 @@
 import { getRegistros } from "../utils/getRegistros"
 import { CustomError } from '../utils/customError'
-import { TipoIngresso } from "../models/TipoIngresso";
-
+import { Produtor } from "../models/Produtor";
 
 module.exports = {
     async get(req: any, res: any, next: any) {
-        await getRegistros(TipoIngresso, req, res, next)
+        await getRegistros(Produtor, req, res, next)
     },
 
     async add(req: any, res: any, next: any) {
         try {
-            const { descricao, qtde } = req.body;
+            const { nome } = req.body;
 
             //   // Validação básica
-            if (!descricao || !qtde) {
+            if (!nome) {
                 throw new CustomError('Faltando informações em campos obrigatórios.', 400, '');
             }
 
-            const registro = await TipoIngresso.create(req.body);
+            const registro = await Produtor.create(req.body);
             return res.status(201).json(registro);
         } catch (error) {
             next(error);
@@ -28,7 +27,7 @@ module.exports = {
         try {
             const id = req.params.id;
 
-            const registro = await TipoIngresso.findByPk(id);
+            const registro = await Produtor.findByPk(id);
             if (!registro) {
                 throw new CustomError('Registro não encontrado.', 404, '');
             }
@@ -56,7 +55,7 @@ module.exports = {
             }
 
             // Verificar se o usuário existe
-            const registro = await TipoIngresso.findByPk(id);
+            const registro = await Produtor.findByPk(id);
             if (!registro) {
                 throw new CustomError('Registro não encontrado.', 404, '');
                 // return res.status(404).json({ message: 'Usuário não encontrado.' });

@@ -25,6 +25,8 @@ module.exports = {
       }
 
       const token = generateToken(usuario);
+      usuario.token = token
+      usuario.save()
       res.status(200).json({
         data: token
       });
