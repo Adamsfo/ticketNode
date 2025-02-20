@@ -17,6 +17,7 @@ const cors = require('cors');
 const fileupload = require('express-fileupload');
 var path = require('path');
 var publicDir = path.join(__dirname, 'public');
+var uploadsDir = path.join(__dirname, 'public/uploads');
 const errorHandler = require('./middlewares/errorHandler');
 
 const server = express();
@@ -30,6 +31,7 @@ server.use(fileupload());
 
 // Servindo arquivos estáticos
 server.use('/', express.static(publicDir));
+server.use('/uploads', express.static(uploadsDir));
 
 // Rotas
 server.use(authRoutes);
