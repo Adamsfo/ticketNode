@@ -5,6 +5,7 @@ module.exports = {
   username: "root",
   password: "root",
   database: "ticket",
+  timezone: "+00:00",
   define: {
     timestamps: true,
     underscored: true,
