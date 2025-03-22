@@ -11,6 +11,7 @@ const tipoIngressoRoutes = require('./routes/tipoIngressoRoutes');
 const produtorRoutes = require('./routes/produtorRoutes');
 const eventoRoutes = require('./routes/eventoRoutes');
 const eventoIngressoRoute = require('./routes/eventoIngressoRoute');
+const pagamentoRoute = require('./routes/pagamentoRoutes');
 import fs from 'fs'
 
 // Inicializa o banco de dados
@@ -46,6 +47,7 @@ server.use(tipoIngressoRoutes);
 server.use(produtorRoutes);
 server.use(eventoRoutes);
 server.use(eventoIngressoRoute);
+server.use(pagamentoRoute);
 
 // Tratamento de erros
 server.use(errorHandler);

@@ -25,6 +25,7 @@
     "express-validator": "^7.1.0",
     "git": "^0.1.5",
     "imap-simple": "^1.6.3",
+    "mercadopago": "^2.3.0",
     "mimemessage": "^1.0.5",
     "multer": "^1.4.5-lts.1",
     "mysql2": "^3.10.2",
