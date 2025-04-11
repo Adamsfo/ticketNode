@@ -8,6 +8,9 @@ import { TipoIngressoInit } from '../models/TipoIngresso';
 import { ProdutorInit } from '../models/Produtor';
 import { EventoInit } from '../models/Evento';
 import { EventoIngressoInit } from '../models/EventoIngresso';
+import { IngressoInit } from '../models/Ingresso';
+import { TransacaoInit } from '../models/Transacao';
+import { UsuarioMetodoPagamentoInit } from '../models/ClienteMetodoPagamento';
 const ConfigIniciais = require('./ConfigIniciais')
 const FuncaoSistema = require('./FuncaoSistema')
 
@@ -33,6 +36,9 @@ const connection = new Sequelize(dbConfig);
     ProdutorInit(connection)
     EventoInit(connection)
     EventoIngressoInit(connection)
+    IngressoInit(connection)
+    TransacaoInit(connection)
+    UsuarioMetodoPagamentoInit(connection)
 
     // Sincronizando os modelos com o banco de dados        
     await connection.sync();

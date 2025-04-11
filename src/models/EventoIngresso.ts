@@ -1,6 +1,7 @@
 import { DataTypes, Model, Optional, Sequelize } from 'sequelize';
 import { TipoIngresso } from './TipoIngresso';
 import { Evento } from './Evento';
+import { Ingresso } from './Ingresso';
 
 enum Status {
     Disponivel = 'Ativo',
@@ -109,6 +110,10 @@ class EventoIngresso extends Model<EventoIngressoAttributes, EventoIngressoCreat
             foreignKey: 'idEvento',
             as: 'Evento'
         });
+        // EventoIngresso.hasMany(Ingresso, {
+        //     foreignKey: 'idEvento',
+        //     as: 'Ingresso'
+        // });
     }
 }
 

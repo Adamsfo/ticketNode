@@ -4,6 +4,7 @@ interface IncludeOptions {
   model: ModelStatic<any>;
   as?: string;
   attributes?: string[];
+  include?: IncludeOptions[];
 }
 
 // Função para converter de camelCase/UpperCamelCase para snake_case
