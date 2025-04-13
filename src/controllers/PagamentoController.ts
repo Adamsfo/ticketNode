@@ -4,12 +4,15 @@ import { Payment, MercadoPagoConfig, Customer, CustomerCard } from 'mercadopago'
 const axios = require('axios')
 import { encrypt, decrypt } from '../utils/encryption'; // Supondo que você tenha funções de criptografia
 import { UsuarioMetodoPagamento } from "../models/ClienteMetodoPagamento";
+import { addHistorico } from "./TransacaoController";
+import { HistoricoTransacao, TransacaoPagamento } from "../models/Transacao";
+import { Usuario } from "../models/Usuario";
 
-const acessToken = "APP_USR-2517899600225439-032009-f1127f8e355bf2605cc6e80250129500-488781000"
-// const acessToken = "TEST-2517899600225439-032009-c36d88bc4644365b9245fbb39abf20d6-488781000"
+// const acessToken = "APP_USR-2517899600225439-032009-f1127f8e355bf2605cc6e80250129500-488781000"
+const acessToken = "TEST-2517899600225439-032009-c36d88bc4644365b9245fbb39abf20d6-488781000"
 
-const MP_PUBLIC_KEY = "APP_USR-8ccbd791-ea60-4e70-a915-a89fd05f5c23"; // Chave pública do Mercado Pago
-// const MP_PUBLIC_KEY = "TEST-98f4cccd-2514-4062-a671-68df4b579410"; // Chave pública do Mercado Pago
+// const MP_PUBLIC_KEY = "APP_USR-8ccbd791-ea60-4e70-a915-a89fd05f5c23"; // Chave pública do Mercado Pago
+const MP_PUBLIC_KEY = "TEST-98f4cccd-2514-4062-a671-68df4b579410"; // Chave pública do Mercado Pago
 
 // Função para gerar uma chave de idempotência única
 function generateUniqueIdempotencyKey(): string {
@@ -37,62 +40,20 @@ module.exports = {
     async pagamento(req: any, res: any, next: any) {
         const { token, issuer_id, payment_method_id, transaction_amount, installments, payer, items } = req.body
 
-        console.log('payer', payer)
         console.log('token', token)
+        console.log('issuer_id', issuer_id)
+        console.log('payment_method_id', payment_method_id)
+        console.log('transaction_amount', transaction_amount)
+        console.log('installments', installments)
+        console.log('payer', payer)
+
+
         const client = new MercadoPagoConfig({ accessToken: acessToken });
 
         const payment = new Payment(client)
         const customer = new Customer(client);
         const customerCard = new CustomerCard(client)
         try {
-
-            // const customers = await customer.search({ options: { email: payer.email } })
-
-            // if ((customers.results ?? []).length > 0) {
-            //     if (token) {
-            //         const customerCard = new CustomerCard(client);
-            //         const customerId = customers.results?.[0]?.id ?? null;
-            //         const body = {
-            //             token: token,
-            //         };
-            //         if (customerId) {
-            //             customerCard.create({ customerId: customerId, body }).then((result) => {
-            //                 console.log('card salvo', result.id)
-            //             }).catch(error => {
-
-            //                 console.error('Erro ao criar cartão:', error)
-            //             })
-            //         }
-            //     }
-            // } else {
-            //     customer.create({ body: bodyCustomer }).then((result) => {
-
-            //         console.log('customer', result)
-            //         const customerCard = new CustomerCard(client);
-
-            //         const body = {
-            //             token: token,
-            //         };
-
-            //         if (result.id) {
-            //             customerCard.create({ customerId: result.id.toString(), body }).then((result) => {
-            //                 console.log('card salvo', result.id)
-            //             });
-            //         } else {
-            //             throw new Error("Customer ID is undefined");
-            //         }
-            //     }).catch(error => {
-            //         console.error('Erro ao criar cliente:', error)
-            //         res.status(500).json({
-            //             error: 'Erro ao criar cliente',
-            //         })
-            //     })
-            // }
-
-            // res.status(500).json({
-            //     error: 'Erro ao processar pagamento',
-            // });
-
             // Buscar se cliente já existe
             const customers = await customer.search({ options: { email: payer.email } });
 
@@ -131,37 +92,39 @@ module.exports = {
                 console.error('Erro ao criar cartão:', error);
             }
 
-            // const body = {
-            //     transaction_amount: transaction_amount,
-            //     token: token,
-            //     description: 'description',
-            //     installments: installments,
-            //     payment_method_id: payment_method_id,
-            //     issuer_id: issuer_id,
-            //     payer: payer
-            // }
+            const body = {
+                transaction_amount: transaction_amount,
+                token: token,
+                description: 'Compra de Ingressos',
+                installments: installments,
+                payment_method_id: payment_method_id,
+                issuer_id: issuer_id,
+                payer: payer
+            }
 
-            // // console.log('body', body)
+            // console.log('body', body)
 
-            // const requestOptions = {
-            //     idempotencyKey: generateUniqueIdempotencyKey(),  // Gere uma chave de idempotência única
-            // };
+            const requestOptions = {
+                idempotencyKey: generateUniqueIdempotencyKey(),  // Gere uma chave de idempotência única
+            };
 
+            // res.status(200).json({ data: { teste: 'teste' } })
 
-            // const response = await payment.create({ body, requestOptions });
-            // console.log(response);
+            // Realiza o pagamento
+            const response = await payment.create({ body, requestOptions });
+            console.log(response);
 
-            // // Salvar dados de pagamento
-            // await savePaymentData(response, payer, req.body.idUsuario, token);
+            // Salvar dados de pagamento
+            await savePaymentData(response, payer, req.body.idUsuario, token);
 
-            // res.status(200).json({
-            //     status: response.status,
-            //     status_detail: response.status_detail,
-            //     id: response.id,
-            //     transaction_details: response.transaction_details,
-            //     payer: response.payer,
-            //     additional_info: response.additional_info,
-            // });
+            res.status(200).json({
+                status: response.status,
+                status_detail: response.status_detail,
+                id: response.id,
+                transaction_details: response.transaction_details,
+                payer: response.payer,
+                additional_info: response.additional_info,
+            });
         } catch (error) {
             console.error(error);
             const err = error as any;
@@ -169,6 +132,128 @@ module.exports = {
                 error: 'Erro ao processar pagamento',
                 details: err.message,
             });
+        }
+    },
+
+    async pagamentoCardSalvo(req: any, res: any, next: any) {
+        const { token, payment_method_id, transaction_amount, installments, payer, items } = req.body
+
+        console.log('tokensalvo', token)
+        console.log('payment_method_id', payment_method_id)
+        console.log('transaction_amount', transaction_amount)
+        console.log('installments', installments)
+        console.log('payer', payer)
+
+
+        const client = new MercadoPagoConfig({ accessToken: acessToken });
+
+        const payment = new Payment(client)
+        const customer = new Customer(client);
+        try {
+            // Buscar se cliente já existe
+            const customers = await customer.search({ options: { email: payer.email } });
+
+            let customerId: string | null = null;
+
+            if (customers.results && customers.results.length > 0) {
+                customerId = customers.results[0].id?.toString() || '';
+            } else {
+                throw new Error('Customer ID not found');
+            }
+
+            const body = {
+                transaction_amount: transaction_amount,
+                token: token,
+                description: 'Compra de Ingressos',
+                installments: installments,
+                // payment_method_id: payment_method_id,
+                payer: {
+                    type: "customer",
+                    id: customerId,
+                    // email: payer.email,
+                },
+            }
+
+            console.log('body', body)
+
+            const requestOptions = {
+                idempotencyKey: generateUniqueIdempotencyKey(),  // Gere uma chave de idempotência única
+            };
+
+            // res.status(200).json({ data: { teste: 'teste' } })
+
+            // Realiza o pagamento
+            const response = await payment.create({ body });
+            console.log(response);
+
+            // Salvar dados de pagamento
+            await savePaymentData(response, payer, req.body.idUsuario, token);
+
+            res.status(200).json({
+                status: response.status,
+                status_detail: response.status_detail,
+                id: response.id,
+                transaction_details: response.transaction_details,
+                payer: response.payer,
+                additional_info: response.additional_info,
+            });
+        } catch (error) {
+            console.error(error);
+            const err = error as any;
+            res.status(500).json({
+                error: 'Erro ao processar pagamento',
+                details: err.message,
+            });
+        }
+    },
+
+    async pagamentoPix(req: any, res: any) {
+        try {
+            const { valorTotal, descricao, email, idTransacao } = req.body;
+            const client = new MercadoPagoConfig({ accessToken: acessToken });
+            const payment = new Payment(client);
+            console.log('valorTotal', valorTotal)
+            console.log('descricao', descricao)
+            console.log('email', email)
+            const result = await payment.create({
+                body: {
+                    transaction_amount: valorTotal,
+                    payment_method_id: 'pix',
+                    description: descricao || ' - Pagamento via Pix',
+                    payer: {
+                        email,
+                    },
+                },
+            });
+
+            console.log('Resultado do pagamento:', result);
+            console.log('result.id?.toString()', result.id?.toString());
+            // Salvar dados de pagamento
+            await TransacaoPagamento.create({
+                idTransacao: idTransacao,
+                PagamentoCodigo: result.id?.toString() || '',
+            });
+
+            const users = await Usuario.findAll({
+                where: { email: email },
+            });
+
+            const idUsuario = users[0].id
+            console.log('idUsuario', idUsuario)
+            console.log('idTransacao', idTransacao)
+
+            const data = new Date(); // Data atual
+            await HistoricoTransacao.create({ idTransacao, idUsuario, data, descricao: 'Pagamento via PIX Criado' });
+
+            return res.status(200).json({
+                id: result.id,
+                status: result.status,
+                status_detail: result.status_detail,
+                point_of_interaction: result.point_of_interaction,
+            });
+        } catch (error) {
+            console.error('Erro ao criar pagamento PIX:', error);
+            return res.status(500).json({ error: 'Erro ao gerar pagamento Pix' });
         }
     },
 
@@ -233,6 +318,8 @@ module.exports = {
             await card.list({ customerId: customerId.toString() }).then(console.log).catch(console.log);
             const cards = await card.list({ customerId: customerId });
 
+            console.log('cards', cards)
+
             return res.status(200).json({
                 data: {
                     customerId,
@@ -255,6 +342,51 @@ module.exports = {
                 details: (error as any).message,
             });
         }
+    },
+
+    async consultaPagamento(req: any, res: any, next: any) {
+        const filters = req.query.filters ? JSON.parse(req.query.filters) : {};
+        const id = filters.id
+
+        try {
+            // const client = new MercadoPagoConfig({ accessToken: acessToken });
+
+            // const payment = new Payment(client)
+            // console.log('id', id)
+
+            // const response = await payment.get(id);
+            const response = await fetch(`https://api.mercadopago.com/v1/payments/${id}`, {
+                method: 'GET',
+                headers: {
+                    Authorization: `Bearer ${acessToken}`,
+                }
+            })
+
+            const data = await response.json()
+            console.log('response', data)
+
+            res.status(200).json({ data: { status: data.status } })
+        } catch (error) {
+            console.error('Erro ao consultar pagamento:', error);
+            res.status(500).json({
+                error: 'Erro ao consultar pagamento',
+                details: (error as any).message,
+            });
+        }
+        // Consulta do pagamento
+
+
+        // res.status(200).json(
+        //     {
+        //         data: {
+        //             status: response.status,
+        //             status_detail: response.status_detail,
+        //             id: response.id,
+        //             transaction_details: response.transaction_details,
+        //             payer: response.payer,
+        //             additional_info: response.additional_info,
+        //         }
+        //     });
     },
 
     async getPaymentData(req: any, res: any, next: any) {

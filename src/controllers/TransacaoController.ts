@@ -5,13 +5,15 @@ import { Ingresso } from "../models/Ingresso";
 import { EventoIngresso } from "../models/EventoIngresso";
 import { Evento } from "../models/Evento";
 
-const addHistorico = async (idTansacao: number, idUsuario: number, descricao: string) => {
+export const addHistorico = async (idTransacao: number, idUsuario: number, descricao: string) => {
     try {
         const data = new Date(); // Data atual
-        await HistoricoTransacao.create({ idTansacao, idUsuario, data, descricao });
+        await HistoricoTransacao.create({ idTransacao, idUsuario, data, descricao });
+        return true; // Retorna true se a operação for bem-sucedida
     }
     catch (error) {
         console.error('Erro ao adicionar histórico:', error);
+        return false; // Retorna false se ocorrer um erro
     }
 }
 

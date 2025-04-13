@@ -158,7 +158,7 @@ class IngressoTransacao extends Model<IngressoTransacaoAttributes, IngressoTrans
 // HistoricoTransacao
 interface HistoricoTransacaoAttributes {
     id: number;
-    idTansacao: number;
+    idTransacao: number;
     idUsuario: number;
     data: Date;
     descricao: string;
@@ -168,7 +168,7 @@ interface HistoricoTransacaoCreationAttributes extends Optional<HistoricoTransac
 
 class HistoricoTransacao extends Model<HistoricoTransacaoAttributes, HistoricoTransacaoCreationAttributes> implements HistoricoTransacaoAttributes {
     public id!: number;
-    public idTansacao!: number;
+    public idTransacao!: number;
     public idUsuario!: number;
     public data!: Date;
     public descricao!: string;
@@ -180,7 +180,7 @@ class HistoricoTransacao extends Model<HistoricoTransacaoAttributes, HistoricoTr
                 autoIncrement: true,
                 primaryKey: true
             },
-            idTansacao: {
+            idTransacao: {
                 type: DataTypes.INTEGER,
                 allowNull: false,
                 references: {
@@ -225,17 +225,68 @@ class HistoricoTransacao extends Model<HistoricoTransacaoAttributes, HistoricoTr
 }
 
 
+interface TransacaoPagamentoAttributes {
+    id: number;
+    idTransacao: number;
+    PagamentoCodigo: string;
+}
+
+interface TransacaoPagamentoCreationAttributes extends Optional<TransacaoPagamentoAttributes, 'id'> { }
+
+class TransacaoPagamento extends Model<TransacaoPagamentoAttributes, TransacaoPagamentoCreationAttributes> implements TransacaoPagamentoAttributes {
+    public id!: number;
+    public idTransacao!: number;
+    public PagamentoCodigo!: string;
+
+    static initialize(sequelize: Sequelize) {
+        TransacaoPagamento.init({
+            id: {
+                type: DataTypes.INTEGER,
+                autoIncrement: true,
+                primaryKey: true
+            },
+            idTransacao: {
+                type: DataTypes.INTEGER,
+                allowNull: false,
+                references: {
+                    model: 'Transacao',
+                    key: 'id'
+                }
+            },
+            PagamentoCodigo: {
+                type: DataTypes.STRING,
+                allowNull: false,
+            }
+        }, {
+            sequelize,
+            modelName: "TransacaoPagamento",
+            freezeTableName: true,
+            timestamps: false,
+        });
+    }
+
+    static associate() {
+        TransacaoPagamento.belongsTo(Transacao, {
+            foreignKey: 'idTransacao',
+            as: 'Transacao'
+        });
+    }
+}
+
 export const TransacaoInit = (sequelize: Sequelize) => {
     Transacao.initialize(sequelize);
     IngressoTransacao.initialize(sequelize);
     HistoricoTransacao.initialize(sequelize);
+    TransacaoPagamento.initialize(sequelize);
     Transacao.associate();
     IngressoTransacao.associate();
     HistoricoTransacao.associate();
+    TransacaoPagamento.associate();
 }
 
 export {
     Transacao,
     IngressoTransacao,
-    HistoricoTransacao
+    HistoricoTransacao,
+    TransacaoPagamento
 };

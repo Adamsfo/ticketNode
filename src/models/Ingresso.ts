@@ -2,6 +2,7 @@ import { DataTypes, Model, Optional, Sequelize } from 'sequelize';
 import { Evento } from './Evento';
 import { Usuario } from './Usuario';
 import { EventoIngresso } from './EventoIngresso';
+import { Transacao } from './Transacao';
 
 // Ingresso
 interface IngressoAttributes {
@@ -195,6 +196,7 @@ class HistoricoIngresso extends Model<HistoricoIngressoAttributes, HistoricoIngr
         });
     }
 }
+
 
 export const IngressoInit = (sequelize: Sequelize) => {
     Ingresso.initialize(sequelize);
