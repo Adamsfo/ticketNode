@@ -5,8 +5,10 @@ const axios = require('axios')
 import { encrypt, decrypt } from '../utils/encryption'; // Supondo que você tenha funções de criptografia
 import { UsuarioMetodoPagamento } from "../models/ClienteMetodoPagamento";
 import { addHistorico } from "./TransacaoController";
-import { HistoricoTransacao, TransacaoPagamento } from "../models/Transacao";
+import { HistoricoTransacao, IngressoTransacao, Transacao, TransacaoPagamento } from "../models/Transacao";
 import { Usuario } from "../models/Usuario";
+import { HistoricoIngresso, Ingresso } from "../models/Ingresso";
+import connection from "../database";
 
 // const acessToken = "APP_USR-2517899600225439-032009-f1127f8e355bf2605cc6e80250129500-488781000"
 const acessToken = "TEST-2517899600225439-032009-c36d88bc4644365b9245fbb39abf20d6-488781000"
@@ -34,6 +36,56 @@ async function savePaymentData(paymentResponse: any, payer: any, idUsuario: numb
         idUsuario: idUsuario,
         dados: encryptedData,
     });
+}
+
+async function transacaoPaga(idTransacao: number, descricao: string, idUsuario: number) {
+    const transaction = await connection.transaction(); // substitua pela instância correta do Sequelize
+
+    try {
+        // Atualiza status da transação
+        await Transacao.update(
+            { status: 'Pago' },
+            { where: { id: idTransacao }, transaction }
+        );
+
+        // Cria histórico da transação
+        await HistoricoTransacao.create({
+            idTransacao,
+            data: new Date(),
+            descricao,
+            idUsuario
+        }, { transaction });
+
+        // Busca ingressos relacionados
+        const ingressos = await IngressoTransacao.findAll({
+            where: { idTransacao },
+            transaction,
+        });
+
+        // Atualiza os ingressos e cria histórico
+        await Promise.all(ingressos.map(async (ingresso) => {
+            await Ingresso.update(
+                { status: 'Confirmado' },
+                { where: { id: ingresso.idIngresso }, transaction }
+            );
+
+            await HistoricoIngresso.create({
+                idIngresso: ingresso.idIngresso,
+                data: new Date(),
+                descricao: `Confirmado - ${descricao}`,
+                idUsuario
+            }, { transaction });
+        }));
+
+        // Commita tudo
+        await transaction.commit();
+
+        return true;
+    } catch (error) {
+        await transaction.rollback();
+        console.error('Erro ao processar transação paga:', error);
+        throw error;
+    }
 }
 
 module.exports = {
@@ -212,9 +264,7 @@ module.exports = {
             const { valorTotal, descricao, email, idTransacao } = req.body;
             const client = new MercadoPagoConfig({ accessToken: acessToken });
             const payment = new Payment(client);
-            console.log('valorTotal', valorTotal)
-            console.log('descricao', descricao)
-            console.log('email', email)
+
             const result = await payment.create({
                 body: {
                     transaction_amount: valorTotal,
@@ -226,8 +276,6 @@ module.exports = {
                 },
             });
 
-            console.log('Resultado do pagamento:', result);
-            console.log('result.id?.toString()', result.id?.toString());
             // Salvar dados de pagamento
             await TransacaoPagamento.create({
                 idTransacao: idTransacao,
@@ -239,11 +287,9 @@ module.exports = {
             });
 
             const idUsuario = users[0].id
-            console.log('idUsuario', idUsuario)
-            console.log('idTransacao', idTransacao)
 
             const data = new Date(); // Data atual
-            await HistoricoTransacao.create({ idTransacao, idUsuario, data, descricao: 'Pagamento via PIX Criado' });
+            await HistoricoTransacao.create({ idTransacao, data, descricao: 'Pagamento via Pix Criado', idUsuario });
 
             return res.status(200).json({
                 id: result.id,
@@ -349,12 +395,12 @@ module.exports = {
         const id = filters.id
 
         try {
-            // const client = new MercadoPagoConfig({ accessToken: acessToken });
+            const users = await Usuario.findAll({
+                where: { email: filters.email },
+            });
 
-            // const payment = new Payment(client)
-            // console.log('id', id)
+            const idUsuario = users[0].id
 
-            // const response = await payment.get(id);
             const response = await fetch(`https://api.mercadopago.com/v1/payments/${id}`, {
                 method: 'GET',
                 headers: {
@@ -363,7 +409,21 @@ module.exports = {
             })
 
             const data = await response.json()
-            console.log('response', data)
+
+            if (data.status === 'approved') {
+                const Transacao = await TransacaoPagamento.findOne({
+                    where: { PagamentoCodigo: id }
+                })
+
+                console.log('Transacao', Transacao)
+
+                if (Transacao) {
+                    const idTransacao = Transacao.idTransacao
+
+                    // Atualiza status da transação
+                    await transacaoPaga(idTransacao, 'Pagamento Via Pix Aprovado', idUsuario)
+                }
+            }
 
             res.status(200).json({ data: { status: data.status } })
         } catch (error) {
@@ -373,20 +433,6 @@ module.exports = {
                 details: (error as any).message,
             });
         }
-        // Consulta do pagamento
-
-
-        // res.status(200).json(
-        //     {
-        //         data: {
-        //             status: response.status,
-        //             status_detail: response.status_detail,
-        //             id: response.id,
-        //             transaction_details: response.transaction_details,
-        //             payer: response.payer,
-        //             additional_info: response.additional_info,
-        //         }
-        //     });
     },
 
     async getPaymentData(req: any, res: any, next: any) {
