@@ -132,6 +132,7 @@ interface UsuarioAttributes {
     login: string;
     senha?: string;
     nomeCompleto?: string;
+    sobreNome?: string;
     ativo?: boolean;
     alterarSenha?: boolean;
     token?: string;
@@ -146,6 +147,7 @@ class Usuario extends Model<UsuarioAttributes, UsuarioCreationAttributes> implem
     public login!: string;
     public senha?: string;
     public nomeCompleto?: string;
+    public sobreNome?: string;
     public ativo?: boolean;
     public alterarSenha?: boolean;
     public token?: string;
@@ -171,6 +173,7 @@ class Usuario extends Model<UsuarioAttributes, UsuarioCreationAttributes> implem
             },
             senha: DataTypes.STRING,
             nomeCompleto: DataTypes.STRING,
+            sobreNome: DataTypes.STRING,
             ativo: DataTypes.BOOLEAN,
             alterarSenha: {
                 type: DataTypes.BOOLEAN,

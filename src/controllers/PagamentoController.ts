@@ -90,15 +90,16 @@ async function transacaoPaga(idTransacao: number, descricao: string, idUsuario: 
 
 module.exports = {
     async pagamento(req: any, res: any, next: any) {
-        const { token, issuer_id, payment_method_id, transaction_amount, installments, payer, items } = req.body
+        const { token, issuer_id, payment_method_id, transaction_amount, installments, payer, idTransacao, salvarCartao, deviceId, items } = req.body
 
-        console.log('token', token)
-        console.log('issuer_id', issuer_id)
-        console.log('payment_method_id', payment_method_id)
-        console.log('transaction_amount', transaction_amount)
-        console.log('installments', installments)
         console.log('payer', payer)
 
+        const users = await Usuario.findAll({
+            where: { email: payer.email },
+        });
+
+        const first_name = users[0].nomeCompleto
+        const last_name = users[0].sobreNome
 
         const client = new MercadoPagoConfig({ accessToken: acessToken });
 
@@ -120,26 +121,25 @@ module.exports = {
             }
 
             try {
-                const bodyCard = {
-                    token: token
-                }
-                console.log('bodyCard', bodyCard)
-                console.log('customerId', customerId)
-                // Criar cartão com o token            
-                const createdCard = await customerCard.create({
-                    customerId,
-                    body: bodyCard,
-                });
-
-                res.status(200).json({
-                    data: {
-                        customerId,
-                        createdCard: createdCard?.id,
-                        message: 'Cartão salvo com sucesso',
+                if (salvarCartao) {
+                    const bodyCard = {
+                        token: token
                     }
-                });
+                    // Criar cartão com o token            
+                    const createdCard = await customerCard.create({
+                        customerId,
+                        body: bodyCard,
+                    });
 
-                console.log('Cartão salvo:', createdCard.id);
+                    res.status(200).json({
+                        data: {
+                            customerId,
+                            createdCard: createdCard?.id,
+                            message: 'Cartão salvo com sucesso',
+                        }
+                    });
+                    console.log('Cartão salvo:', createdCard.id);
+                }
             } catch (error) {
                 console.error('Erro ao criar cartão:', error);
             }
@@ -151,23 +151,54 @@ module.exports = {
                 installments: installments,
                 payment_method_id: payment_method_id,
                 issuer_id: issuer_id,
-                payer: payer
+                payer: {
+                    ...payer,
+                    first_name: first_name,
+                    last_name: last_name,
+                },
+                metadata: {
+                    device_id: deviceId,
+                },
+                external_reference: idTransacao,
+                additional_info: {
+                    items: [
+                        {
+                            id: '2154',
+                            title: 'Compra de Ingressos',
+                            description: 'Compra de Ingressos',
+                            quantity: 1,
+                            unit_price: transaction_amount,
+                            category_id: 'tickets'
+                        }
+                    ]
+                }
             }
 
-            // console.log('body', body)
+            console.log('body', body)
 
             const requestOptions = {
                 idempotencyKey: generateUniqueIdempotencyKey(),  // Gere uma chave de idempotência única
             };
 
+            const idUsuario = users[0].id
+
             // res.status(200).json({ data: { teste: 'teste' } })
+
+            const data = new Date(); // Data atual
+            await HistoricoTransacao.create({ idTransacao, data, descricao: 'Tentativa Pagamento com Cartão Crédito', idUsuario });
 
             // Realiza o pagamento
             const response = await payment.create({ body, requestOptions });
             console.log(response);
 
+            if (response.status === 'approved') {
+                await transacaoPaga(idTransacao, 'Pagamento Aprovado com Cartão de Crédito', idUsuario)
+            } else {
+                await HistoricoTransacao.create({ idTransacao, data, descricao: `Pagamento ${response.status} - ${response.status_detail}`, idUsuario });
+            }
+
             // Salvar dados de pagamento
-            await savePaymentData(response, payer, req.body.idUsuario, token);
+            await savePaymentData(response, payer, idUsuario, token);
 
             res.status(200).json({
                 status: response.status,
@@ -261,29 +292,48 @@ module.exports = {
 
     async pagamentoPix(req: any, res: any) {
         try {
-            const { valorTotal, descricao, email, idTransacao } = req.body;
+            const { valorTotal, descricao, email, idTransacao, deviceId } = req.body;
             const client = new MercadoPagoConfig({ accessToken: acessToken });
             const payment = new Payment(client);
+            const users = await Usuario.findAll({
+                where: { email: email },
+            });
 
-            const result = await payment.create({
+            console.log('deviceId', deviceId)
+
+            const body = {
                 body: {
                     transaction_amount: valorTotal,
                     payment_method_id: 'pix',
                     description: descricao || ' - Pagamento via Pix',
                     payer: {
-                        email,
+                        email: email,
+                        first_name: users[0]?.nomeCompleto,
+                        last_name: users[0]?.sobreNome,
                     },
+                    // device_id: deviceId,
+                    external_reference: idTransacao,
+                    additional_info: {
+                        items: [
+                            {
+                                id: '2154',
+                                title: 'Compra de Ingressos',
+                                description: 'Compra de Ingressos',
+                                quantity: 1,
+                                unit_price: valorTotal,
+                                category_id: 'tickets'
+                            }
+                        ]
+                    }
                 },
-            });
+            }
+
+            const result = await payment.create(body);
 
             // Salvar dados de pagamento
             await TransacaoPagamento.create({
                 idTransacao: idTransacao,
                 PagamentoCodigo: result.id?.toString() || '',
-            });
-
-            const users = await Usuario.findAll({
-                where: { email: email },
             });
 
             const idUsuario = users[0].id
