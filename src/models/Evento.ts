@@ -51,7 +51,7 @@ class Evento extends Model<EventoAttributes, EventoCreationAttributes> implement
                 allowNull: false
             },
             descricao: {
-                type: DataTypes.STRING,
+                type: DataTypes.TEXT,
                 allowNull: true
             },
             imagem: {

@@ -3,6 +3,10 @@ import { CustomError } from '../utils/customError'
 import { HistoricoIngresso, Ingresso } from "../models/Ingresso";
 import { EventoIngresso } from "../models/EventoIngresso";
 import { IngressoTransacao } from "../models/Transacao";
+import { Evento } from "../models/Evento";
+import QRCode from 'qrcode';
+import { TipoIngresso } from "../models/TipoIngresso";
+import { v4 as uuidv4 } from 'uuid'
 
 export const addIngressoTransacao = async (idTransacao: number, idIngresso: number, preco: number, taxaServico: number, valorTotal: number) => {
     try {
@@ -24,7 +28,49 @@ const addHistorico = async (idIngresso: number, idUsuario: number, descricao: st
 
 module.exports = {
     async get(req: any, res: any, next: any) {
-        await getRegistros(Ingresso, req, res, next)
+        try {
+            const result = await getRegistros(Ingresso, req, res, next, [
+                {
+                    model: Evento,
+                    as: 'Evento',
+                    attributes: ['nome', 'imagem', 'data_hora_inicio', 'endereco'],
+                },
+                {
+                    model: EventoIngresso,
+                    as: 'EventoIngresso',
+                    attributes: ['nome'],
+                },
+                {
+                    model: TipoIngresso,
+                    as: 'TipoIngresso',
+                    attributes: ['descricao'],
+                }
+            ], true);
+
+            const { data, meta } = result ?? { data: [], meta: { totalItems: 0, totalPages: 0, currentPage: 0, pageSize: 0 } };
+
+            const dataComQrCode = await Promise.all(
+                data.map(async (registro: any) => {
+                    const payload = {
+                        idqrcode: registro.qrcode,
+                    };
+
+                    const qrCodeBase64 = await QRCode.toDataURL(JSON.stringify(payload));
+
+                    return {
+                        ...registro,
+                        qrCodeBase64
+                    };
+                })
+            );
+
+            res.status(200).json({
+                data: dataComQrCode,
+                meta
+            });
+        } catch (err) {
+            next(err);
+        }
     },
 
     async add(req: any, res: any, next: any) {
@@ -46,6 +92,9 @@ module.exports = {
             }
 
             const registro = await Ingresso.create({ ...req.body, status, dataValidade, dataNascimento });
+            // const qrData = `qrcode:${registro.qrcode}`
+            // const qrCodeBase64 = await QRCode.toDataURL(qrData);
+
             // Adiciona o histórico após a criação do ingresso
             await addHistorico(registro.id, idUsuario, 'Ingresso criado com sucesso.');
 
@@ -85,6 +134,29 @@ module.exports = {
         }
     },
 
+    async editNomeImpresso(req: any, res: any, next: any) {
+        try {
+            const id = req.params.id;
+
+            const registro = await Ingresso.findByPk(id);
+            if (!registro) {
+                throw new CustomError('Registro não encontrado.', 404, '');
+            }
+
+            const { nomeImpresso } = req.body;
+            if (!nomeImpresso) {
+                throw new CustomError('Nome impresso é obrigatório.', 400, '');
+            }
+
+            registro.nomeImpresso = nomeImpresso;
+
+            await registro.save();
+            return res.status(200).json(registro);
+        } catch (error) {
+            next(error); // Passa o erro para o middleware de tratamento de erros
+        }
+    },
+
     async delete(req: any, res: any, next: any) {
         try {
             const id = req.params.id;
@@ -107,5 +179,31 @@ module.exports = {
         } catch (error) {
             next(error); // Passa o erro para o middleware de tratamento de erros
         }
-    }
+    },
+
+    async atribuirOutroUsuario(req: any, res: any, next: any) {
+        try {
+            const id = req.params.id;
+            const { idUsuarioNovo, NomeUsuarioNovo, idUsuario } = req.body;
+
+            const registro = await Ingresso.findByPk(id);
+            if (!registro) {
+                throw new CustomError('Registro não encontrado.', 404, '');
+            }
+
+            if (!idUsuarioNovo) {
+                throw new CustomError('Nome é obrigatório.', 400, '');
+            }
+
+            registro.idUsuario = idUsuarioNovo;
+            registro.qrcode = uuidv4(); // Limpa o QRCode ao atribuir a outro usuário
+            registro.atribuirOutroUsuario = true; // Marca como atribuído a outro usuário
+            await addHistorico(registro.id, idUsuario, 'Ingresso atribuído a ' + NomeUsuarioNovo);
+
+            await registro.save();
+            return res.status(200).json(registro);
+        } catch (error) {
+            next(error); // Passa o erro para o middleware de tratamento de erros
+        }
+    },
 }

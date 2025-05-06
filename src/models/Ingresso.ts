@@ -3,6 +3,7 @@ import { Evento } from './Evento';
 import { Usuario } from './Usuario';
 import { EventoIngresso } from './EventoIngresso';
 import { Transacao } from './Transacao';
+import { TipoIngresso } from './TipoIngresso';
 
 // Ingresso
 interface IngressoAttributes {
@@ -17,6 +18,7 @@ interface IngressoAttributes {
     nomeImpresso?: string;
     dataValidade?: Date;
     status: "Reservado" | "Cancelado" | "Confirmado" | "Reembolsado" | "Utilizado";
+    qrcode?: string;
 }
 
 interface IngressoCreationAttributes extends Optional<IngressoAttributes, 'id'> { }
@@ -33,6 +35,7 @@ class Ingresso extends Model<IngressoAttributes, IngressoCreationAttributes> imp
     public nomeImpresso?: string;
     public dataValidade?: Date;
     public status!: "Reservado" | "Cancelado" | "Confirmado" | "Reembolsado" | "Utilizado";
+    public qrcode?: string;
 
     static initialize(sequelize: Sequelize) {
         Ingresso.init({
@@ -106,7 +109,13 @@ class Ingresso extends Model<IngressoAttributes, IngressoCreationAttributes> imp
                     "Utilizado"
                 ),
                 allowNull: false
-            }
+            },
+            qrcode: {
+                type: DataTypes.UUID,
+                defaultValue: DataTypes.UUIDV4,
+                allowNull: false,
+                unique: true
+            },
         }, {
             sequelize,
             modelName: "Ingresso",
@@ -124,6 +133,10 @@ class Ingresso extends Model<IngressoAttributes, IngressoCreationAttributes> imp
         Ingresso.belongsTo(EventoIngresso, {
             foreignKey: 'idEventoIngresso',
             as: 'EventoIngresso'
+        });
+        Ingresso.belongsTo(TipoIngresso, {
+            foreignKey: 'idTipoIngresso',
+            as: 'TipoIngresso'
         });
     }
 }

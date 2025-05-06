@@ -5,6 +5,7 @@ interface IncludeOptions {
   as?: string;
   attributes?: string[];
   include?: IncludeOptions[];
+  returnRegisters?: boolean;
 }
 
 // Função para converter de camelCase/UpperCamelCase para snake_case
@@ -18,7 +19,8 @@ export async function getRegistros<T extends Model>(
   req: any,
   res: any,
   next: any,
-  includeOptions?: IncludeOptions[]
+  includeOptions?: IncludeOptions[],
+  returnRegisters: boolean = false
 ) {
   try {
     // Pegando os parâmetros de paginação, pesquisa, filtros e ordenação da query string
@@ -142,7 +144,7 @@ export async function getRegistros<T extends Model>(
 
     const totalPages = Math.ceil(count / pageSize);
 
-    res.status(200).json({
+    const result = {
       data: flattenedRows,
       meta: {
         totalItems: count,
@@ -150,7 +152,14 @@ export async function getRegistros<T extends Model>(
         currentPage: page,
         pageSize
       }
-    });
+    };
+
+    if (returnRegisters) {
+      return result;
+    } else {
+      res.status(200).json(result);
+    }
+
   } catch (error) {
     console.error('Error fetching records:', error); // Log detalhado para depuração
     next(error);
