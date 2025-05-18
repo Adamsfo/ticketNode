@@ -7,6 +7,9 @@ import { Evento } from "../models/Evento";
 import QRCode from 'qrcode';
 import { TipoIngresso } from "../models/TipoIngresso";
 import { v4 as uuidv4 } from 'uuid'
+import { parseISO } from "date-fns";
+import { Usuario } from "../models/Usuario";
+import { formatInTimeZone } from "date-fns-tz";
 
 export const addIngressoTransacao = async (idTransacao: number, idIngresso: number, preco: number, taxaServico: number, valorTotal: number) => {
     try {
@@ -202,6 +205,82 @@ module.exports = {
 
             await registro.save();
             return res.status(200).json(registro);
+        } catch (error) {
+            next(error); // Passa o erro para o middleware de tratamento de erros
+        }
+    },
+
+    async validadorJango(req: any, res: any, next: any) {
+        try {
+            const { ingressos, idUsuario } = req.body;
+
+            // Verifica se o array de ingressos está vazio
+            if (!ingressos || ingressos.length === 0) {
+                throw new CustomError('Nenhum ingresso marcado para abrir conta!', 400, '');
+            }
+
+            // Verifica se o array de ingressos contém objetos
+            if (!Array.isArray(ingressos) || !ingressos.every(item => typeof item === 'number')) {
+                throw new CustomError('Formato inválido para o array de ingressos.', 400, '');
+            }
+
+            // Verifica se o array de ingressos contém IDs válidos
+            const idsValidos = ingressos.filter(id => typeof id === 'number' && id > 0);
+            if (idsValidos.length === 0) {
+                throw new CustomError('Nenhum ID de ingresso válido encontrado.', 400, '');
+            }
+
+            // Verifica se o array de ingressos contém IDs duplicados
+            const idsDuplicados = ingressos.filter((item, index) => ingressos.indexOf(item) !== index);
+            if (idsDuplicados.length > 0) {
+                throw new CustomError('IDs duplicados encontrados: ' + idsDuplicados.join(', '), 400, '');
+            }
+
+            // Verifica se os ingressos existem no banco de dados
+            const ingressosExistentes = await Ingresso.findAll({
+                where: {
+                    id: idsValidos,
+                },
+            });
+            if (ingressosExistentes.length !== idsValidos.length) {
+                const idsNaoEncontrados = idsValidos.filter(id => !ingressosExistentes.some(ingresso => ingresso.id === id));
+                throw new CustomError('Ingressos não encontrados: ' + idsNaoEncontrados.join(', '), 404, '');
+            }
+
+            // Verifica se os ingressos estão disponíveis
+            const ingressosIndisponiveis = ingressosExistentes.filter(ingresso => ingresso.status !== 'Confirmado');
+            if (ingressosIndisponiveis.length > 0) {
+                const idsIndisponiveis = ingressosIndisponiveis.map(ingresso => ingresso.id);
+                throw new CustomError('Ingressos não disponíveis: ' + idsIndisponiveis.join(', '), 400, '');
+            }
+
+            const user = await Usuario.findByPk(idUsuario);
+            if (!user) {
+                throw new CustomError('Usuário validador não encontrado.', 404, '');
+            }
+
+            const dataUtilizado = new Date(); // Data atual
+
+            for (const ingresso of ingressosExistentes) {
+                ingresso.status = 'Utilizado';
+                ingresso.dataUtilizado = dataUtilizado;
+                await ingresso.save();
+                await addHistorico(
+                    ingresso.id,
+                    idUsuario,
+                    'Ingresso Utilizado ' +
+                    formatInTimeZone(
+                        dataUtilizado,
+                        "America/Cuiaba",
+                        "dd/MM/yyyy HH:mm"
+                    ) +
+                    ' validado por ' + user.nomeCompleto
+                );
+            }
+
+            // Abrir conta no Jango
+
+            return res.status(200).json('Ingressos validados com sucesso!');
         } catch (error) {
             next(error); // Passa o erro para o middleware de tratamento de erros
         }

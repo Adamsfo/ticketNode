@@ -19,6 +19,7 @@ interface IngressoAttributes {
     dataValidade?: Date;
     status: "Reservado" | "Cancelado" | "Confirmado" | "Reembolsado" | "Utilizado";
     qrcode?: string;
+    dataUtilizado?: Date;
 }
 
 interface IngressoCreationAttributes extends Optional<IngressoAttributes, 'id'> { }
@@ -36,6 +37,7 @@ class Ingresso extends Model<IngressoAttributes, IngressoCreationAttributes> imp
     public dataValidade?: Date;
     public status!: "Reservado" | "Cancelado" | "Confirmado" | "Reembolsado" | "Utilizado";
     public qrcode?: string;
+    public dataUtilizado?: Date;
 
     static initialize(sequelize: Sequelize) {
         Ingresso.init({
@@ -116,6 +118,10 @@ class Ingresso extends Model<IngressoAttributes, IngressoCreationAttributes> imp
                 allowNull: false,
                 unique: true
             },
+            dataUtilizado: {
+                type: DataTypes.DATE,
+                allowNull: true
+            }
         }, {
             sequelize,
             modelName: "Ingresso",

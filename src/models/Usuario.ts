@@ -137,6 +137,9 @@ interface UsuarioAttributes {
     alterarSenha?: boolean;
     token?: string;
     idFuncaoUsuario?: number;
+    cpf?: string;
+    telefone?: string;
+    id_cliente?: number;
 }
 
 interface UsuarioCreationAttributes extends Optional<UsuarioAttributes, 'id' | 'senha'> { }
@@ -152,6 +155,9 @@ class Usuario extends Model<UsuarioAttributes, UsuarioCreationAttributes> implem
     public alterarSenha?: boolean;
     public token?: string;
     public idFuncaoUsuario?: number;
+    public cpf?: string;
+    public telefone?: string;
+    public id_cliente?: number;
 
     static initialize(sequelize: Sequelize) {
         Usuario.init({
@@ -187,6 +193,22 @@ class Usuario extends Model<UsuarioAttributes, UsuarioCreationAttributes> implem
                     model: FuncaoUsuario,
                     key: 'id'
                 }
+            },
+            cpf: {
+                type: DataTypes.STRING,
+                validate: {
+                    is: /^\d{3}\.\d{3}\.\d{3}-\d{2}$/
+                }
+            },
+            telefone: {
+                type: DataTypes.STRING,
+                validate: {
+                    is: /^\(\d{2}\) \d{4,5}-\d{4}$/
+                }
+            },
+            id_cliente: {
+                type: DataTypes.INTEGER,
+                allowNull: true
             }
         }, {
             sequelize,

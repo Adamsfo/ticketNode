@@ -19,6 +19,8 @@
     "bcrypt": "^5.1.1",
     "carbone": "^3.5.6",
     "cors": "^2.8.5",
+    "date-fns": "^4.1.0",
+    "date-fns-tz": "^3.2.0",
     "dotenv": "^16.4.5",
     "express": "^4.21.2",
     "express-fileupload": "^1.5.1",

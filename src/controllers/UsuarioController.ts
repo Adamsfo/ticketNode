@@ -5,7 +5,6 @@ import { Empresa } from '../models/Empresa'
 
 module.exports = {
   async getUsuario(req: any, res: any, next: any) {
-    console.log('passou aqui')
     await getRegistros(Usuario, req, res, next, [
       {
         model: FuncaoUsuario,

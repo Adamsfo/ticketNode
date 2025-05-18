@@ -39,15 +39,20 @@ module.exports = {
 
   addLogin: async (req: any, res: any, next: any) => {
     try {
-      const { login, email, senha, nomeCompleto } = req.body;
+      const { login, email, senha, nomeCompleto, cpf, telefone, id_cliente, sobreNome } = req.body;
 
-      if (!login || !senha || !email) {
+      if (!login || !senha || !email || !nomeCompleto || !cpf || !sobreNome) {
         throw new CustomError('Login, email e senha são obrigatórios.', 400, '');
       }
 
       let registro = await Usuario.findOne({ where: { email } })
       if (registro) {
         throw new CustomError('Este email já foi cadastrado, utilize recuperar senha.', 400, '');
+      }
+
+      registro = await Usuario.findOne({ where: { cpf } })
+      if (registro) {
+        throw new CustomError('Este cpf já tem cadastro no sistema .', 400, '');
       }
 
       registro = await Usuario.findOne({ where: { login } })
@@ -57,7 +62,7 @@ module.exports = {
 
       let ativo = false
 
-      registro = await Usuario.create({ login, email, senha, nomeCompleto, ativo });
+      registro = await Usuario.create({ login, email, senha, nomeCompleto, ativo, cpf, telefone, id_cliente });
 
       return res.status(201).json(registro);
     } catch (error) {
