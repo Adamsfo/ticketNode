@@ -57,7 +57,7 @@ module.exports = {
       // Atualizar os campos permitidos
       if (email) registro.email = email;
       if (login) registro.login = login;
-      // if (senha) registro.senha = senha;
+      if (senha) registro.senha = senha;
       if (nomeCompleto) registro.nomeCompleto = nomeCompleto;
       if (idFuncaoUsuario) registro.idFuncaoUsuario = idFuncaoUsuario;
       if (ativo !== undefined) registro.ativo = ativo;

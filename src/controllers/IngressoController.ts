@@ -10,6 +10,7 @@ import { v4 as uuidv4 } from 'uuid'
 import { parseISO } from "date-fns";
 import { Usuario } from "../models/Usuario";
 import { formatInTimeZone } from "date-fns-tz";
+import apiJango from "../api/apiJango";
 
 export const addIngressoTransacao = async (idTransacao: number, idIngresso: number, preco: number, taxaServico: number, valorTotal: number) => {
     try {
@@ -27,6 +28,15 @@ const addHistorico = async (idIngresso: number, idUsuario: number, descricao: st
     catch (error) {
         console.error('Erro ao adicionar histórico:', error);
     }
+}
+
+async function aguardarContaCriada(idCliente: number, tentativas = 5, intervaloMs = 1000) {
+    for (let i = 0; i < tentativas; i++) {
+        const contas = await apiJango().getConta(idCliente, true);
+        if (contas.length > 0) return contas;
+        await new Promise(res => setTimeout(res, intervaloMs));
+    }
+    throw new Error('Conta não foi criada após múltiplas tentativas.');
 }
 
 module.exports = {
@@ -278,7 +288,41 @@ module.exports = {
                 );
             }
 
-            // Abrir conta no Jango
+            //Pegar idCliente Jango no usuário do ingresso
+            const userIngresso = await Usuario.findByPk(ingressosExistentes[0].idUsuario);
+            if (!userIngresso) {
+                throw new CustomError('Usuário ingresso não encontrado.', 404, '');
+            }
+
+            if (!userIngresso.id_cliente) {
+                throw new CustomError('ID do cliente não encontrado no usuário.', 404, '');
+            }
+
+            // Localizar conta no Jango Aberta
+            let contaJango = await apiJango().getConta(userIngresso.id_cliente, true);
+
+            //Abre Conta no Jango
+            if (contaJango.length === 0) {
+                await apiJango().abreConta(userIngresso.id_cliente);
+                contaJango = await aguardarContaCriada(userIngresso.id_cliente);
+            }
+
+            // Localizar conta no Jango Aberta
+            contaJango = await apiJango().getConta(userIngresso.id_cliente, true);
+
+            if (contaJango.length > 0) {
+                for (const ingresso of ingressosExistentes) {
+                    // Atualizar o ingresso no Jango
+                    const eventoIngresso = await EventoIngresso.findByPk(ingresso.idEventoIngresso);
+                    await apiJango().inseriIngresso(ingresso.id, eventoIngresso?.nome ?? '', userIngresso.id_cliente, contaJango[0].id_venda);
+
+                    await addHistorico(
+                        ingresso.id,
+                        idUsuario,
+                        'Ingresso Inserido no Sistema do Jango '
+                    );
+                }
+            }
 
             return res.status(200).json('Ingressos validados com sucesso!');
         } catch (error) {
