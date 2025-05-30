@@ -140,6 +140,7 @@ interface UsuarioAttributes {
     cpf?: string;
     telefone?: string;
     id_cliente?: number;
+    admGeral?: boolean; // Atributo para indicar se o usuário é administrador geral
 }
 
 interface UsuarioCreationAttributes extends Optional<UsuarioAttributes, 'id' | 'senha'> { }
@@ -158,6 +159,7 @@ class Usuario extends Model<UsuarioAttributes, UsuarioCreationAttributes> implem
     public cpf?: string;
     public telefone?: string;
     public id_cliente?: number;
+    public admGeral?: boolean; // Atributo para indicar se o usuário é administrador geral
 
     static initialize(sequelize: Sequelize) {
         Usuario.init({
@@ -209,6 +211,10 @@ class Usuario extends Model<UsuarioAttributes, UsuarioCreationAttributes> implem
             id_cliente: {
                 type: DataTypes.INTEGER,
                 allowNull: true
+            },
+            admGeral: {
+                type: DataTypes.BOOLEAN,
+                defaultValue: false // Define se o usuário é administrador geral
             }
         }, {
             sequelize,

@@ -1,10 +1,19 @@
 import { getRegistros } from "../utils/getRegistros"
 import { CustomError } from '../utils/customError'
 import { Evento } from "../models/Evento";
+import { Produtor } from "../models/Produtor";
 
 module.exports = {
     async get(req: any, res: any, next: any) {
-        await getRegistros(Evento, req, res, next)
+        await getRegistros(Evento, req, res, next,
+            [
+                {
+                    model: Produtor,
+                    as: 'Produtor',
+                    attributes: ['logo'],
+                }
+            ]
+        )
     },
 
     async add(req: any, res: any, next: any) {

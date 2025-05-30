@@ -35,7 +35,7 @@ module.exports = {
   async editUsuario(req: any, res: any, next: any) {
     try {
       const id = req.params.id;
-      const { email, login, nomeCompleto, ativo, alterarSenha, idFuncaoUsuario, senha } = req.body;
+      const { email, login, nomeCompleto, ativo, alterarSenha, idFuncaoUsuario, senha, telefone, sobreNome } = req.body;
 
       // Validação dos dados (exemplo simples)
       if (!id) {
@@ -59,9 +59,11 @@ module.exports = {
       if (login) registro.login = login;
       if (senha) registro.senha = senha;
       if (nomeCompleto) registro.nomeCompleto = nomeCompleto;
+      if (sobreNome) registro.sobreNome = sobreNome;
       if (idFuncaoUsuario) registro.idFuncaoUsuario = idFuncaoUsuario;
       if (ativo !== undefined) registro.ativo = ativo;
       if (alterarSenha !== undefined) registro.alterarSenha = alterarSenha;
+      if (telefone) registro.telefone = telefone;
 
       await registro.save();
       return res.status(200).json(registro);

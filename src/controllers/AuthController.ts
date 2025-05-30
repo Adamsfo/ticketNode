@@ -32,7 +32,7 @@ const enviaCodigoEmail = async (email: string, codigo: string) => {
       await transporter.sendMail({
         from: 'Tanz Tecnologia Ltda <tanztecnologialtda@gmail.com>',
         to: email,
-        subject: "Seu código de verificação",
+        subject: "Seu código de verificação Jango Ingressos",
         text: `Seu código de verificação é: ${codigo}`,
         html: `<h2>Seu código de verificação é:</h2><h1>${codigo}</h1>`,
       });
@@ -60,7 +60,7 @@ module.exports = {
       if (isEmail) {
         usuario = await Usuario.findOne({ where: { email: login } });
       } else {
-        usuario = await Usuario.findOne({ where: { login } });
+        usuario = await Usuario.findOne({ where: { cpf: login } });
       }
 
       if (!usuario) {

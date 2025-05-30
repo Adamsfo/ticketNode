@@ -1,4 +1,5 @@
 import { DataTypes, Model, Optional, Sequelize } from 'sequelize';
+import { Produtor } from './Produtor';
 
 enum Status {
     Disponivel = 'Ativo',
@@ -109,6 +110,10 @@ class Evento extends Model<EventoAttributes, EventoCreationAttributes> implement
             freezeTableName: true,
             timestamps: false,
         });
+
+        // Define associations here if needed
+        // For example:
+        Evento.belongsTo(Produtor, { foreignKey: 'idProdutor', as: 'Produtor' });
     }
 }
 
