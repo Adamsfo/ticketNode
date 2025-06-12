@@ -14,7 +14,7 @@ import connection from "../database";
 const acessToken = "TEST-2517899600225439-032009-c36d88bc4644365b9245fbb39abf20d6-488781000"
 
 // const MP_PUBLIC_KEY = "APP_USR-8ccbd791-ea60-4e70-a915-a89fd05f5c23"; // Chave pública do Mercado Pago
-const MP_PUBLIC_KEY = "TEST-98f4cccd-2514-4062-a671-68df4b579410"; // Chave pública do Mercado Pago
+// const MP_PUBLIC_KEY = "TEST-98f4cccd-2514-4062-a671-68df4b579410"; // Chave pública do Mercado Pago
 
 // Função para gerar uma chave de idempotência única
 function generateUniqueIdempotencyKey(): string {
@@ -219,7 +219,7 @@ module.exports = {
     },
 
     async pagamentoCardSalvo(req: any, res: any, next: any) {
-        const { token, payment_method_id, transaction_amount, installments, payer, items } = req.body
+        const { token, payment_method_id, transaction_amount, installments, payer, items, cvv } = req.body
 
         console.log('tokensalvo', token)
         console.log('payment_method_id', payment_method_id)
@@ -244,12 +244,32 @@ module.exports = {
                 throw new Error('Customer ID not found');
             }
 
+            // 1. Gerar novo token com card_id + cvv
+            const responseToken = await fetch("https://api.mercadopago.com/v1/card_tokens", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${acessToken}`,
+                },
+                body: JSON.stringify({
+                    card_id: token,
+                    security_code: cvv,
+                }),
+            });
+
+            const tokenData = await responseToken.json();
+
+            if (!tokenData.id) {
+                throw new Error("Erro ao gerar token com card_id e CVV: " + JSON.stringify(tokenData));
+            }
+
             const body = {
-                transaction_amount: transaction_amount,
-                token: token,
+                transaction_amount: parseFloat(transaction_amount),
+                token: tokenData.id,
                 description: 'Compra de Ingressos',
                 installments: installments,
                 // payment_method_id: payment_method_id,
+                payment_method_id: payment_method_id,
                 payer: {
                     type: "customer",
                     id: customerId,
@@ -267,10 +287,10 @@ module.exports = {
 
             // Realiza o pagamento
             const response = await payment.create({ body });
-            console.log(response);
+            console.log('Pagamentosalvo', response);
 
             // Salvar dados de pagamento
-            await savePaymentData(response, payer, req.body.idUsuario, token);
+            // await savePaymentData(response, payer, req.body.idUsuario, token);
 
             res.status(200).json({
                 status: response.status,
@@ -281,7 +301,7 @@ module.exports = {
                 additional_info: response.additional_info,
             });
         } catch (error) {
-            console.error(error);
+            console.error('error', error);
             const err = error as any;
             res.status(500).json({
                 error: 'Erro ao processar pagamento',
