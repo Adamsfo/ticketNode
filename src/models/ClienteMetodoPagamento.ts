@@ -36,7 +36,6 @@ class UsuarioMetodoPagamento extends Model<UsuarioMetodoPagamentoAttributes, Usu
             sequelize,
             modelName: "UsuarioMetodoPagamento",
             freezeTableName: true,
-            timestamps: false,
         });
     }
 }

@@ -31,7 +31,6 @@ class TipoIngresso extends Model<TipoIngressoAttributes, TipoIngressoCreationAtt
             sequelize,
             modelName: "TipoIngresso",
             freezeTableName: true,
-            timestamps: false,
         });
     }
 }

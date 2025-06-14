@@ -39,7 +39,6 @@ class Produtor extends Model<ProdutorAttributes, ProdutorCreationAttributes> imp
             sequelize,
             modelName: "Produtor",
             freezeTableName: true,
-            timestamps: false,
         });
     }
 }
@@ -87,7 +86,6 @@ class ProdutorAcesso extends Model<ProdutorAcessoAttributes, ProdutorAcessoCreat
             sequelize,
             modelName: "ProdutorAcesso",
             freezeTableName: true,
-            timestamps: false,
         });
     }
 

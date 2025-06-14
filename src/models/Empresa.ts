@@ -25,6 +25,9 @@ interface EmpresaAttributes {
     tipo: 'principal' | 'filial';
     CSCID?: string;
     CSC?: string;
+    accessTokenInicial?: string;
+    accessToken?: string;
+    refreshToken?: string;
 }
 
 interface EmpresaCreationAttributes extends Optional<EmpresaAttributes, 'id'> { }
@@ -54,6 +57,9 @@ class Empresa extends Model<EmpresaAttributes, EmpresaCreationAttributes> implem
     public tipo!: 'principal' | 'filial';
     public CSCID!: string;
     public CSC!: string;
+    public accessTokenInicial?: string;
+    public accessToken?: string;
+    public refreshToken?: string;
 
     static initialize(sequelize: Sequelize) {
         Empresa.init({
@@ -161,6 +167,18 @@ class Empresa extends Model<EmpresaAttributes, EmpresaCreationAttributes> implem
                 allowNull: true
             },
             CSC: {
+                type: DataTypes.STRING,
+                allowNull: true
+            },
+            accessTokenInicial: {
+                type: DataTypes.STRING,
+                allowNull: true
+            },
+            accessToken: {
+                type: DataTypes.STRING,
+                allowNull: true
+            },
+            refreshToken: {
                 type: DataTypes.STRING,
                 allowNull: true
             }

@@ -97,7 +97,6 @@ class EventoIngresso extends Model<EventoIngressoAttributes, EventoIngressoCreat
             sequelize,
             modelName: "EventoIngresso",
             freezeTableName: true,
-            timestamps: false,
         });
     }
 

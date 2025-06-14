@@ -126,7 +126,6 @@ class Ingresso extends Model<IngressoAttributes, IngressoCreationAttributes> imp
             sequelize,
             modelName: "Ingresso",
             freezeTableName: true,
-            timestamps: false,
         });
 
     }
@@ -200,7 +199,6 @@ class HistoricoIngresso extends Model<HistoricoIngressoAttributes, HistoricoIngr
             sequelize,
             modelName: "HistoricoIngresso",
             freezeTableName: true,
-            timestamps: false,
         });
     }
 

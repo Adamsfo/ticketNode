@@ -64,7 +64,6 @@ class Transacao extends Model<TransacaoAttributes, TransacaoCreationAttributes> 
             sequelize,
             modelName: "Transacao",
             freezeTableName: true,
-            timestamps: false,
         });
     }
 
@@ -139,7 +138,6 @@ class IngressoTransacao extends Model<IngressoTransacaoAttributes, IngressoTrans
             sequelize,
             modelName: "IngressoTransacao",
             freezeTableName: true,
-            timestamps: false,
         });
     }
 
@@ -208,7 +206,6 @@ class HistoricoTransacao extends Model<HistoricoTransacaoAttributes, HistoricoTr
             sequelize,
             modelName: "HistoricoTransacao",
             freezeTableName: true,
-            timestamps: false,
         });
     }
 
@@ -261,7 +258,6 @@ class TransacaoPagamento extends Model<TransacaoPagamentoAttributes, TransacaoPa
             sequelize,
             modelName: "TransacaoPagamento",
             freezeTableName: true,
-            timestamps: false,
         });
     }
 

@@ -108,7 +108,6 @@ class Evento extends Model<EventoAttributes, EventoCreationAttributes> implement
             sequelize,
             modelName: "Evento",
             freezeTableName: true,
-            timestamps: false,
         });
 
         // Define associations here if needed

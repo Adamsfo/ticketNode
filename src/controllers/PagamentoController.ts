@@ -1,6 +1,6 @@
 import { getRegistros } from "../utils/getRegistros"
 import { CustomError } from '../utils/customError'
-import { Payment, MercadoPagoConfig, Customer, CustomerCard } from 'mercadopago'
+import { Payment, MercadoPagoConfig, Customer, CustomerCard, OAuth } from 'mercadopago'
 const axios = require('axios')
 import { encrypt, decrypt } from '../utils/encryption'; // Supondo que você tenha funções de criptografia
 import { UsuarioMetodoPagamento } from "../models/ClienteMetodoPagamento";
@@ -9,9 +9,14 @@ import { HistoricoTransacao, IngressoTransacao, Transacao, TransacaoPagamento } 
 import { Usuario } from "../models/Usuario";
 import { HistoricoIngresso, Ingresso } from "../models/Ingresso";
 import connection from "../database";
+import { Empresa } from "../models/Empresa";
 
-// const acessToken = "APP_USR-2517899600225439-032009-f1127f8e355bf2605cc6e80250129500-488781000"
-const acessToken = "TEST-2517899600225439-032009-c36d88bc4644365b9245fbb39abf20d6-488781000"
+const ClienteID = "8085308516889383"
+const ClienteSecret = "OFA6rEsej17acU0oIQM87PMwG4x4h123"
+
+const TanzAcessToken = "APP_USR-8085308516889383-061214-28451d6dd008b6342b99c07fdbd960a4-2470516573"
+// const JangoAcessToken = "APP_USR-2517899600225439-032009-f1127f8e355bf2605cc6e80250129500-488781000"
+// const acessToken = "TEST-8085308516889383-061214-c136514f031f9c06faac9ce69be226ce-2470516573"
 
 // const MP_PUBLIC_KEY = "APP_USR-8ccbd791-ea60-4e70-a915-a89fd05f5c23"; // Chave pública do Mercado Pago
 // const MP_PUBLIC_KEY = "TEST-98f4cccd-2514-4062-a671-68df4b579410"; // Chave pública do Mercado Pago
@@ -88,6 +93,45 @@ async function transacaoPaga(idTransacao: number, descricao: string, idUsuario: 
     }
 }
 
+async function geraTokenSplit() {
+    try {
+        const empresa = await Empresa.findOne({
+            where: { id: 1 },
+        });
+
+        if (!empresa || !empresa.accessTokenInicial) {
+            console.log('Empresa não encontrada ou accessTokenInicial não definido');
+            throw new CustomError('Empresa não encontrada ou accessTokenInicial não definido', 404, null);
+        }
+
+        const client = new MercadoPagoConfig({ accessToken: empresa.accessTokenInicial });
+
+        const oauth = new OAuth(client);
+        // Ajuste conforme as propriedades válidas de OAuthCreateData
+        const response = await oauth.create({
+            body: {
+                client_secret: ClienteSecret,
+                client_id: ClienteID,
+                code: "TG-684c505d5cc47000017f35d3-488781000",
+                redirect_uri: 'https://tanztecnologia.com.br/', // Substitua pela sua URL de redirecionamento                    
+            }
+        });
+
+        console.log('Token Split gerado:', response);
+
+        // Atualiza o accessToken da empresa
+        empresa.accessToken = response.access_token;
+        empresa.refreshToken = response.refresh_token;
+        await empresa.save();
+
+        return empresa;
+
+    } catch (error) {
+        console.error('Erro ao gerar token split:', error);
+        throw new CustomError('Erro ao gerar token split', 500, error);
+    }
+}
+
 module.exports = {
     async pagamento(req: any, res: any, next: any) {
         const { token, issuer_id, payment_method_id, transaction_amount, installments, payer, idTransacao, salvarCartao, deviceId, items } = req.body
@@ -101,11 +145,23 @@ module.exports = {
         const first_name = users[0].nomeCompleto
         const last_name = users[0].sobreNome
 
-        const client = new MercadoPagoConfig({ accessToken: acessToken });
+        let empresa = await Empresa.findOne({
+            where: { id: 1 },
+        });
+
+        if (!empresa || !empresa.accessToken) {
+            empresa = await geraTokenSplit()
+        }
+
+        const client = new MercadoPagoConfig({ accessToken: empresa.accessToken ?? "" });
+        const tanzMP = new MercadoPagoConfig({ accessToken: TanzAcessToken });
+
+        // const client = new MercadoPagoConfig({ accessToken: JangoAcessToken });
+        // const tanzMP = new MercadoPagoConfig({ accessToken: JangoAcessToken });
 
         const payment = new Payment(client)
-        const customer = new Customer(client);
-        const customerCard = new CustomerCard(client)
+        const customer = new Customer(tanzMP);
+        const customerCard = new CustomerCard(tanzMP)
         try {
             // Buscar se cliente já existe
             const customers = await customer.search({ options: { email: payer.email } });
@@ -131,14 +187,14 @@ module.exports = {
                         body: bodyCard,
                     });
 
-                    res.status(200).json({
-                        data: {
-                            customerId,
-                            createdCard: createdCard?.id,
-                            message: 'Cartão salvo com sucesso',
-                        }
-                    });
-                    console.log('Cartão salvo:', createdCard.id);
+                    // res.status(200).json({
+                    //     data: {
+                    //         customerId,
+                    //         createdCard: createdCard?.id,
+                    //         message: 'Cartão salvo com sucesso',
+                    //     }
+                    // });
+                    // console.log('Cartão salvo:', createdCard.id);
                 }
             } catch (error) {
                 console.error('Erro ao criar cartão:', error);
@@ -171,7 +227,8 @@ module.exports = {
                             category_id: 'tickets'
                         }
                     ]
-                }
+                },
+                application_fee: 0.10,
             }
 
             console.log('body', body)
@@ -198,7 +255,7 @@ module.exports = {
             }
 
             // Salvar dados de pagamento
-            await savePaymentData(response, payer, idUsuario, token);
+            // await savePaymentData(response, payer, idUsuario, token);
 
             res.status(200).json({
                 status: response.status,
@@ -219,7 +276,7 @@ module.exports = {
     },
 
     async pagamentoCardSalvo(req: any, res: any, next: any) {
-        const { token, payment_method_id, transaction_amount, installments, payer, items, cvv } = req.body
+        const { token, payment_method_id, transaction_amount, installments, payer, items, cvv, deviceId, idTransacao } = req.body
 
         console.log('tokensalvo', token)
         console.log('payment_method_id', payment_method_id)
@@ -227,11 +284,26 @@ module.exports = {
         console.log('installments', installments)
         console.log('payer', payer)
 
+        const users = await Usuario.findAll({
+            where: { email: payer.email },
+        });
 
-        const client = new MercadoPagoConfig({ accessToken: acessToken });
+        let empresa = await Empresa.findOne({
+            where: { id: 1 },
+        });
+
+        if (!empresa || !empresa.accessToken) {
+            empresa = await geraTokenSplit()
+        }
+
+        const client = new MercadoPagoConfig({ accessToken: empresa.accessToken ?? "" });
+        const tanzMP = new MercadoPagoConfig({ accessToken: TanzAcessToken });
+
+        // const client = new MercadoPagoConfig({ accessToken: JangoAcessToken });
+        // const tanzMP = new MercadoPagoConfig({ accessToken: JangoAcessToken });
 
         const payment = new Payment(client)
-        const customer = new Customer(client);
+        const customer = new Customer(tanzMP);
         try {
             // Buscar se cliente já existe
             const customers = await customer.search({ options: { email: payer.email } });
@@ -249,7 +321,7 @@ module.exports = {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
-                    "Authorization": `Bearer ${acessToken}`,
+                    "Authorization": `Bearer ${TanzAcessToken}`,
                 },
                 body: JSON.stringify({
                     card_id: token,
@@ -275,6 +347,23 @@ module.exports = {
                     id: customerId,
                     // email: payer.email,
                 },
+                metadata: {
+                    device_id: deviceId,
+                },
+                external_reference: idTransacao,
+                additional_info: {
+                    items: [
+                        {
+                            id: '2154',
+                            title: 'Compra de Ingressos',
+                            description: 'Compra de Ingressos',
+                            quantity: 1,
+                            unit_price: transaction_amount,
+                            category_id: 'tickets'
+                        }
+                    ]
+                },
+                application_fee: 0.10,
             }
 
             console.log('body', body)
@@ -287,10 +376,19 @@ module.exports = {
 
             // Realiza o pagamento
             const response = await payment.create({ body });
+
+            const idUsuario = users[0].id
+            const data = new Date(); // Data atual
+
             console.log('Pagamentosalvo', response);
 
+            if (response.status === 'approved') {
+                await transacaoPaga(idTransacao, 'Pagamento Aprovado com Cartão de Crédito', idUsuario)
+            } else {
+                await HistoricoTransacao.create({ idTransacao, data, descricao: `Pagamento ${response.status} - ${response.status_detail}`, idUsuario });
+            }
             // Salvar dados de pagamento
-            // await savePaymentData(response, payer, req.body.idUsuario, token);
+            // await savePaymentData(response, payer, idUsuario, token);
 
             res.status(200).json({
                 status: response.status,
@@ -313,7 +411,20 @@ module.exports = {
     async pagamentoPix(req: any, res: any) {
         try {
             const { valorTotal, descricao, email, idTransacao, deviceId } = req.body;
-            const client = new MercadoPagoConfig({ accessToken: acessToken });
+
+            let empresa = await Empresa.findOne({
+                where: { id: 1 },
+            });
+
+            // if (!empresa || !empresa.accessToken) {
+            //     empresa = await geraTokenSplit()
+            // }
+
+            // const client = new MercadoPagoConfig({ accessToken: empresa.accessToken ?? "" });
+
+            const client = new MercadoPagoConfig({ accessToken: TanzAcessToken });
+
+            // const client = new MercadoPagoConfig({ accessToken: acessToken });
             const payment = new Payment(client);
             const users = await Usuario.findAll({
                 where: { email: email },
@@ -384,7 +495,7 @@ module.exports = {
                 `https://api.mercadopago.com/v1/payment_methods/installments?amount=${amount}&bin=${bin}&payment_method_id=${payment_method_id}`,
                 {
                     headers: {
-                        Authorization: `Bearer ${acessToken}`,
+                        Authorization: `Bearer ${TanzAcessToken}`,
                     },
                 }
             );
@@ -402,7 +513,7 @@ module.exports = {
         const email = filters.email
 
         const client = new MercadoPagoConfig({
-            accessToken: acessToken,
+            accessToken: TanzAcessToken,
         });
 
         const customer = new Customer(client);
@@ -474,7 +585,7 @@ module.exports = {
             const response = await fetch(`https://api.mercadopago.com/v1/payments/${id}`, {
                 method: 'GET',
                 headers: {
-                    Authorization: `Bearer ${acessToken}`,
+                    Authorization: `Bearer ${TanzAcessToken}`,
                 }
             })
 
@@ -536,170 +647,4 @@ module.exports = {
             });
         }
     },
-
-    async createCardToken(req: any, res: any, next: any) {
-        const { card_number, expiration_month, expiration_year, security_code, cardholder } = req.body;
-        console.log('createCardToken', req.body)
-
-        // Validar formato do número do cartão
-        const cardNumberPattern = /^[0-9]{16}$/;
-        if (!cardNumberPattern.test(card_number)) {
-            console.error("Número do cartão inválido:", card_number);
-            return res.status(400).json({ error: 'Número do cartão inválido', details: 'O número do cartão deve conter 16 dígitos numéricos.' });
-
-        }
-
-
-        const cardData = {
-            card_number: card_number,
-            expiration_month: expiration_month,
-            expiration_year: expiration_year,
-            security_code: security_code,
-            cardholder: cardholder,
-        };
-
-        try {
-            const response = await axios.post(
-                "https://api.mercadopago.com/v1/card_tokens",
-                cardData,
-                {
-                    headers: {
-                        "Content-Type": "application/json",
-                        Authorization: `Bearer TEST-2517899600225439-032009-c36d88bc4644365b9245fbb39abf20d6-488781000`,
-                    },
-                }
-            );
-
-            const data = await response.data;
-            if (data.id) {
-                res.status(200).json({ token: data.id });
-            } else {
-                console.error("Erro ao gerar token de cartão:", data);
-                res.status(500).json({ error: "Erro ao gerar token de cartão", details: data });
-            }
-        } catch (error) {
-            console.error("Erro ao gerar token de cartão:", error);
-            res.status(500).json({ error: "Erro ao gerar token de cartão" });
-        }
-    },
-
-    async getPreferenceId(req: any, res: any, next: any) {
-        const { email, title, description, quantity, currency_id, unit_price } = req.body;
-        console.log('entrou')
-        console.log(email, title, description, quantity, currency_id, unit_price);
-        const response = await fetch(
-            `https://api.mercadopago.com/checkout/preferences?access_token=TEST-2517899600225439-032009-c36d88bc4644365b9245fbb39abf20d6-488781000`,
-            {
-                method: 'POST',
-                body: JSON.stringify({
-                    items: [
-                        {
-                            title: 'title',
-                            description: 'description',
-                            quantity: 1000,
-                            // currency_id: currency_id,
-                            unit_price: 1,
-                        },
-                    ],
-                    // payer: {
-                    //     email: email,
-                    // },
-                }),
-            }
-        );
-
-
-        const preference = await response.json();
-        console.log(preference);
-
-        return res.status(200).json({ preference: preference.id });
-    },
-
-    async createCustomer(req: any, res: any, next: any) {
-        const { email, firstName, lastName } = req.body;
-
-        try {
-            // Verifica se o cliente já existe
-            const existing = await axios.get(
-                `https://api.mercadopago.com/v1/customers/search?email=${email}`,
-                {
-                    headers: {
-                        Authorization: `Bearer ${"TEST-2517899600225439-032009-c36d88bc4644365b9245fbb39abf20d6-488781000"}`,
-                    },
-                }
-            );
-
-            if (existing.data.results.length > 0) {
-                // Cliente já existe, retorna ele
-                console.log('Cliente já existe:', existing.data.results[0]);
-                return res.json(existing.data.results[0]);
-            }
-
-            // Cliente não existe, então cria um novo
-            const response = await axios.post(
-                'https://api.mercadopago.com/v1/customers',
-                {
-                    email,
-                    first_name: firstName,
-                    last_name: lastName,
-                },
-                {
-                    headers: {
-                        Authorization: `Bearer ${"TEST-2517899600225439-032009-c36d88bc4644365b9245fbb39abf20d6-488781000"}`,
-                    },
-                }
-            );
-
-            res.json(response.data);
-        } catch (error: any) {
-            console.error(error.response?.data || error.message);
-            res.status(500).json({ error: error.response?.data || error.message });
-        }
-    },
-
-    async saveCard(req: any, res: any, next: any) {
-        const { customerId, token } = req.body;
-
-        try {
-            const response = await axios.post(
-                `https://api.mercadopago.com/v1/customers/${customerId}/cards`,
-                { token },
-                { headers: { Authorization: `Bearer ${"TEST-2517899600225439-032009-c36d88bc4644365b9245fbb39abf20d6-488781000"}` } }
-            );
-
-            res.json(response.data);
-        } catch (error: any) {
-            res.status(500).json({ error: error.response.data });
-        }
-    },
-
-    async processPayment(req: any, res: any, next: any) {
-        const { customerId, cardId, transactionAmount, description, installments, paymentMethodId } = req.body;
-
-        try {
-            const response = await axios.post(
-                'https://api.mercadopago.com/v1/payments',
-                {
-                    transaction_amount: transactionAmount,
-                    token: null,
-                    description,
-                    installments,
-                    payment_method_id: paymentMethodId,
-                    payer: {
-                        type: 'customer',
-                        id: customerId,
-                    },
-                    metadata: { fromApp: true },
-                    captured: true,
-                    customer_id: customerId,
-                    card_id: cardId,
-                },
-                { headers: { Authorization: `Bearer ${"TEST-2517899600225439-032009-c36d88bc4644365b9245fbb39abf20d6-488781000"}` } }
-            );
-
-            res.json(response.data);
-        } catch (error: any) {
-            res.status(500).json({ error: error.response.data });
-        }
-    }
 }

@@ -35,7 +35,6 @@ class Cidade extends Model<CidadeAttributes, CidadeCreationAttributes> implement
             sequelize,
             modelName: "Cidade",
             freezeTableName: true,
-            timestamps: false,
             hooks: {
                 beforeSave: (cidade) => {
                     if (cidade.uf) {
