@@ -1,11 +1,12 @@
 "use strict";
 module.exports = {
     dialect: "mysql",
-    // host: "192.168.18.95",
-    host: "localhost",
-    username: "root",
-    password: "root",
-    database: "ticket",
+    host: "jango-ingressos.czgc6wkgq9uj.sa-east-1.rds.amazonaws.com",
+    // host: "192.168.18.11",
+    username: "admin",
+    password: "Adamsfo232",
+    database: "ticketJango",
+    timezone: "+00:00",
     define: {
         timestamps: true,
         underscored: true,

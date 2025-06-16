@@ -2,8 +2,12 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.getRegistros = getRegistros;
 const sequelize_1 = require("sequelize");
+// Função para converter de camelCase/UpperCamelCase para snake_case
+function convertToSnakeCase(str) {
+    return str.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
+}
 // Tipagem genérica para a função `getRegistros`
-async function getRegistros(model, req, res, next, includeOptions) {
+async function getRegistros(model, req, res, next, includeOptions, returnRegisters = false) {
     try {
         // Pegando os parâmetros de paginação, pesquisa, filtros e ordenação da query string
         const page = parseInt(req.query.page, 10) || 1;
@@ -14,23 +18,59 @@ async function getRegistros(model, req, res, next, includeOptions) {
         const filters = req.query.filters ? JSON.parse(req.query.filters) : {};
         const offset = (page - 1) * pageSize;
         const limit = pageSize;
-        const searchCondition = search ? {
-            [sequelize_1.Op.or]: Object.keys(model.rawAttributes).map(field => ({
-                [field]: { [sequelize_1.Op.like]: `%${search}%` }
-            }))
-        } : {};
+        const searchCondition = search
+            ? {
+                [sequelize_1.Op.or]: [
+                    // Condições para os campos das associações
+                    ...(includeOptions?.map(option => {
+                        if (option.as) {
+                            return option.attributes?.map(attr => ({
+                                [`$${option.as}.${convertToSnakeCase(attr)}$`]: { [sequelize_1.Op.like]: `%${search}%` }
+                            }));
+                        }
+                        return null;
+                    }).flat().filter(Boolean) || []),
+                    // Condições para os campos da tabela principal
+                    ...Object.keys(model.rawAttributes)
+                        .filter(field => {
+                        const dbField = convertToSnakeCase(field);
+                        return dbField !== 'created_at' && dbField !== 'updated_at';
+                    })
+                        .map(field => ({
+                        [field]: { [sequelize_1.Op.like]: `%${search}%` }
+                    }))
+                ]
+            }
+            : {};
         const filterConditions = {};
         if (filters && typeof filters === 'object') {
             for (const [key, value] of Object.entries(filters)) {
-                console.log(key);
-                if (key.startsWith('empresaId')) {
-                    const ids = typeof value === 'string' ? value.split(',').map(id => parseInt(id.trim(), 10)) : value;
-                    if (Array.isArray(ids)) {
-                        filterConditions[key] = { [sequelize_1.Op.in]: ids };
+                if (key.includes('_')) {
+                    // Se o nome do filtro contém underline, trata como uma associação
+                    const [association, field] = key.split('_'); // Ex: "ClienteFornecedor", "razaoSocialNome"
+                    // Verifica se a associação está em `includeOptions`
+                    const assocOption = includeOptions?.find(option => option.as === association);
+                    if (assocOption) {
+                        const snakeCaseField = convertToSnakeCase(field);
+                        // Condição de filtro para a associação com a tabela
+                        // Usamos o formato de $association.field$ para aplicar o filtro corretamente
+                        filterConditions[`$${association}.${snakeCaseField}$`] = { [sequelize_1.Op.like]: `%${value}%` };
                     }
                 }
                 else {
-                    filterConditions[key] = { [sequelize_1.Op.like]: `%${value}%` };
+                    // Para filtros normais, não relacionados a associações
+                    if (key.startsWith('empresaId')) {
+                        const ids = typeof value === 'string' ? value.split(',').map(id => parseInt(id.trim(), 10)) : value;
+                        if (Array.isArray(ids)) {
+                            filterConditions[key] = { [sequelize_1.Op.in]: ids };
+                        }
+                    }
+                    if (key === 'uid') {
+                        filterConditions[key] = { [sequelize_1.Op.eq]: value };
+                    }
+                    else {
+                        filterConditions[key] = { [sequelize_1.Op.like]: `%${value}%` };
+                    }
                 }
             }
         }
@@ -82,7 +122,7 @@ async function getRegistros(model, req, res, next, includeOptions) {
             return plainRow;
         });
         const totalPages = Math.ceil(count / pageSize);
-        res.status(200).json({
+        const result = {
             data: flattenedRows,
             meta: {
                 totalItems: count,
@@ -90,7 +130,13 @@ async function getRegistros(model, req, res, next, includeOptions) {
                 currentPage: page,
                 pageSize
             }
-        });
+        };
+        if (returnRegisters) {
+            return result;
+        }
+        else {
+            res.status(200).json(result);
+        }
     }
     catch (error) {
         console.error('Error fetching records:', error); // Log detalhado para depuração

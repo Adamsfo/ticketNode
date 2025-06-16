@@ -113,6 +113,7 @@ class Usuario extends sequelize_1.Model {
             },
             senha: sequelize_1.DataTypes.STRING,
             nomeCompleto: sequelize_1.DataTypes.STRING,
+            sobreNome: sequelize_1.DataTypes.STRING,
             ativo: sequelize_1.DataTypes.BOOLEAN,
             alterarSenha: {
                 type: sequelize_1.DataTypes.BOOLEAN,
@@ -126,6 +127,26 @@ class Usuario extends sequelize_1.Model {
                     model: FuncaoUsuario,
                     key: 'id'
                 }
+            },
+            cpf: {
+                type: sequelize_1.DataTypes.STRING,
+                validate: {
+                    is: /^\d{3}\.\d{3}\.\d{3}-\d{2}$/
+                }
+            },
+            telefone: {
+                type: sequelize_1.DataTypes.STRING,
+                validate: {
+                    is: /^\(\d{2}\) \d{4,5}-\d{4}$/
+                }
+            },
+            id_cliente: {
+                type: sequelize_1.DataTypes.INTEGER,
+                allowNull: true
+            },
+            admGeral: {
+                type: sequelize_1.DataTypes.BOOLEAN,
+                defaultValue: false // Define se o usuário é administrador geral
             }
         }, {
             sequelize,

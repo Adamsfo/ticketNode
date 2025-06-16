@@ -53,29 +53,29 @@ module.exports = {
                 empresaId: empresa[0].id
             }
         });
-        await Empresa_1.Empresa.findOrCreate({
-            where: {
-                id: 2
-            },
-            defaults: {
-                nomeFantasia: "Tanz Tecnologia2",
-                razaoSocial: "Tanz Tecnologia2",
-                cnpj: "12345678901232",
-                inscricaoEstadual: "1234567890122",
-                inscricaoMunicipal: "1234567890122",
-                dataInicioAtividades: new Date(),
-                cep: "12345678",
-                endereco: "Rua Tes2te",
-                numero: "1223",
-                complemento: "2",
-                bairro: "Bairro Te2ste",
-                // idCidade: 1100015,
-                logradouro: "Rua Te2ste",
-                telefone: "12345678290",
-                regimeTributario: 'Simples Nacional',
-                ambienteNFe: 'Homologação',
-                tipo: 'principal'
-            }
-        });
+        // await Empresa.findOrCreate({
+        //     where: {
+        //         id: 2
+        //     },
+        //     defaults: {
+        //         nomeFantasia: "Tanz Tecnologia2",
+        //         razaoSocial: "Tanz Tecnologia2",
+        //         cnpj: "12345678901232",
+        //         inscricaoEstadual: "1234567890122",
+        //         inscricaoMunicipal: "1234567890122",
+        //         dataInicioAtividades: new Date(),
+        //         cep: "12345678",
+        //         endereco: "Rua Tes2te",
+        //         numero: "1223",
+        //         complemento: "2",
+        //         bairro: "Bairro Te2ste",
+        //         // idCidade: 1100015,
+        //         logradouro: "Rua Te2ste",
+        //         telefone: "12345678290",
+        //         regimeTributario: 'Simples Nacional',
+        //         ambienteNFe: 'Homologação',
+        //         tipo: 'principal'
+        //     }
+        // })
     }
 };

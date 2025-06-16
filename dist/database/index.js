@@ -5,13 +5,14 @@ const dbConfig = require('../config/database');
 const Empresa_1 = require("../models/Empresa");
 const Usuario_1 = require("../models/Usuario");
 const Cidade_1 = require("../models/Cidade");
-// import { VeiculoInit } from '../models/Veiculo';
 const ClienteFornecedor_1 = require("../models/ClienteFornecedor");
-// import { ContaAPagarInit } from '../models/ContaAPagar';
-// import { ContaAReceberInit } from '../models/ContaAReceber';
-// import { ContaBancariaInit } from '../models/ContaBancaria';
-// const EstruturaTorneio_1 = require("../models/EstruturaTorneio");
-// const Torneio_1 = require("../models/Torneio");
+const TipoIngresso_1 = require("../models/TipoIngresso");
+const Produtor_1 = require("../models/Produtor");
+const Evento_1 = require("../models/Evento");
+const EventoIngresso_1 = require("../models/EventoIngresso");
+const Ingresso_1 = require("../models/Ingresso");
+const Transacao_1 = require("../models/Transacao");
+const ClienteMetodoPagamento_1 = require("../models/ClienteMetodoPagamento");
 const ConfigIniciais = require('./ConfigIniciais');
 const FuncaoSistema = require('./FuncaoSistema');
 const connection = new Sequelize(dbConfig);
@@ -20,17 +21,25 @@ const connection = new Sequelize(dbConfig);
         // Autenticação da conexão
         await connection.authenticate();
         console.log('Conectado no banco de dados!');
-
+        // ContaAPagarInit(connection)
+        // ContaAReceberInit(connection)
+        // ContaBancariaInit(connection)
+        // VeiculoInit(connection)
         // Inicializando modelos    
         (0, Empresa_1.EmpresaInit)(connection);
         (0, Usuario_1.UsuarioInit)(connection);
         (0, Cidade_1.CidadeInit)(connection);
         (0, ClienteFornecedor_1.ClienteFornecedorInit)(connection);
-
+        (0, TipoIngresso_1.TipoIngressoInit)(connection);
+        (0, Produtor_1.ProdutorInit)(connection);
+        (0, Evento_1.EventoInit)(connection);
+        (0, EventoIngresso_1.EventoIngressoInit)(connection);
+        (0, Ingresso_1.IngressoInit)(connection);
+        (0, Transacao_1.TransacaoInit)(connection);
+        (0, ClienteMetodoPagamento_1.UsuarioMetodoPagamentoInit)(connection);
         // Sincronizando os modelos com o banco de dados        
         await connection.sync();
         // await connection.sync({ alter: true });
-
         // Executando configurações iniciais
         await FuncaoSistema.funcaoSistema();
         await ConfigIniciais.configUsuario();
@@ -39,4 +48,4 @@ const connection = new Sequelize(dbConfig);
         console.error('Banco de dados não conectado:', error);
     }
 })();
-module.exports = connection;
+exports.default = connection;

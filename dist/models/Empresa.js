@@ -111,6 +111,18 @@ class Empresa extends sequelize_1.Model {
             CSC: {
                 type: sequelize_1.DataTypes.STRING,
                 allowNull: true
+            },
+            accessTokenInicial: {
+                type: sequelize_1.DataTypes.STRING,
+                allowNull: true
+            },
+            accessToken: {
+                type: sequelize_1.DataTypes.STRING,
+                allowNull: true
+            },
+            refreshToken: {
+                type: sequelize_1.DataTypes.STRING,
+                allowNull: true
             }
         }, {
             sequelize,
