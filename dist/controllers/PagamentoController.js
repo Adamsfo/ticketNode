@@ -92,7 +92,7 @@ async function geraTokenSplit() {
             body: {
                 client_secret: ClienteSecret,
                 client_id: ClienteID,
-                code: empresa.refresh_token,
+                code: "TG-684c505d5cc47000017f35d3-488781000",
                 redirect_uri: 'https://tanztecnologia.com.br/', // Substitua pela sua URL de redirecionamento                    
             }
         });
@@ -111,15 +111,10 @@ async function geraTokenSplit() {
 module.exports = {
     async pagamento(req, res, next) {
         const { token, issuer_id, payment_method_id, transaction_amount, installments, payer, idTransacao, salvarCartao, deviceId, items } = req.body;
-
+        console.log('payer', payer);
         const users = await Usuario_1.Usuario.findAll({
             where: { email: payer.email },
         });
-
-        const transacao = await Transacao_1.Transacao.findOne({
-            where: { id: idTransacao },
-        });
-
         const first_name = users[0].nomeCompleto;
         const last_name = users[0].sobreNome;
         let empresa = await Empresa_1.Empresa.findOne({
@@ -130,7 +125,8 @@ module.exports = {
         }
         const client = new mercadopago_1.MercadoPagoConfig({ accessToken: empresa.accessToken ?? "" });
         const tanzMP = new mercadopago_1.MercadoPagoConfig({ accessToken: TanzAcessToken });
-
+        // const client = new MercadoPagoConfig({ accessToken: JangoAcessToken });
+        // const tanzMP = new MercadoPagoConfig({ accessToken: JangoAcessToken });
         const payment = new mercadopago_1.Payment(client);
         const customer = new mercadopago_1.Customer(tanzMP);
         const customerCard = new mercadopago_1.CustomerCard(tanzMP);
@@ -197,7 +193,7 @@ module.exports = {
                         }
                     ]
                 },
-                application_fee: transacao.taxaServico,
+                application_fee: 0.10,
             };
             console.log('body', body);
             const requestOptions = {
@@ -238,7 +234,11 @@ module.exports = {
     },
     async pagamentoCardSalvo(req, res, next) {
         const { token, payment_method_id, transaction_amount, installments, payer, items, cvv, deviceId, idTransacao } = req.body;
-
+        console.log('tokensalvo', token);
+        console.log('payment_method_id', payment_method_id);
+        console.log('transaction_amount', transaction_amount);
+        console.log('installments', installments);
+        console.log('payer', payer);
         const users = await Usuario_1.Usuario.findAll({
             where: { email: payer.email },
         });
@@ -248,11 +248,6 @@ module.exports = {
         if (!empresa || !empresa.accessToken) {
             empresa = await geraTokenSplit();
         }
-
-        const transacao = await Transacao_1.Transacao.findOne({
-            where: { id: idTransacao },
-        });
-
         const client = new mercadopago_1.MercadoPagoConfig({ accessToken: empresa.accessToken ?? "" });
         const tanzMP = new mercadopago_1.MercadoPagoConfig({ accessToken: TanzAcessToken });
         // const client = new MercadoPagoConfig({ accessToken: JangoAcessToken });
@@ -313,7 +308,7 @@ module.exports = {
                         }
                     ]
                 },
-                application_fee: transacao.taxaServico,
+                application_fee: 0.10,
             };
             console.log('body', body);
             const requestOptions = {
@@ -357,16 +352,11 @@ module.exports = {
             let empresa = await Empresa_1.Empresa.findOne({
                 where: { id: 1 },
             });
-            if (!empresa || !empresa.accessToken) {
-                empresa = await geraTokenSplit()
-            }
-
-            const transacao = await Transacao_1.Transacao.findOne({
-                where: { id: idTransacao },
-            });
-
-            const client = new MercadoPagoConfig({ accessToken: empresa.accessToken ?? "" });
-            // const client = new mercadopago_1.MercadoPagoConfig({ accessToken: TanzAcessToken });
+            // if (!empresa || !empresa.accessToken) {
+            //     empresa = await geraTokenSplit()
+            // }
+            // const client = new MercadoPagoConfig({ accessToken: empresa.accessToken ?? "" });
+            const client = new mercadopago_1.MercadoPagoConfig({ accessToken: TanzAcessToken });
             // const client = new MercadoPagoConfig({ accessToken: acessToken });
             const payment = new mercadopago_1.Payment(client);
             const users = await Usuario_1.Usuario.findAll({
@@ -398,7 +388,6 @@ module.exports = {
                         ]
                     }
                 },
-                application_fee: transacao.taxaServico,
             };
             const result = await payment.create(body);
             // Salvar dados de pagamento
