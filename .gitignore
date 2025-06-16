@@ -1,3 +1,4 @@
 node_modules
 instaladores
 src/public/uploads
+dist/public/uploads
