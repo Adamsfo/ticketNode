@@ -108,13 +108,15 @@ async function geraTokenSplit() {
 
         const oauth = new OAuth(client);
         // Ajuste conforme as propriedades válidas de OAuthCreateData
+        const body = {
+            client_secret: ClienteSecret,
+            client_id: ClienteID,
+            code: empresa.refreshToken,
+            redirect_uri: 'https://tanztecnologia.com.br/', // Substitua pela sua URL de redirecionamento                    
+        }
+        console.log('Gerando token split com os seguintes dados:', body);
         const response = await oauth.create({
-            body: {
-                client_secret: ClienteSecret,
-                client_id: ClienteID,
-                code: "TG-684c505d5cc47000017f35d3-488781000",
-                redirect_uri: 'https://tanztecnologia.com.br/', // Substitua pela sua URL de redirecionamento                    
-            }
+            body: body,
         });
 
         console.log('Token Split gerado:', response);
@@ -136,8 +138,6 @@ module.exports = {
     async pagamento(req: any, res: any, next: any) {
         const { token, issuer_id, payment_method_id, transaction_amount, installments, payer, idTransacao, salvarCartao, deviceId, items } = req.body
 
-        console.log('payer', payer)
-
         const users = await Usuario.findAll({
             where: { email: payer.email },
         });
@@ -152,6 +152,10 @@ module.exports = {
         if (!empresa || !empresa.accessToken) {
             empresa = await geraTokenSplit()
         }
+
+        const transacao = await Transacao.findOne({
+            where: { id: idTransacao },
+        });
 
         const client = new MercadoPagoConfig({ accessToken: empresa.accessToken ?? "" });
         const tanzMP = new MercadoPagoConfig({ accessToken: TanzAcessToken });
@@ -228,7 +232,7 @@ module.exports = {
                         }
                     ]
                 },
-                application_fee: 0.10,
+                application_fee: transacao?.taxaServico || 0.00, //
             }
 
             console.log('body', body)
@@ -295,6 +299,10 @@ module.exports = {
         if (!empresa || !empresa.accessToken) {
             empresa = await geraTokenSplit()
         }
+
+        const transacao = await Transacao.findOne({
+            where: { id: idTransacao },
+        });
 
         const client = new MercadoPagoConfig({ accessToken: empresa.accessToken ?? "" });
         const tanzMP = new MercadoPagoConfig({ accessToken: TanzAcessToken });
@@ -363,7 +371,7 @@ module.exports = {
                         }
                     ]
                 },
-                application_fee: 0.10,
+                application_fee: transacao?.taxaServico || 0.00, // Tax
             }
 
             console.log('body', body)
@@ -416,13 +424,17 @@ module.exports = {
                 where: { id: 1 },
             });
 
-            // if (!empresa || !empresa.accessToken) {
-            //     empresa = await geraTokenSplit()
-            // }
+            if (!empresa || !empresa.accessToken) {
+                empresa = await geraTokenSplit()
+            }
 
-            // const client = new MercadoPagoConfig({ accessToken: empresa.accessToken ?? "" });
+            const transacao = await Transacao.findOne({
+                where: { id: idTransacao },
+            });
 
-            const client = new MercadoPagoConfig({ accessToken: TanzAcessToken });
+            const client = new MercadoPagoConfig({ accessToken: empresa.accessToken ?? "" });
+
+            // const client = new MercadoPagoConfig({ accessToken: TanzAcessToken });
 
             // const client = new MercadoPagoConfig({ accessToken: acessToken });
             const payment = new Payment(client);
@@ -455,7 +467,8 @@ module.exports = {
                                 category_id: 'tickets'
                             }
                         ]
-                    }
+                    },
+                    application_fee: transacao?.taxaServico || 0.00, // Tax
                 },
             }
 
