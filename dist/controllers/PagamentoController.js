@@ -197,7 +197,7 @@ module.exports = {
                         }
                     ]
                 },
-                application_fee: transacao?.taxaServico || 0.00, //
+                application_fee: parseFloat((transacao?.taxaServico ?? "0").toString()) || 0.00,
             };
             console.log('body', body);
             const requestOptions = {
@@ -315,7 +315,7 @@ module.exports = {
                         }
                     ]
                 },
-                application_fee: transacao?.taxaServico || 0.00, // Tax
+                application_fee: parseFloat((transacao?.taxaServico ?? "0").toString()) || 0.00,
             };
             console.log('body', body);
             const requestOptions = {
@@ -397,7 +397,7 @@ module.exports = {
                             }
                         ]
                     },
-                    application_fee: transacao?.taxaServico || 0.00, // Tax
+                    application_fee: parseFloat((transacao?.taxaServico ?? "0").toString()) || 0.00,
                 },
             };
             const result = await payment.create(body);

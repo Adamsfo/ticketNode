@@ -232,7 +232,7 @@ module.exports = {
                         }
                     ]
                 },
-                application_fee: transacao?.taxaServico || 0.00, //
+                application_fee: parseFloat((transacao?.taxaServico ?? "0").toString()) || 0.00,
             }
 
             console.log('body', body)
@@ -371,7 +371,7 @@ module.exports = {
                         }
                     ]
                 },
-                application_fee: transacao?.taxaServico || 0.00, // Tax
+                application_fee: parseFloat((transacao?.taxaServico ?? "0").toString()) || 0.00,
             }
 
             console.log('body', body)
@@ -468,7 +468,7 @@ module.exports = {
                             }
                         ]
                     },
-                    application_fee: transacao?.taxaServico || 0.00, // Tax
+                    application_fee: parseFloat((transacao?.taxaServico ?? "0").toString()) || 0.00,
                 },
             }
 
