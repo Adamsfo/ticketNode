@@ -513,14 +513,25 @@ module.exports = {
                 const Transacao = await Transacao_1.TransacaoPagamento.findOne({
                     where: { PagamentoCodigo: id }
                 });
-                console.log('Transacao', Transacao);
                 if (Transacao) {
                     const idTransacao = Transacao.idTransacao;
                     // Atualiza status da transação
                     await transacaoPaga(idTransacao, 'Pagamento Via Pix Aprovado', idUsuario);
                 }
             }
-            res.status(200).json({ data: { status: data.status } });
+            res.status(200).json({
+                data: {
+                    status: data.status,
+                    id: data.id,
+                    transaction_amount: data.transaction_amount,
+                    status_detail: data.status_detail,
+                    payment_method_id: data.payment_method_id,
+                    date_approved: data.date_approved,
+                    date_created: data.date_created,
+                    email: filters.email,
+                    installments: data.installments,
+                }
+            });
         }
         catch (error) {
             console.error('Erro ao consultar pagamento:', error);
