@@ -10,7 +10,7 @@ const client = twilio(accountSid, authToken);
 
 export async function sendCodeSMS(to: string, code: string) {
     return client.messages.create({
-        body: `Seu código de verificação é: ${code}`,
+        body: `Seu código de verificação é: ${code}. Não compartilhe com ninguém.`,
         from: fromSms,
         to,
     });
@@ -18,7 +18,7 @@ export async function sendCodeSMS(to: string, code: string) {
 
 export async function sendCodeWhatsApp(to: string, code: string) {
     return client.messages.create({
-        body: `Seu código de verificação é: ${code}`,
+        body: `Seu código de verificação é: ${code}. Não compartilhe com ninguém.`,
         from: fromWhatsapp,
         to: 'whatsapp:' + to,
     });

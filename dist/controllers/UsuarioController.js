@@ -16,13 +16,13 @@ module.exports = {
     },
     async addUsuario(req, res, next) {
         try {
-            const { email, login, senha, nomeCompleto, idFuncaoUsuario, ativo, alterarSenha } = req.body;
+            const { email, login, senha, nomeCompleto, idFuncaoUsuario, ativo, alterarSenha, sobreNome } = req.body;
             // Validação básica
             if (!email || !login || !senha || !nomeCompleto) {
                 // return res.status(400).json({ message: 'Os campos email, login, senha, nomeCompleto são obrigatórios.' });
                 throw new customError_1.CustomError('Os campos email, login, senha, nomeCompleto são obrigatórios.', 400, '');
             }
-            const registro = await Usuario_1.Usuario.create({ email, login, senha, nomeCompleto, ativo, alterarSenha, idFuncaoUsuario });
+            const registro = await Usuario_1.Usuario.create({ email, login, senha, nomeCompleto, ativo, alterarSenha, idFuncaoUsuario, sobreNome });
             console.log(registro);
             return res.status(201).json(registro);
         }

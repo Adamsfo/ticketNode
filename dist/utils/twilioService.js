@@ -14,14 +14,14 @@ const fromWhatsapp = 'whatsapp:' + "+18644287609";
 const client = (0, twilio_1.default)(accountSid, authToken);
 async function sendCodeSMS(to, code) {
     return client.messages.create({
-        body: `Seu código de verificação é: ${code}`,
+        body: `Seu código de verificação é: ${code}. Não compartilhe com ninguém.`,
         from: fromSms,
         to,
     });
 }
 async function sendCodeWhatsApp(to, code) {
     return client.messages.create({
-        body: `Seu código de verificação é: ${code}`,
+        body: `Seu código de verificação é: ${code}. Não compartilhe com ninguém.`,
         from: fromWhatsapp,
         to: 'whatsapp:' + to,
     });
