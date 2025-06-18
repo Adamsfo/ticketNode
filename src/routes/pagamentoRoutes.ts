@@ -10,10 +10,10 @@ router.get('/consultapagamento', PagamentoController.consultaPagamento)
 router.post('/pagamento', PagamentoController.pagamento)
 router.post('/pagamentocardsalvo', PagamentoController.pagamentoCardSalvo)
 router.post('/pagamentopix', PagamentoController.pagamentoPix)
-// router.post('/geracode', PagamentoController.geraTokenSplit)
-// router.post('/getpreference', PagamentoController.getPreferenceId)
-// router.post('/createCardToken', PagamentoController.createCardToken)
+router.post('/getpreference', PagamentoController.createPreferencePayment)
 
+// router.post('/geracode', PagamentoController.geraTokenSplit)
+// router.post('/createCardToken', PagamentoController.createCardToken)
 // router.post('/create-customer', PagamentoController.createCustomer);
 // router.post('/save-card', PagamentoController.saveCard);
 // router.post('/process-payment', PagamentoController.processPayment);
