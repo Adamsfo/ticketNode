@@ -577,7 +577,7 @@ module.exports = {
         const transacao = await Transacao_1.Transacao.findOne({
             where: { id: idTransacao },
         });
-        const client = new mercadopago_1.MercadoPagoConfig({ accessToken: empresa.accessToken ?? "" });
+        const client = new mercadopago_1.MercadoPagoConfig({ accessToken: TanzAcessToken });
         try {
             const preference = {
                 items: items || [
@@ -596,9 +596,9 @@ module.exports = {
                     // opcional, outras infos aqui
                 },
                 back_urls: {
-                    success: 'https://seusite.com/sucesso',
-                    failure: 'https://seusite.com/falha',
-                    pending: 'https://seusite.com/pending',
+                    success: 'https://www.jangoingressos.com.br/sucesso',
+                    failure: 'https://www.jangoingressos.com.br/falha',
+                    pending: 'https://www.jangoingressos.com.br/pending',
                 },
                 auto_return: 'approved',
                 external_reference: idTransacao,
@@ -622,6 +622,7 @@ module.exports = {
                     idempotencyKey: generateUniqueIdempotencyKey(), // Gere uma chave de idempotência única
                 },
             });
+            console.log('Preference created:', response);
             res.status(200).json({
                 init_point: response.init_point,
                 preference_id: response.id,
