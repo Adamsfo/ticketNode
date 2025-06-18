@@ -566,4 +566,70 @@ module.exports = {
             });
         }
     },
+    async createPreferencePayment(req, res, next) {
+        const { transaction_amount, items, payer, idTransacao } = req.body;
+        let empresa = await Empresa_1.Empresa.findOne({
+            where: { id: 1 },
+        });
+        if (!empresa || !empresa.accessToken) {
+            empresa = await geraTokenSplit();
+        }
+        const transacao = await Transacao_1.Transacao.findOne({
+            where: { id: idTransacao },
+        });
+        const client = new mercadopago_1.MercadoPagoConfig({ accessToken: empresa.accessToken ?? "" });
+        try {
+            const preference = {
+                items: items || [
+                    {
+                        title: 'Compra de Ingressos',
+                        quantity: 1,
+                        unit_price: parseFloat(transaction_amount),
+                        currency_id: 'BRL',
+                        category_id: 'tickets',
+                    },
+                ],
+                payer: {
+                    email: payer.email,
+                    first_name: payer.first_name || '',
+                    last_name: payer.last_name || '',
+                    // opcional, outras infos aqui
+                },
+                back_urls: {
+                    success: 'https://seusite.com/sucesso',
+                    failure: 'https://seusite.com/falha',
+                    pending: 'https://seusite.com/pending',
+                },
+                auto_return: 'approved',
+                external_reference: idTransacao,
+                payment_methods: {
+                    excluded_payment_methods: [
+                        { id: 'ticket' }, // Exemplo: se quiser excluir boleto
+                        { id: 'atm' },
+                    ],
+                    excluded_payment_types: [
+                        { id: 'atm' },
+                    ],
+                    installments: 1, // sem parcelamento para Apple Pay
+                },
+                application_fee: parseFloat((transacao?.taxaServico ?? "0").toString()) || 0.00,
+            };
+            console.log('preference', preference);
+            const preferenceInstance = new mercadopago_1.Preference(client);
+            const response = await preferenceInstance.create({
+                body: preference,
+                requestOptions: {
+                    idempotencyKey: generateUniqueIdempotencyKey(), // Gere uma chave de idempotência única
+                },
+            });
+            res.status(200).json({
+                init_point: response.init_point,
+                preference_id: response.id,
+            });
+        }
+        catch (error) {
+            console.error(error);
+            res.status(500).json({ error: 'Erro ao criar preferência' });
+        }
+    }
 };
