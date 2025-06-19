@@ -12,6 +12,7 @@ interface TransacaoAttributes {
     taxaServico: number;
     valorTotal: number;
     status: "Aguardando pagamento" | "Aguardando confirmação" | "Pago" | "Cancelado";
+    aceiteCompra: boolean;
 }
 
 interface TransacaoCreationAttributes extends Optional<TransacaoAttributes, 'id'> { }
@@ -24,6 +25,7 @@ class Transacao extends Model<TransacaoAttributes, TransacaoCreationAttributes> 
     public taxaServico!: number;
     public valorTotal!: number;
     public status!: "Aguardando pagamento" | "Aguardando confirmação" | "Pago" | "Cancelado";
+    public aceiteCompra!: boolean;
 
     static initialize(sequelize: Sequelize) {
         Transacao.init({
@@ -59,6 +61,11 @@ class Transacao extends Model<TransacaoAttributes, TransacaoCreationAttributes> 
             status: {
                 type: DataTypes.ENUM("Aguardando pagamento", "Aguardando confirmação", "Pago", "Cancelado"),
                 allowNull: false
+            },
+            aceiteCompra: {
+                type: DataTypes.BOOLEAN,
+                allowNull: false,
+                defaultValue: true
             }
         }, {
             sequelize,

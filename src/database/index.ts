@@ -11,6 +11,7 @@ import { EventoIngressoInit } from '../models/EventoIngresso';
 import { IngressoInit } from '../models/Ingresso';
 import { TransacaoInit } from '../models/Transacao';
 import { UsuarioMetodoPagamentoInit } from '../models/ClienteMetodoPagamento';
+import { CupomPromocionalInit } from '../models/CupomPromocional';
 const ConfigIniciais = require('./ConfigIniciais')
 const FuncaoSistema = require('./FuncaoSistema')
 
@@ -39,10 +40,11 @@ const connection = new Sequelize(dbConfig);
     IngressoInit(connection)
     TransacaoInit(connection)
     UsuarioMetodoPagamentoInit(connection)
+    CupomPromocionalInit(connection);
 
     // Sincronizando os modelos com o banco de dados        
-    await connection.sync();
-    // await connection.sync({ alter: true });
+    // await connection.sync();
+    await connection.sync({ alter: true });
 
     // Executando configurações iniciais
     await FuncaoSistema.funcaoSistema();

@@ -39,6 +39,11 @@ class Transacao extends sequelize_1.Model {
             status: {
                 type: sequelize_1.DataTypes.ENUM("Aguardando pagamento", "Aguardando confirmação", "Pago", "Cancelado"),
                 allowNull: false
+            },
+            aceiteCompra: {
+                type: sequelize_1.DataTypes.BOOLEAN,
+                allowNull: false,
+                defaultValue: true
             }
         }, {
             sequelize,

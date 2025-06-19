@@ -53,7 +53,7 @@ module.exports = {
             if (!preco || !taxaServico || !valorTotal || !idUsuario) {
                 throw new customError_1.CustomError('Faltando informações em campos obrigatórios.', 400, '');
             }
-            const registro = await Transacao_1.Transacao.create({ ...req.body, status, dataTransacao });
+            const registro = await Transacao_1.Transacao.create({ ...req.body, status, dataTransacao, aceiteCompra: true });
             // Adiciona o histórico após a criação do ingresso
             await (0, exports.addHistorico)(registro.id, idUsuario, 'Transação criada com sucesso.');
             //itens da transação

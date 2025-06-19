@@ -19,6 +19,7 @@ const eventoIngressoRoutes = require('./routes/eventoIngressoRoutes');
 const pagamentoRoutes = require('./routes/pagamentoRoutes');
 const ingresssoRoutes = require('./routes/ingressoRoutes');
 const transacaoRoutes = require('./routes/transacaoRoutes');
+const cupomPromocionalRoutes = require('./routes/cupomPromocialRoutes');
 const fs_1 = __importDefault(require("fs"));
 // Inicializa o banco de dados
 require('./database/index');
@@ -51,6 +52,7 @@ server.use(eventoIngressoRoutes);
 server.use(pagamentoRoutes);
 server.use(ingresssoRoutes);
 server.use(transacaoRoutes);
+server.use(cupomPromocionalRoutes);
 // Tratamento de erros
 server.use(errorHandler);
 // Rota padrão
