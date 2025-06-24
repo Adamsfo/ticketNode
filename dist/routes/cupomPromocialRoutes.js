@@ -12,6 +12,7 @@ router.get('/cupompromocionalvalidade', CupomPromocionalController.getCupomPromo
 router.post('/cupompromocional', authenticate, CupomPromocionalController.add);
 router.post('/cupompromocionalvalidade', authenticate, CupomPromocionalController.addCupomPromocionalValidade);
 router.put('/cupompromocional/:id', authenticate, CupomPromocionalController.edit);
+router.put('/cupompromocionalvalidade/:id', authenticate, CupomPromocionalController.editCupomPromocionalValidade);
 router.delete('/cupompromocional/:id', authenticate, CupomPromocionalController.delete);
 router.delete('/cupompromocionalvalidade/:id', authenticate, CupomPromocionalController.deleteCupomPromocionalValidade);
 module.exports = router;

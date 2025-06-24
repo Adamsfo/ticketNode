@@ -4,6 +4,7 @@ exports.EventoIngresso = exports.EventoIngressoInit = void 0;
 const sequelize_1 = require("sequelize");
 const TipoIngresso_1 = require("./TipoIngresso");
 const Evento_1 = require("./Evento");
+const CupomPromocional_1 = require("./CupomPromocional");
 var Status;
 (function (Status) {
     Status["Disponivel"] = "Ativo";
@@ -64,6 +65,14 @@ class EventoIngresso extends sequelize_1.Model {
                 type: sequelize_1.DataTypes.ENUM,
                 values: ['Ativo', 'Oculto', 'Finalizado'],
                 defaultValue: 'Oculto'
+            },
+            idCupomPromocional: {
+                type: sequelize_1.DataTypes.INTEGER,
+                allowNull: true,
+                references: {
+                    model: CupomPromocional_1.CupomPromocional, // Assuming you have a CupomPromocional model
+                    key: 'id'
+                }
             }
         }, {
             sequelize,
@@ -79,6 +88,10 @@ class EventoIngresso extends sequelize_1.Model {
         EventoIngresso.belongsTo(Evento_1.Evento, {
             foreignKey: 'idEvento',
             as: 'Evento'
+        });
+        EventoIngresso.belongsTo(CupomPromocional_1.CupomPromocional, {
+            foreignKey: 'idCupomPromocional',
+            as: 'CupomPromocional'
         });
         // EventoIngresso.hasMany(Ingresso, {
         //     foreignKey: 'idEvento',

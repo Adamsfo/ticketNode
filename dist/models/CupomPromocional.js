@@ -1,13 +1,15 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.CupomPromocionalValidade = exports.CupomPromocional = exports.CupomPromocionalInit = void 0;
+exports.TipoDesconto = exports.CupomPromocionalValidade = exports.CupomPromocional = exports.CupomPromocionalInit = void 0;
 const sequelize_1 = require("sequelize");
 const Produtor_1 = require("./Produtor");
+const EventoIngresso_1 = require("./EventoIngresso");
 var TipoDesconto;
 (function (TipoDesconto) {
+    TipoDesconto["Nenhum"] = "Nenhum";
     TipoDesconto["Percentual"] = "Percentual";
     TipoDesconto["Fixo"] = "Fixo";
-})(TipoDesconto || (TipoDesconto = {}));
+})(TipoDesconto || (exports.TipoDesconto = TipoDesconto = {}));
 class CupomPromocional extends sequelize_1.Model {
     static initialize(sequelize) {
         CupomPromocional.init({
@@ -46,6 +48,14 @@ class CupomPromocional extends sequelize_1.Model {
             foreignKey: 'idProdutor',
             as: 'Produtor'
         });
+        CupomPromocional.hasMany(models.CupomPromocionalValidade, {
+            foreignKey: 'idCupomPromocional',
+            as: 'CupomPromocionalValidade'
+        });
+        // CupomPromocional.hasMany(models.Ingresso, {
+        //     foreignKey: 'idCupomPromocional',
+        //     as: 'EventoIngresso'
+        // });
     }
 }
 exports.CupomPromocional = CupomPromocional;
@@ -86,7 +96,7 @@ exports.CupomPromocionalValidade = CupomPromocionalValidade;
 const CupomPromocionalInit = (sequelize) => {
     CupomPromocional.initialize(sequelize);
     CupomPromocionalValidade.initialize(sequelize);
-    CupomPromocional.associate({ Produtor: Produtor_1.Produtor });
+    CupomPromocional.associate({ Produtor: Produtor_1.Produtor, CupomPromocionalValidade, EventoIngresso: EventoIngresso_1.EventoIngresso });
     CupomPromocionalValidade.associate({ CupomPromocional });
 };
 exports.CupomPromocionalInit = CupomPromocionalInit;

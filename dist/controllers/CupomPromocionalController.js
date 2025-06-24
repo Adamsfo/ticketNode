@@ -97,5 +97,25 @@ module.exports = {
         catch (error) {
             next(error); // Passa o erro para o middleware de tratamento de erros
         }
-    }
+    },
+    async editCupomPromocionalValidade(req, res, next) {
+        try {
+            const id = req.params.id;
+            const registro = await CupomPromocional_1.CupomPromocionalValidade.findByPk(id);
+            if (!registro) {
+                throw new customError_1.CustomError('Registro não encontrado.', 404, '');
+            }
+            // Atualizar apenas os campos que estão definidos (não são undefined)
+            Object.keys(req.body).forEach(field => {
+                if (req.body[field] !== undefined && field in registro) {
+                    registro[field] = req.body[field];
+                }
+            });
+            await registro.save();
+            return res.status(200).json(registro);
+        }
+        catch (error) {
+            next(error); // Passa o erro para o middleware de tratamento de erros
+        }
+    },
 };

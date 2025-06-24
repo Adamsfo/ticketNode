@@ -198,6 +198,7 @@ module.exports = {
     async validadorJango(req, res, next) {
         try {
             const { ingressos, idUsuario } = req.body;
+            console.log('Validador Jango - Ingressos:asdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfa');
             // Verifica se o array de ingressos está vazio
             if (!ingressos || ingressos.length === 0) {
                 throw new customError_1.CustomError('Nenhum ingresso marcado para abrir conta!', 400, '');
@@ -236,23 +237,35 @@ module.exports = {
             if (!user) {
                 throw new customError_1.CustomError('Usuário validador não encontrado.', 404, '');
             }
-            const dataUtilizado = new Date(); // Data atual
-            for (const ingresso of ingressosExistentes) {
-                ingresso.status = 'Utilizado';
-                ingresso.dataUtilizado = dataUtilizado;
-                await ingresso.save();
-                await addHistorico(ingresso.id, idUsuario, 'Ingresso Utilizado ' +
-                    (0, date_fns_tz_1.formatInTimeZone)(dataUtilizado, "America/Cuiaba", "dd/MM/yyyy HH:mm") +
-                    ' validado por ' + user.nomeCompleto);
-            }
             //Pegar idCliente Jango no usuário do ingresso
             const userIngresso = await Usuario_1.Usuario.findByPk(ingressosExistentes[0].idUsuario);
             if (!userIngresso) {
                 throw new customError_1.CustomError('Usuário ingresso não encontrado.', 404, '');
             }
-            if (!userIngresso.id_cliente) {
-                throw new customError_1.CustomError('ID do cliente não encontrado no usuário.', 404, '');
+            if (!userIngresso.id_cliente || Number(userIngresso.id_cliente) === 0) {
+                if (userIngresso.cpf) {
+                    console.log('CPF do usuário do ingresso:', userIngresso.cpf);
+                    const dadosJango = await (0, apiJango_1.default)().getCliente(userIngresso.cpf.toString());
+                    const clienteJango = dadosJango[0];
+                    console.log('Cliente Jango:', clienteJango);
+                    if (clienteJango.error) {
+                        throw new customError_1.CustomError(clienteJango.error, 400, '');
+                    }
+                    if (!clienteJango.id_cliente || Number(clienteJango.id_cliente) === 0) {
+                        throw new customError_1.CustomError('Cliente Jango retornou ID inválido.', 400, '');
+                    }
+                    userIngresso.id_cliente = clienteJango.id_cliente;
+                    await userIngresso.save();
+                    await userIngresso.reload(); // <-- importante
+                }
+                else {
+                    throw new customError_1.CustomError('CPF do usuário do ingresso não encontrado.', 400, '');
+                }
             }
+            if (!userIngresso.id_cliente || Number(userIngresso.id_cliente) === 0) {
+                throw new customError_1.CustomError('Usuário não possui um id_cliente válido no Jango.', 400, '');
+            }
+            console.log('ID Cliente Jango:', userIngresso);
             // Localizar conta no Jango Aberta
             let contaJango = await (0, apiJango_1.default)().getConta(userIngresso.id_cliente, true);
             //Abre Conta no Jango
@@ -269,6 +282,15 @@ module.exports = {
                     await (0, apiJango_1.default)().inseriIngresso(ingresso.id, eventoIngresso?.nome ?? '', userIngresso.id_cliente, contaJango[0].id_venda);
                     await addHistorico(ingresso.id, idUsuario, 'Ingresso Inserido no Sistema do Jango ');
                 }
+            }
+            const dataUtilizado = new Date(); // Data atual
+            for (const ingresso of ingressosExistentes) {
+                ingresso.status = 'Utilizado';
+                ingresso.dataUtilizado = dataUtilizado;
+                await ingresso.save();
+                await addHistorico(ingresso.id, idUsuario, 'Ingresso Utilizado ' +
+                    (0, date_fns_tz_1.formatInTimeZone)(dataUtilizado, "America/Cuiaba", "dd/MM/yyyy HH:mm") +
+                    ' validado por ' + user.nomeCompleto);
             }
             return res.status(200).json('Ingressos validados com sucesso!');
         }

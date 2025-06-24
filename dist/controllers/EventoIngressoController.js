@@ -4,6 +4,7 @@ const getRegistros_1 = require("../utils/getRegistros");
 const customError_1 = require("../utils/customError");
 const EventoIngresso_1 = require("../models/EventoIngresso");
 const TipoIngresso_1 = require("../models/TipoIngresso");
+const CupomPromocional_1 = require("../models/CupomPromocional");
 module.exports = {
     async get(req, res, next) {
         await (0, getRegistros_1.getRegistros)(EventoIngresso_1.EventoIngresso, req, res, next, [
@@ -11,6 +12,11 @@ module.exports = {
                 model: TipoIngresso_1.TipoIngresso,
                 as: 'TipoIngresso',
                 attributes: ['descricao'],
+            },
+            {
+                model: CupomPromocional_1.CupomPromocional,
+                as: 'CupomPromocional',
+                attributes: ['nome'],
             }
         ]);
     },

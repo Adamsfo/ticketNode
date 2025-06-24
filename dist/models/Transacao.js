@@ -87,16 +87,41 @@ class IngressoTransacao extends sequelize_1.Model {
                     key: 'id'
                 }
             },
+            precoOriginal: {
+                type: sequelize_1.DataTypes.DECIMAL(14, 2),
+                allowNull: true
+            },
+            idCupomPromocionalValidade: {
+                type: sequelize_1.DataTypes.INTEGER,
+                allowNull: true,
+                references: {
+                    model: 'CupomPromocionalValidade',
+                    key: 'id'
+                }
+            },
+            tipoDesconto: {
+                type: sequelize_1.DataTypes.ENUM('Nenhum', 'Percentual', 'Fixo'),
+                allowNull: true,
+                defaultValue: 'Nenhum' // Valor padrão
+            },
+            valorDesconto: {
+                type: sequelize_1.DataTypes.DECIMAL(14, 2),
+                allowNull: true
+            },
+            precoDesconto: {
+                type: sequelize_1.DataTypes.DECIMAL(14, 2),
+                allowNull: true
+            },
             preco: {
-                type: sequelize_1.DataTypes.DECIMAL,
+                type: sequelize_1.DataTypes.DECIMAL(14, 2),
                 allowNull: false
             },
             taxaServico: {
-                type: sequelize_1.DataTypes.DECIMAL,
+                type: sequelize_1.DataTypes.DECIMAL(14, 2),
                 allowNull: false
             },
             valorTotal: {
-                type: sequelize_1.DataTypes.DECIMAL,
+                type: sequelize_1.DataTypes.DECIMAL(14, 2),
                 allowNull: false
             }
         }, {
