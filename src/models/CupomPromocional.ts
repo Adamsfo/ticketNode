@@ -1,8 +1,10 @@
 import { DataTypes, Model, Optional, Sequelize } from 'sequelize';
 import { Usuario } from './Usuario';
 import { Produtor } from './Produtor';
+import { EventoIngresso } from './EventoIngresso';
 
 enum TipoDesconto {
+    Nenhum = 'Nenhum',
     Percentual = 'Percentual',
     Fixo = 'Fixo',
 }
@@ -62,6 +64,14 @@ class CupomPromocional extends Model<CupomPromocionalAttributes, CupomPromociona
             foreignKey: 'idProdutor',
             as: 'Produtor'
         });
+        CupomPromocional.hasMany(models.CupomPromocionalValidade, {
+            foreignKey: 'idCupomPromocional',
+            as: 'CupomPromocionalValidade'
+        });
+        // CupomPromocional.hasMany(models.Ingresso, {
+        //     foreignKey: 'idCupomPromocional',
+        //     as: 'EventoIngresso'
+        // });
     }
 }
 
@@ -117,11 +127,12 @@ class CupomPromocionalValidade extends Model<CupomPromocionalValidadeAttributes,
 export const CupomPromocionalInit = (sequelize: Sequelize) => {
     CupomPromocional.initialize(sequelize);
     CupomPromocionalValidade.initialize(sequelize);
-    CupomPromocional.associate({ Produtor });
+    CupomPromocional.associate({ Produtor, CupomPromocionalValidade, EventoIngresso });
     CupomPromocionalValidade.associate({ CupomPromocional });
 }
 
 export {
     CupomPromocional,
     CupomPromocionalValidade,
+    TipoDesconto,
 };

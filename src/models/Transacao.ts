@@ -2,6 +2,7 @@ import { DataTypes, Model, Optional, Sequelize } from 'sequelize';
 import { Evento } from './Evento';
 import { Usuario } from './Usuario';
 import { Ingresso } from './Ingresso';
+import { TipoDesconto } from './CupomPromocional';
 
 // Transacao
 interface TransacaoAttributes {
@@ -91,6 +92,11 @@ interface IngressoTransacaoAttributes {
     id: number;
     idTransacao: number;
     idIngresso: number;
+    precoOriginal?: number;
+    idCupomPromocionalValidade?: number | null;
+    tipoDesconto?: TipoDesconto;
+    valorDesconto?: number | null;
+    precoDesconto?: number | null;
     preco: number;
     taxaServico: number;
     valorTotal: number;
@@ -102,6 +108,11 @@ class IngressoTransacao extends Model<IngressoTransacaoAttributes, IngressoTrans
     public id!: number;
     public idTransacao!: number;
     public idIngresso!: number;
+    public precoOriginal?: number;
+    public idCupomPromocionalValidade?: number | null;
+    public tipoDesconto?: TipoDesconto;
+    public valorDesconto?: number | null;
+    public precoDesconto?: number | null;
     public preco!: number;
     public taxaServico!: number;
     public valorTotal!: number;
@@ -129,16 +140,41 @@ class IngressoTransacao extends Model<IngressoTransacaoAttributes, IngressoTrans
                     key: 'id'
                 }
             },
+            precoOriginal: {
+                type: DataTypes.DECIMAL(14, 2),
+                allowNull: true
+            },
+            idCupomPromocionalValidade: {
+                type: DataTypes.INTEGER,
+                allowNull: true,
+                references: {
+                    model: 'CupomPromocionalValidade',
+                    key: 'id'
+                }
+            },
+            tipoDesconto: {
+                type: DataTypes.ENUM('Nenhum', 'Percentual', 'Fixo'),
+                allowNull: true,
+                defaultValue: 'Nenhum' // Valor padrão
+            },
+            valorDesconto: {
+                type: DataTypes.DECIMAL(14, 2),
+                allowNull: true
+            },
+            precoDesconto: {
+                type: DataTypes.DECIMAL(14, 2),
+                allowNull: true
+            },
             preco: {
-                type: DataTypes.DECIMAL,
+                type: DataTypes.DECIMAL(14, 2),
                 allowNull: false
             },
             taxaServico: {
-                type: DataTypes.DECIMAL,
+                type: DataTypes.DECIMAL(14, 2),
                 allowNull: false
             },
             valorTotal: {
-                type: DataTypes.DECIMAL,
+                type: DataTypes.DECIMAL(14, 2),
                 allowNull: false
             }
         }, {

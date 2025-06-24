@@ -2,6 +2,7 @@ import { DataTypes, Model, Optional, Sequelize } from 'sequelize';
 import { TipoIngresso } from './TipoIngresso';
 import { Evento } from './Evento';
 import { Ingresso } from './Ingresso';
+import { CupomPromocional } from './CupomPromocional';
 
 enum Status {
     Disponivel = 'Ativo',
@@ -21,6 +22,7 @@ interface EventoIngressoAttributes {
     valor: number;
     lote?: string;
     status: Status;
+    idCupomPromocional?: number;
 }
 
 interface EventoIngressoCreationAttributes extends Optional<EventoIngressoAttributes, 'id'> { }
@@ -37,6 +39,7 @@ class EventoIngresso extends Model<EventoIngressoAttributes, EventoIngressoCreat
     public valor!: number;
     public lote?: string;
     public status!: Status;
+    public idCupomPromocional?: number;
 
     static initialize(sequelize: Sequelize) {
         EventoIngresso.init({
@@ -92,6 +95,14 @@ class EventoIngresso extends Model<EventoIngressoAttributes, EventoIngressoCreat
                 type: DataTypes.ENUM,
                 values: ['Ativo', 'Oculto', 'Finalizado'],
                 defaultValue: 'Oculto'
+            },
+            idCupomPromocional: {
+                type: DataTypes.INTEGER,
+                allowNull: true,
+                references: {
+                    model: CupomPromocional, // Assuming you have a CupomPromocional model
+                    key: 'id'
+                }
             }
         }, {
             sequelize,
@@ -109,6 +120,11 @@ class EventoIngresso extends Model<EventoIngressoAttributes, EventoIngressoCreat
             foreignKey: 'idEvento',
             as: 'Evento'
         });
+        EventoIngresso.belongsTo(CupomPromocional, {
+            foreignKey: 'idCupomPromocional',
+            as: 'CupomPromocional'
+        });
+
         // EventoIngresso.hasMany(Ingresso, {
         //     foreignKey: 'idEvento',
         //     as: 'Ingresso'

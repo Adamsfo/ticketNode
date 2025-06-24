@@ -35,16 +35,16 @@ const connection = new Sequelize(dbConfig);
     ClienteFornecedorInit(connection)
     TipoIngressoInit(connection)
     ProdutorInit(connection)
+    CupomPromocionalInit(connection);
     EventoInit(connection)
     EventoIngressoInit(connection)
     IngressoInit(connection)
     TransacaoInit(connection)
     UsuarioMetodoPagamentoInit(connection)
-    CupomPromocionalInit(connection);
 
     // Sincronizando os modelos com o banco de dados        
-    // await connection.sync();
-    await connection.sync({ alter: true });
+    await connection.sync();
+    // await connection.sync({ alter: true });
 
     // Executando configurações iniciais
     await FuncaoSistema.funcaoSistema();

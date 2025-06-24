@@ -2,6 +2,7 @@ import { getRegistros } from "../utils/getRegistros"
 import { CustomError } from '../utils/customError'
 import { EventoIngresso } from "../models/EventoIngresso";
 import { TipoIngresso } from "../models/TipoIngresso";
+import { CupomPromocional } from "../models/CupomPromocional";
 
 module.exports = {
     async get(req: any, res: any, next: any) {
@@ -11,8 +12,13 @@ module.exports = {
                     model: TipoIngresso,
                     as: 'TipoIngresso',
                     attributes: ['descricao'],
+                },
+                {
+                    model: CupomPromocional,
+                    as: 'CupomPromocional',
+                    attributes: ['nome'],
                 }
-            ]
+            ],
 
         )
     },

@@ -112,5 +112,28 @@ module.exports = {
         } catch (error) {
             next(error); // Passa o erro para o middleware de tratamento de erros
         }
-    }
+    },
+
+    async editCupomPromocionalValidade(req: any, res: any, next: any) {
+        try {
+            const id = req.params.id;
+
+            const registro = await CupomPromocionalValidade.findByPk(id);
+            if (!registro) {
+                throw new CustomError('Registro não encontrado.', 404, '');
+            }
+
+            // Atualizar apenas os campos que estão definidos (não são undefined)
+            Object.keys(req.body).forEach(field => {
+                if (req.body[field] !== undefined && field in registro) {
+                    (registro as any)[field] = req.body[field];
+                }
+            });
+
+            await registro.save();
+            return res.status(200).json(registro);
+        } catch (error) {
+            next(error); // Passa o erro para o middleware de tratamento de erros
+        }
+    },
 }
