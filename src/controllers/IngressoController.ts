@@ -1,6 +1,6 @@
 import { getRegistros } from "../utils/getRegistros"
 import { CustomError } from '../utils/customError'
-import { HistoricoIngresso, Ingresso } from "../models/Ingresso";
+import { HistoricoIngresso, Ingresso, TipoVendidoCortesia } from "../models/Ingresso";
 import { EventoIngresso } from "../models/EventoIngresso";
 import { IngressoTransacao } from "../models/Transacao";
 import { Evento } from "../models/Evento";
@@ -93,11 +93,15 @@ module.exports = {
 
     async add(req: any, res: any, next: any) {
         try {
-            const { idEvento, idEventoIngresso, idTipoIngresso, idUsuario, idTransacao } = req.body;
-            const status = 'Reservado'; // Definindo o status como "Reservado" por padrão
+            let { idEvento, idEventoIngresso, idTipoIngresso, idUsuario, idTransacao, tipo, idUsuarioCriouIngresso, status } = req.body;
+
+            console.log('Adicionando ingresso:', req.body);
+            if (!status) {
+                status = 'Reservado';
+            }
 
             //   // Validação básica
-            if (!idEvento || !idEventoIngresso || !idTipoIngresso || !idUsuario || !idTransacao) {
+            if (!idEvento || !idEventoIngresso || !idTipoIngresso || !idUsuario) {
                 throw new CustomError('Faltando informações em campos obrigatórios.', 400, '');
             }
 
@@ -109,7 +113,15 @@ module.exports = {
                 dataValidade.setDate(dataValidade.getDate() + 1);
             }
 
-            const registro = await Ingresso.create({ ...req.body, status, dataValidade, dataNascimento });
+            if (!tipo) {
+                tipo = TipoVendidoCortesia.Vendido;
+            }
+
+            if (!idUsuarioCriouIngresso) {
+                idUsuarioCriouIngresso = idUsuario; // Se não for fornecido, usa
+            }
+
+            const registro = await Ingresso.create({ ...req.body, status, dataValidade, dataNascimento, tipo });
             // const qrData = `qrcode:${registro.qrcode}`
             // const qrCodeBase64 = await QRCode.toDataURL(qrData);
 
@@ -120,9 +132,12 @@ module.exports = {
                 throw new CustomError('EventoIngresso não encontrado.', 404, '');
             }
 
-            await addIngressoTransacao(idTransacao, registro.id, eventoIngresso.preco, eventoIngresso.taxaServico, eventoIngresso.valor);
-            // Adiciona o histórico após a criação do ingresso
-            await addHistorico(registro.id, idUsuario, 'Vinculado a transação ' + idTransacao);
+            if (idTransacao) {
+                await addIngressoTransacao(idTransacao, registro.id, eventoIngresso.preco, eventoIngresso.taxaServico, eventoIngresso.valor);
+                // Adiciona o histórico após a criação do ingresso
+                await addHistorico(registro.id, idUsuario, 'Vinculado a transação ' + idTransacao);
+            }
+
             return res.status(201).json(registro);
         } catch (error) {
             next(error);

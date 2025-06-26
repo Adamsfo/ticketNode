@@ -26,6 +26,7 @@ interface IngressoAttributes {
     qrcode?: string;
     dataUtilizado?: Date;
     tipo?: TipoVendidoCortesia;
+    idUsuarioCriouIngresso?: number;
 }
 
 interface IngressoCreationAttributes extends Optional<IngressoAttributes, 'id'> { }
@@ -45,6 +46,7 @@ class Ingresso extends Model<IngressoAttributes, IngressoCreationAttributes> imp
     public qrcode?: string;
     public dataUtilizado?: Date;
     public tipo?: TipoVendidoCortesia;
+    public idUsuarioCriouIngresso?: number;
 
     static initialize(sequelize: Sequelize) {
         Ingresso.init({
@@ -136,6 +138,14 @@ class Ingresso extends Model<IngressoAttributes, IngressoCreationAttributes> imp
                 ),
                 allowNull: true,
                 defaultValue: TipoVendidoCortesia.Vendido
+            },
+            idUsuarioCriouIngresso: {
+                type: DataTypes.INTEGER,
+                allowNull: true,
+                references: {
+                    model: 'Usuario',
+                    key: 'id'
+                }
             }
         }, {
             sequelize,
@@ -161,6 +171,10 @@ class Ingresso extends Model<IngressoAttributes, IngressoCreationAttributes> imp
         Ingresso.belongsTo(Usuario, {
             foreignKey: 'idUsuario',
             as: 'Usuario'
+        });
+        Ingresso.belongsTo(Usuario, {
+            foreignKey: 'idUsuarioCriouIngresso',
+            as: 'UsuarioCriouIngresso'
         });
     }
 }
@@ -243,5 +257,6 @@ export const IngressoInit = (sequelize: Sequelize) => {
 
 export {
     Ingresso,
-    HistoricoIngresso
+    HistoricoIngresso,
+    TipoVendidoCortesia
 };
