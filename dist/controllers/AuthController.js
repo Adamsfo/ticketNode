@@ -1,13 +1,10 @@
 "use strict";
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
 Object.defineProperty(exports, "__esModule", { value: true });
 const Usuario_1 = require("../models/Usuario");
 const jwtUtils_1 = require("../utils/jwtUtils");
 const customError_1 = require("../utils/customError");
-const nodemailer_1 = __importDefault(require("nodemailer"));
 const twilioService_1 = require("../utils/twilioService");
+const resend_1 = require("../utils/resend");
 const codeStore = new Map();
 function formatPhoneToE164(phone) {
     // Remove caracteres não numéricos
@@ -15,32 +12,35 @@ function formatPhoneToE164(phone) {
     // Adiciona o código do país se não estiver presente
     return cleaned.startsWith('55') ? `+${cleaned}` : `+55${cleaned}`;
 }
+// Envia código de verificação por e-mail usando Resend
 const enviaCodigoEmail = async (email, codigo) => {
     try {
         if (!email) {
-            throw new customError_1.CustomError('Email é obrigatórios.', 400, '');
+            throw new Error('Email é obrigatório');
         }
-        const transporter = nodemailer_1.default.createTransport({
-            service: 'gmail', // ou SMTP personalizado
-            auth: {
-                user: 'tanztecnologialtda@gmail.com',
-                pass: 'tmre buon mfhc mfgg'
-            }
+        const response = await resend_1.resend.emails.send({
+            from: 'Jango Ingressos <no-reply@jangoingressos.com.br>',
+            to: [email],
+            subject: 'Seu código de verificação',
+            html: `
+        <div style="font-family: Arial, sans-serif; color: #333;">
+          <h2>Olá!</h2>
+          <p>Seu código de verificação é:</p>
+          <h1 style="color:#007BFF;">${codigo}</h1>
+          <p>Este código expira em 5 minutos.</p>
+          <p>Se você não solicitou esse código, ignore este e-mail.</p>
+          <br/>
+          <small>Jango Ingressos © ${new Date().getFullYear()}</small>
+          <small>Desenvolvido por Tanz Tecnologia Ltda</small>
+        </div>
+      `,
         });
-        try {
-            await transporter.sendMail({
-                from: 'Tanz Tecnologia Ltda <tanztecnologialtda@gmail.com>',
-                to: email,
-                subject: "Seu código de verificação Jango Ingressos",
-                text: `Seu código de verificação é: ${codigo}`,
-                html: `<h2>Seu código de verificação é:</h2><h1>${codigo}</h1>`,
-            });
-        }
-        catch (error) {
-            console.error('Erro ao enviar e-mail:', error);
+        if (response.error) {
+            console.error('Erro ao enviar e-mail via Resend:', response.error);
         }
     }
     catch (error) {
+        console.error('Erro geral no envio de e-mail:', error);
     }
 };
 module.exports = {
@@ -78,7 +78,10 @@ module.exports = {
     },
     addLogin: async (req, res, next) => {
         try {
-            const { login, email, senha, nomeCompleto, cpf, telefone, id_cliente, sobreNome, endpoint } = req.body;
+            let { login, email, senha, nomeCompleto, cpf, telefone, id_cliente, sobreNome, endpoint, preCadastro } = req.body;
+            if (preCadastro) {
+                senha = cpf.replace(/\D/g, '').slice(-4); // Últimos 4 dígitos do CPF como senha
+            }
             if (!login || !senha || !email || !nomeCompleto || !cpf || !sobreNome) {
                 throw new customError_1.CustomError('Login, email e senha são obrigatórios.', 400, '');
             }
@@ -95,7 +98,7 @@ module.exports = {
                 throw new customError_1.CustomError('Este login já foi utilizado por outro usuário .', 400, '');
             }
             let ativo = false;
-            registro = await Usuario_1.Usuario.create({ login, email, senha, nomeCompleto, ativo, cpf, telefone, id_cliente });
+            registro = await Usuario_1.Usuario.create({ login, email, senha, nomeCompleto, ativo, cpf, telefone, id_cliente, sobreNome, preCadastro });
             return res.status(201).json(registro);
         }
         catch (error) {
@@ -104,48 +107,42 @@ module.exports = {
     },
     async enviarEmailRecuperacaoSenha(req, res) {
         const { email, endpoint } = req.body;
-        const user = await Usuario_1.Usuario.findOne({
-            where: {
-                email: email
-            }
-        });
+        const user = await Usuario_1.Usuario.findOne({ where: { email } });
         if (!user)
             return res.status(404).json({ message: 'Usuário não encontrado.' });
         const token = (0, jwtUtils_1.generateToken)(user);
         user.token = token;
-        user.save();
+        await user.save();
         const linkRecuperacao = `${endpoint}redefinirsenha?token=${token}`;
-        const transporter = nodemailer_1.default.createTransport({
-            service: 'gmail', // ou SMTP personalizado
-            auth: {
-                user: 'tanztecnologialtda@gmail.com',
-                pass: 'tmre buon mfhc mfgg'
-            }
-        });
         const htmlContent = `
       <div style="font-family:Arial,sans-serif;max-width:600px;margin:auto;border:1px solid #e0e0e0;border-radius:8px;padding:24px;background-color:#f9f9f9;">
         <h2 style="color:#2a9d8f;">Recuperação de Senha</h2>
-        <p>Olá <strong>${user.nomeCompleto + ' ' + user.sobreNome}</strong>,</p>
+        <p>Olá <strong>${user.nomeCompleto} ${user.sobreNome ? user.sobreNome : ""}</strong>,</p>
         <p>Você solicitou a recuperação de sua senha. Clique no botão abaixo para criar uma nova senha:</p>
         <div style="text-align:center;margin:30px 0;">
           <a href="${linkRecuperacao}" style="background-color:#2a9d8f;color:#fff;padding:12px 24px;text-decoration:none;border-radius:5px;font-weight:bold;">Redefinir Senha</a>
         </div>
         <p>Se você não solicitou essa recuperação, pode ignorar este e-mail.</p>
-        <p>Atenciosamente,<br><strong>Tanz Tecnologia Ltda</strong></p>
+        <p>Atenciosamente,<br><strong>Jango Ingressos</strong></p>
+        <small>Desenvolvido por Tanz Tecnologia Ltda</small>
       </div>
     `;
         try {
-            await transporter.sendMail({
-                from: 'Tanz Tecnologia Ltda <tanztecnologialtda@gmail.com>',
-                to: user.email,
+            const response = await resend_1.resend.emails.send({
+                from: 'Jango Ingressos <no-reply@jangoingressos.com.br>',
+                to: [user.email],
                 subject: 'Recupere sua senha',
                 html: htmlContent
             });
-            res.status(200).json({ message: 'E-mail de recuperação enviado com sucesso.' });
+            if (response.error) {
+                console.error('Erro ao enviar com Resend:', response.error);
+                return res.status(500).json({ message: 'Erro ao enviar o e-mail.' });
+            }
+            return res.status(200).json({ message: 'E-mail de recuperação enviado com sucesso.' });
         }
         catch (error) {
-            console.error('Erro ao enviar e-mail:', error);
-            res.status(500).json({ message: 'Erro ao enviar o e-mail.' });
+            console.error('Erro geral no envio:', error);
+            return res.status(500).json({ message: 'Erro ao enviar o e-mail.' });
         }
     },
     async varificaAtivarConta(req, res) {

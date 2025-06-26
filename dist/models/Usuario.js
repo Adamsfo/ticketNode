@@ -138,7 +138,8 @@ class Usuario extends sequelize_1.Model {
                 type: sequelize_1.DataTypes.STRING,
                 validate: {
                     is: /^\(\d{2}\) \d{4,5}-\d{4}$/
-                }
+                },
+                allowNull: true
             },
             id_cliente: {
                 type: sequelize_1.DataTypes.INTEGER,
@@ -147,6 +148,10 @@ class Usuario extends sequelize_1.Model {
             admGeral: {
                 type: sequelize_1.DataTypes.BOOLEAN,
                 defaultValue: false // Define se o usuário é administrador geral
+            },
+            preCadastro: {
+                type: sequelize_1.DataTypes.BOOLEAN,
+                defaultValue: false // Define se o usuário é um pré-cadastro
             }
         }, {
             sequelize,

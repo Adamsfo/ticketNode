@@ -1,11 +1,16 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.HistoricoIngresso = exports.Ingresso = exports.IngressoInit = void 0;
+exports.TipoVendidoCortesia = exports.HistoricoIngresso = exports.Ingresso = exports.IngressoInit = void 0;
 const sequelize_1 = require("sequelize");
 const Evento_1 = require("./Evento");
 const Usuario_1 = require("./Usuario");
 const EventoIngresso_1 = require("./EventoIngresso");
 const TipoIngresso_1 = require("./TipoIngresso");
+var TipoVendidoCortesia;
+(function (TipoVendidoCortesia) {
+    TipoVendidoCortesia["Vendido"] = "Vendido";
+    TipoVendidoCortesia["Cortesia"] = "Cortesia";
+})(TipoVendidoCortesia || (exports.TipoVendidoCortesia = TipoVendidoCortesia = {}));
 class Ingresso extends sequelize_1.Model {
     static initialize(sequelize) {
         Ingresso.init({
@@ -83,6 +88,19 @@ class Ingresso extends sequelize_1.Model {
             dataUtilizado: {
                 type: sequelize_1.DataTypes.DATE,
                 allowNull: true
+            },
+            tipo: {
+                type: sequelize_1.DataTypes.ENUM(TipoVendidoCortesia.Vendido, TipoVendidoCortesia.Cortesia),
+                allowNull: true,
+                defaultValue: TipoVendidoCortesia.Vendido
+            },
+            idUsuarioCriouIngresso: {
+                type: sequelize_1.DataTypes.INTEGER,
+                allowNull: true,
+                references: {
+                    model: 'Usuario',
+                    key: 'id'
+                }
             }
         }, {
             sequelize,
@@ -102,6 +120,14 @@ class Ingresso extends sequelize_1.Model {
         Ingresso.belongsTo(TipoIngresso_1.TipoIngresso, {
             foreignKey: 'idTipoIngresso',
             as: 'TipoIngresso'
+        });
+        Ingresso.belongsTo(Usuario_1.Usuario, {
+            foreignKey: 'idUsuario',
+            as: 'Usuario'
+        });
+        Ingresso.belongsTo(Usuario_1.Usuario, {
+            foreignKey: 'idUsuarioCriouIngresso',
+            as: 'UsuarioCriouIngresso'
         });
     }
 }
