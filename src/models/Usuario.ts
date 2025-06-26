@@ -141,6 +141,7 @@ interface UsuarioAttributes {
     telefone?: string;
     id_cliente?: number;
     admGeral?: boolean; // Atributo para indicar se o usuário é administrador geral
+    preCadastro?: boolean; // Atributo para indicar se o usuário é um pré-cadastro
 }
 
 interface UsuarioCreationAttributes extends Optional<UsuarioAttributes, 'id' | 'senha'> { }
@@ -160,6 +161,7 @@ class Usuario extends Model<UsuarioAttributes, UsuarioCreationAttributes> implem
     public telefone?: string;
     public id_cliente?: number;
     public admGeral?: boolean; // Atributo para indicar se o usuário é administrador geral
+    public preCadastro?: boolean; // Atributo para indicar se o usuário é um pré-cadastro
 
     static initialize(sequelize: Sequelize) {
         Usuario.init({
@@ -206,7 +208,8 @@ class Usuario extends Model<UsuarioAttributes, UsuarioCreationAttributes> implem
                 type: DataTypes.STRING,
                 validate: {
                     is: /^\(\d{2}\) \d{4,5}-\d{4}$/
-                }
+                },
+                allowNull: true
             },
             id_cliente: {
                 type: DataTypes.INTEGER,
@@ -215,6 +218,10 @@ class Usuario extends Model<UsuarioAttributes, UsuarioCreationAttributes> implem
             admGeral: {
                 type: DataTypes.BOOLEAN,
                 defaultValue: false // Define se o usuário é administrador geral
+            },
+            preCadastro: {
+                type: DataTypes.BOOLEAN,
+                defaultValue: false // Define se o usuário é um pré-cadastro
             }
         }, {
             sequelize,

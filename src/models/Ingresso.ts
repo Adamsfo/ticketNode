@@ -5,6 +5,11 @@ import { EventoIngresso } from './EventoIngresso';
 import { Transacao } from './Transacao';
 import { TipoIngresso } from './TipoIngresso';
 
+enum TipoVendidoCortesia {
+    Vendido = "Vendido",
+    Cortesia = "Cortesia"
+}
+
 // Ingresso
 interface IngressoAttributes {
     id: number;
@@ -20,6 +25,7 @@ interface IngressoAttributes {
     status: "Reservado" | "Cancelado" | "Confirmado" | "Reembolsado" | "Utilizado";
     qrcode?: string;
     dataUtilizado?: Date;
+    tipo?: TipoVendidoCortesia;
 }
 
 interface IngressoCreationAttributes extends Optional<IngressoAttributes, 'id'> { }
@@ -38,6 +44,7 @@ class Ingresso extends Model<IngressoAttributes, IngressoCreationAttributes> imp
     public status!: "Reservado" | "Cancelado" | "Confirmado" | "Reembolsado" | "Utilizado";
     public qrcode?: string;
     public dataUtilizado?: Date;
+    public tipo?: TipoVendidoCortesia;
 
     static initialize(sequelize: Sequelize) {
         Ingresso.init({
@@ -121,6 +128,14 @@ class Ingresso extends Model<IngressoAttributes, IngressoCreationAttributes> imp
             dataUtilizado: {
                 type: DataTypes.DATE,
                 allowNull: true
+            },
+            tipo: {
+                type: DataTypes.ENUM(
+                    TipoVendidoCortesia.Vendido,
+                    TipoVendidoCortesia.Cortesia
+                ),
+                allowNull: true,
+                defaultValue: TipoVendidoCortesia.Vendido
             }
         }, {
             sequelize,
@@ -142,6 +157,10 @@ class Ingresso extends Model<IngressoAttributes, IngressoCreationAttributes> imp
         Ingresso.belongsTo(TipoIngresso, {
             foreignKey: 'idTipoIngresso',
             as: 'TipoIngresso'
+        });
+        Ingresso.belongsTo(Usuario, {
+            foreignKey: 'idUsuario',
+            as: 'Usuario'
         });
     }
 }

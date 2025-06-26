@@ -57,7 +57,12 @@ module.exports = {
                     model: TipoIngresso,
                     as: 'TipoIngresso',
                     attributes: ['descricao'],
-                }
+                },
+                {
+                    model: Usuario,
+                    as: 'Usuario',
+                    attributes: ['nomeCompleto', 'cpf', 'email'],
+                },
             ], true);
 
             const { data, meta } = result ?? { data: [], meta: { totalItems: 0, totalPages: 0, currentPage: 0, pageSize: 0 } };
