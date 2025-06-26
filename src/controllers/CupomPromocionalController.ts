@@ -31,12 +31,23 @@ module.exports = {
         try {
             const { idCupomPromocional, dataInicial, dataFinal } = req.body;
 
-            //   // Validação básica
             if (!idCupomPromocional || !dataInicial || !dataFinal) {
                 throw new CustomError('Faltando informações em campos obrigatórios.', 400, '');
             }
 
-            const registro = await CupomPromocionalValidade.create(req.body);
+            // Ajustar horários
+            const dataInicialDate = new Date(dataInicial);
+            dataInicialDate.setHours(0, 0, 0, 0);
+
+            const dataFinalDate = new Date(dataFinal);
+            dataFinalDate.setHours(23, 59, 59, 999);
+
+            const registro = await CupomPromocionalValidade.create({
+                idCupomPromocional,
+                dataInicial: dataInicialDate,
+                dataFinal: dataFinalDate,
+            });
+
             return res.status(201).json(registro);
         } catch (error) {
             next(error);
