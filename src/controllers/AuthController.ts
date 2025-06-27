@@ -31,7 +31,7 @@ const enviaCodigoEmail = async (email: string, codigo: string) => {
           <h2>Olá!</h2>
           <p>Seu código de verificação é:</p>
           <h1 style="color:#007BFF;">${codigo}</h1>
-          <p>Este código expira em 5 minutos.</p>
+          <p>Este código expira em 15 minutos.</p>
           <p>Se você não solicitou esse código, ignore este e-mail.</p>
           <br/>
           <small>Jango Ingressos © ${new Date().getFullYear()}</small>
@@ -232,7 +232,6 @@ module.exports = {
         if (tipo === 'whatsapp') {
           // await sendCodeWhatsApp(formatPhoneToE164(info), code);
           // await enviarCodigoAtivacaoChatPro(formatPhoneToE164(info), code)
-          await enviaCodigoEmail(info, code);
           codeStore.set(info, code);
           setTimeout(() => codeStore.delete(info), 15 * 60 * 1000); // Expira em 15 minutos
           res.json({ success: true, code });
