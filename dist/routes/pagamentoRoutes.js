@@ -12,6 +12,7 @@ router.get('/cardscustomer', PagamentoController.getCardsCustomer);
 router.get('/buscarparcelas', PagamentoController.buscarParcelas);
 router.get('/consultapagamento', PagamentoController.consultaPagamento);
 router.post('/pagamento', PagamentoController.pagamento);
+router.post('/pagamentoestorno', PagamentoController.estornoPagamento);
 router.post('/pagamentocardsalvo', PagamentoController.pagamentoCardSalvo);
 router.post('/pagamentopix', PagamentoController.pagamentoPix);
 router.post('/getpreference', PagamentoController.createPreferencePayment);

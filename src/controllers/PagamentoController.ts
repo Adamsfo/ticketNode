@@ -1,6 +1,6 @@
 import { getRegistros } from "../utils/getRegistros"
 import { CustomError } from '../utils/customError'
-import { Payment, MercadoPagoConfig, Customer, CustomerCard, OAuth, Preference } from 'mercadopago'
+import { Payment, MercadoPagoConfig, Customer, CustomerCard, OAuth, Preference, PaymentRefund } from 'mercadopago'
 const axios = require('axios')
 import { encrypt, decrypt } from '../utils/encryption'; // Supondo que você tenha funções de criptografia
 import { UsuarioMetodoPagamento } from "../models/ClienteMetodoPagamento";
@@ -71,6 +71,56 @@ async function transacaoPaga(idTransacao: number, descricao: string, idUsuario: 
         await Promise.all(ingressos.map(async (ingresso) => {
             await Ingresso.update(
                 { status: 'Confirmado' },
+                { where: { id: ingresso.idIngresso }, transaction }
+            );
+
+            await HistoricoIngresso.create({
+                idIngresso: ingresso.idIngresso,
+                data: new Date(),
+                descricao: `Confirmado - ${descricao}`,
+                idUsuario
+            }, { transaction });
+        }));
+
+        // Commita tudo
+        await transaction.commit();
+
+        return true;
+    } catch (error) {
+        await transaction.rollback();
+        console.error('Erro ao processar transação paga:', error);
+        throw error;
+    }
+}
+
+async function transacaoCancelada(idTransacao: number, descricao: string, idUsuario: number) {
+    const transaction = await connection.transaction(); // substitua pela instância correta do Sequelize
+
+    try {
+        // Atualiza status da transação
+        await Transacao.update(
+            { status: 'Cancelado' },
+            { where: { id: idTransacao }, transaction }
+        );
+
+        // Cria histórico da transação
+        await HistoricoTransacao.create({
+            idTransacao,
+            data: new Date(),
+            descricao,
+            idUsuario
+        }, { transaction });
+
+        // Busca ingressos relacionados
+        const ingressos = await IngressoTransacao.findAll({
+            where: { idTransacao },
+            transaction,
+        });
+
+        // Atualiza os ingressos e cria histórico
+        await Promise.all(ingressos.map(async (ingresso) => {
+            await Ingresso.update(
+                { status: 'Reembolsado' },
                 { where: { id: ingresso.idIngresso }, transaction }
             );
 
@@ -746,5 +796,89 @@ module.exports = {
             console.error(error);
             res.status(500).json({ error: 'Erro ao criar preferência' });
         }
+    },
+
+    async estornoPagamento(req: any, res: any, next: any) {
+        const { idTransacao, idUsuario } = req.body;
+
+        if (!idTransacao) {
+            return res.status(400).json({ error: 'ID da transação é obrigatório' });
+        }
+
+        if (!idUsuario) {
+            return res.status(400).json({ error: 'ID do usuário é obrigatório' });
+        }
+
+        try {
+            let empresa = await Empresa.findOne({ where: { id: 1 } });
+
+            if (!empresa || !empresa.accessToken) {
+                empresa = await geraTokenSplit();
+            }
+
+            const transacao = await TransacaoPagamento.findOne({
+                where: { idTransacao },
+            });
+
+            if (!transacao) {
+                return res.status(404).json({ error: 'Transação não encontrada' });
+            }
+
+            const ingressoTransacao = await IngressoTransacao.findAll({
+                where: { idTransacao },
+            });
+
+            if (!ingressoTransacao || ingressoTransacao.length === 0) {
+                return res
+                    .status(404)
+                    .json({ error: 'Ingressos da transação não encontrados' });
+            }
+
+            // Verifica se todos os ingressos estão com status 'Confirmado'
+            const ingressosNaoConfirmados: number[] = [];
+
+            for (const ingresso of ingressoTransacao) {
+                const ingressoDetails = await Ingresso.findOne({
+                    where: { id: ingresso.idIngresso },
+                });
+
+                if (ingressoDetails && ingressoDetails.status !== 'Confirmado') {
+                    ingressosNaoConfirmados.push(ingresso.idIngresso);
+                }
+            }
+
+            if (ingressosNaoConfirmados.length > 0) {
+                return res.status(400).json({
+                    error: `Ingresso utilizado ou não confirmado: ${ingressosNaoConfirmados.join(', ')}`,
+                });
+            }
+
+            const client = new MercadoPagoConfig({
+                accessToken: empresa.accessToken ?? '',
+            });
+
+            const paymentRefund = new PaymentRefund(client);
+
+            const response = await paymentRefund.create({
+                payment_id: transacao.PagamentoCodigo,
+            });
+
+            await transacaoCancelada(
+                idTransacao,
+                'Estorno realizado com sucesso id:' + response.id,
+                idUsuario
+            );
+
+            console.log('Estorno realizado:', response);
+
+            return res.status(200).json({
+                status: response.status,
+                id: response.id,
+            });
+        } catch (error) {
+            console.error('Erro ao realizar estorno:', error);
+            return res.status(500).json({ error: 'Erro ao realizar estorno' });
+        }
     }
+
 }
