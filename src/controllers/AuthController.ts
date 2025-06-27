@@ -4,6 +4,7 @@ import { CustomError } from '../utils/customError'
 import nodemailer from 'nodemailer'
 import { sendCodeSMS, sendCodeWhatsApp } from '../utils/twilioService'
 import { resend } from '../utils/resend'
+// import chatpro from '@api/chatpro'
 
 const codeStore = new Map<string, string>()
 
@@ -46,6 +47,16 @@ const enviaCodigoEmail = async (email: string, codigo: string) => {
     console.error('Erro geral no envio de e-mail:', error);
   }
 };
+
+async function enviarCodigoAtivacaoChatPro(numeroCliente: string, codigo: string) {
+  // chatpro.auth('d597037283078574746e95b4e78ddd52');
+  // chatpro.send_message({
+  //   number: numeroCliente,
+  //   message: `Seu código de verificação é: ${codigo}. Não compartilhe com ninguém.`
+  // }, { instance_id: 'chatpro-4p8b76i8oq' })
+  //   .then(({ data }) => console.log(data))
+  //   .catch(err => console.error(err));
+}
 
 module.exports = {
   login: async (req: any, res: any, next: any) => {
@@ -210,7 +221,7 @@ module.exports = {
       try {
         await enviaCodigoEmail(info, code);
         codeStore.set(info, code);
-        setTimeout(() => codeStore.delete(info), 5 * 60 * 1000); // Expira em 5 minutos
+        setTimeout(() => codeStore.delete(info), 15 * 60 * 1000); // Expira em 15 minutos
         res.json({ success: true });
       } catch (error) {
         console.error("Erro ao enviar código:", error);
@@ -219,7 +230,13 @@ module.exports = {
     } else if (tipo === 'sms' || tipo === 'whatsapp') {
       try {
         if (tipo === 'whatsapp') {
-          await sendCodeWhatsApp(formatPhoneToE164(info), code);
+          // await sendCodeWhatsApp(formatPhoneToE164(info), code);
+          // await enviarCodigoAtivacaoChatPro(formatPhoneToE164(info), code)
+          await enviaCodigoEmail(info, code);
+          codeStore.set(info, code);
+          setTimeout(() => codeStore.delete(info), 15 * 60 * 1000); // Expira em 15 minutos
+          res.json({ success: true, code });
+          return;
         }
         if (tipo === 'sms') {
           console.log('info', formatPhoneToE164(info))

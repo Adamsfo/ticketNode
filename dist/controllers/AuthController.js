@@ -5,6 +5,7 @@ const jwtUtils_1 = require("../utils/jwtUtils");
 const customError_1 = require("../utils/customError");
 const twilioService_1 = require("../utils/twilioService");
 const resend_1 = require("../utils/resend");
+// import chatpro from '@api/chatpro'
 const codeStore = new Map();
 function formatPhoneToE164(phone) {
     // Remove caracteres não numéricos
@@ -43,6 +44,15 @@ const enviaCodigoEmail = async (email, codigo) => {
         console.error('Erro geral no envio de e-mail:', error);
     }
 };
+async function enviarCodigoAtivacaoChatPro(numeroCliente, codigo) {
+    // chatpro.auth('d597037283078574746e95b4e78ddd52');
+    // chatpro.send_message({
+    //   number: numeroCliente,
+    //   message: `Seu código de verificação é: ${codigo}. Não compartilhe com ninguém.`
+    // }, { instance_id: 'chatpro-4p8b76i8oq' })
+    //   .then(({ data }) => console.log(data))
+    //   .catch(err => console.error(err));
+}
 module.exports = {
     login: async (req, res, next) => {
         try {
@@ -176,7 +186,7 @@ module.exports = {
             try {
                 await enviaCodigoEmail(info, code);
                 codeStore.set(info, code);
-                setTimeout(() => codeStore.delete(info), 5 * 60 * 1000); // Expira em 5 minutos
+                setTimeout(() => codeStore.delete(info), 15 * 60 * 1000); // Expira em 15 minutos
                 res.json({ success: true });
             }
             catch (error) {
@@ -187,7 +197,13 @@ module.exports = {
         else if (tipo === 'sms' || tipo === 'whatsapp') {
             try {
                 if (tipo === 'whatsapp') {
-                    await (0, twilioService_1.sendCodeWhatsApp)(formatPhoneToE164(info), code);
+                    // await sendCodeWhatsApp(formatPhoneToE164(info), code);
+                    // await enviarCodigoAtivacaoChatPro(formatPhoneToE164(info), code)
+                    await enviaCodigoEmail(info, code);
+                    codeStore.set(info, code);
+                    setTimeout(() => codeStore.delete(info), 15 * 60 * 1000); // Expira em 15 minutos
+                    res.json({ success: true, code });
+                    return;
                 }
                 if (tipo === 'sms') {
                     console.log('info', formatPhoneToE164(info));
