@@ -301,8 +301,19 @@ module.exports = {
                 if (userIngresso.cpf) {
                     console.log('CPF do usuário do ingresso:', userIngresso.cpf);
                     const dadosJango = await apiJango().getCliente(userIngresso.cpf.toString());
-                    const clienteJango = dadosJango[0]
-                    console.log('Cliente Jango:', clienteJango);
+                    let clienteJango = dadosJango[0]
+                    if (!clienteJango) {
+                        await apiJango().atualizarCliente({
+                            CPF_CNPJ: (userIngresso.cpf ?? "").replace(/\D/g, ""),
+                            NOME: userIngresso.nomeCompleto,
+                            TELEFONE_CELULAR: (userIngresso.telefone ?? "").replace(/\D/g, ""),
+                            EMAIL: userIngresso.email,
+                        });
+                        await new Promise((resolve) => setTimeout(resolve, 1000));
+                        const dadosJango = await apiJango().getCliente((userIngresso.cpf ?? "").replace(/\D/g, ""));
+                        clienteJango = dadosJango[0];
+                    }
+
                     if (clienteJango.error) {
                         throw new CustomError(clienteJango.error, 400, '');
                     }
