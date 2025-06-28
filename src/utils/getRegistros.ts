@@ -67,32 +67,33 @@ export async function getRegistros<T extends Model>(
     if (filters && typeof filters === 'object') {
       for (const [key, value] of Object.entries(filters)) {
         if (key.includes('_')) {
-          // Se o nome do filtro contém underline, trata como uma associação
-          const [association, field] = key.split('_'); // Ex: "ClienteFornecedor", "razaoSocialNome"
-
-          // Verifica se a associação está em `includeOptions`
+          // Associações
+          const [association, field] = key.split('_');
           const assocOption = includeOptions?.find(option => option.as === association);
           if (assocOption) {
             const snakeCaseField = convertToSnakeCase(field);
-            // Condição de filtro para a associação com a tabela
-            // Usamos o formato de $association.field$ para aplicar o filtro corretamente
-            filterConditions[`$${association}.${snakeCaseField}$`] = { [Op.like]: `%${value}%` };
+            const useEq = field.toLowerCase().includes('id');
+            filterConditions[`$${association}.${snakeCaseField}$`] = useEq
+              ? { [Op.eq]: value }
+              : { [Op.like]: `%${value}%` };
           }
         } else {
-          // Para filtros normais, não relacionados a associações
+          // Campos diretos
+          const useEq = key.toLowerCase().includes('id');
           if (key.startsWith('empresaId')) {
             const ids = typeof value === 'string' ? value.split(',').map(id => parseInt(id.trim(), 10)) : value;
             if (Array.isArray(ids)) {
               filterConditions[key] = { [Op.in]: ids };
             }
-          } if (key === 'uid') {
-            filterConditions[key] = { [Op.eq]: value };
           } else {
-            filterConditions[key] = { [Op.like]: `%${value}%` };
+            filterConditions[key] = useEq
+              ? { [Op.eq]: value }
+              : { [Op.like]: `%${value}%` };
           }
         }
       }
     }
+
 
     const whereCondition = {
       ...searchCondition,
