@@ -15,6 +15,7 @@ const pagamentoRoutes = require('./routes/pagamentoRoutes');
 const ingresssoRoutes = require('./routes/ingressoRoutes');
 const transacaoRoutes = require('./routes/transacaoRoutes');
 const cupomPromocionalRoutes = require('./routes/cupomPromocialRoutes');
+const jangoRoutes = require('./routes/jangoRoutes');
 import fs from 'fs'
 
 // Inicializa o banco de dados
@@ -54,6 +55,7 @@ server.use(pagamentoRoutes);
 server.use(ingresssoRoutes)
 server.use(transacaoRoutes)
 server.use(cupomPromocionalRoutes)
+server.use(jangoRoutes)
 
 // Tratamento de erros
 server.use(errorHandler);
