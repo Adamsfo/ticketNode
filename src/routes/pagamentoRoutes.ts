@@ -12,6 +12,7 @@ router.post('/pagamentoestorno', PagamentoController.estornoPagamento)
 router.post('/pagamentocardsalvo', PagamentoController.pagamentoCardSalvo)
 router.post('/pagamentopix', PagamentoController.pagamentoPix)
 router.post('/getpreference', PagamentoController.createPreferencePayment)
+router.post('/webhookmercadopago', PagamentoController.webHookMercadoPago)
 
 // router.post('/geracode', PagamentoController.geraTokenSplit)
 // router.post('/createCardToken', PagamentoController.createCardToken)

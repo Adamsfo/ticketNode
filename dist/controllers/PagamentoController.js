@@ -246,7 +246,13 @@ module.exports = {
             await Transacao_1.HistoricoTransacao.create({ idTransacao, data, descricao: 'Tentativa Pagamento com Cartão Crédito', idUsuario });
             // Realiza o pagamento
             const response = await payment.create({ body, requestOptions });
-            console.log(response);
+            if (response.id) {
+                // Salvar dados de pagamento
+                await Transacao_1.TransacaoPagamento.create({
+                    idTransacao: idTransacao,
+                    PagamentoCodigo: response.id.toString() || '',
+                });
+            }
             if (response.status === 'approved') {
                 await transacaoPaga(idTransacao, 'Pagamento Aprovado com Cartão de Crédito', idUsuario);
             }
@@ -275,11 +281,6 @@ module.exports = {
     },
     async pagamentoCardSalvo(req, res, next) {
         const { token, payment_method_id, transaction_amount, installments, payer, items, cvv, deviceId, idTransacao } = req.body;
-        console.log('tokensalvo', token);
-        console.log('payment_method_id', payment_method_id);
-        console.log('transaction_amount', transaction_amount);
-        console.log('installments', installments);
-        console.log('payer', payer);
         const users = await Usuario_1.Usuario.findAll({
             where: { email: payer.email },
         });
@@ -363,7 +364,13 @@ module.exports = {
             const response = await payment.create({ body });
             const idUsuario = users[0].id;
             const data = new Date(); // Data atual
-            console.log('Pagamentosalvo', response);
+            if (response.id) {
+                // Salvar dados de pagamento
+                await Transacao_1.TransacaoPagamento.create({
+                    idTransacao: idTransacao,
+                    PagamentoCodigo: response.id.toString() || '',
+                });
+            }
             if (response.status === 'approved') {
                 await transacaoPaga(idTransacao, 'Pagamento Aprovado com Cartão de Crédito', idUsuario);
             }
@@ -729,6 +736,57 @@ module.exports = {
         catch (error) {
             console.error('Erro ao realizar estorno:', error);
             return res.status(500).json({ error: 'Erro ao realizar estorno' });
+        }
+    },
+    async webHookMercadoPago(req, res) {
+        const { type, data } = req.body;
+        console.log('type', type);
+        console.log('data', data);
+        console.log('WebHook Mercado Pago recebido:', req.body);
+        if (type === 'payment') {
+            const paymentId = data.id;
+            try {
+                let empresa = await Empresa_1.Empresa.findOne({
+                    where: { id: 1 },
+                });
+                if (!empresa || !empresa.accessToken) {
+                    console.log('Empresa não encontrada ou accessToken não definido');
+                    return res.status(404).json({ error: 'Empresa não encontrada ou accessToken não definido' });
+                }
+                const response = await fetch(`https://api.mercadopago.com/v1/payments/${paymentId}`, {
+                    method: 'GET',
+                    headers: {
+                        Authorization: `Bearer ${empresa.accessToken}`,
+                    }
+                });
+                const data = await response.json();
+                console.log('Dados do pagamento:', data);
+                if (data.status === 'approved') {
+                    const transacaoPagamento = await Transacao_1.TransacaoPagamento.findOne({
+                        where: { PagamentoCodigo: paymentId }
+                    });
+                    if (transacaoPagamento) {
+                        const idTransacao = transacaoPagamento.idTransacao;
+                        const transacao = await Transacao_1.Transacao.findOne({
+                            where: { id: idTransacao },
+                        });
+                        if (!transacao) {
+                            return res.status(404).json({ error: 'Transação não encontrada' });
+                        }
+                        if (transacao.status != 'Pago') {
+                            await transacaoPaga(idTransacao, 'Pagamento Realizado e enviado por WebHook', transacao.idUsuario);
+                        }
+                    }
+                }
+                res.status(200).json({ message: 'Webhook processado com sucesso' });
+            }
+            catch (error) {
+                console.error('Erro ao processar webhook:', error);
+                res.status(500).json({ error: 'Erro ao processar webhook' });
+            }
+        }
+        else {
+            res.status(400).json({ error: 'Tipo de webhook não suportado' });
         }
     }
 };
