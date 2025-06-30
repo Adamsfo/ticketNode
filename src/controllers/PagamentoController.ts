@@ -684,7 +684,7 @@ module.exports = {
                     transacao.save();
 
                     // Atualiza status da transação
-                    await transacaoPaga(idTransacao, 'Pagamento Via Pix Aprovado', idUsuario)
+                    await transacaoPaga(idTransacao, 'Pagamento Aprovado', idUsuario)
                 }
             }
 

@@ -571,7 +571,7 @@ module.exports = {
                     transacao.idTransacaoRecebidoMP = id;
                     transacao.save();
                     // Atualiza status da transação
-                    await transacaoPaga(idTransacao, 'Pagamento Via Pix Aprovado', idUsuario);
+                    await transacaoPaga(idTransacao, 'Pagamento Aprovado', idUsuario);
                 }
             }
             res.status(200).json({

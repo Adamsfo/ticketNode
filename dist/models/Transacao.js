@@ -54,8 +54,8 @@ class Transacao extends sequelize_1.Model {
                 allowNull: true
             },
             idTransacaoRecebidoMP: {
-                type: sequelize_1.DataTypes.INTEGER,
-                allowNull: true,
+                type: sequelize_1.DataTypes.STRING,
+                allowNull: true
             }
         }, {
             sequelize,
