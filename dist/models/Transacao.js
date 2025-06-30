@@ -44,6 +44,14 @@ class Transacao extends sequelize_1.Model {
                 type: sequelize_1.DataTypes.BOOLEAN,
                 allowNull: false,
                 defaultValue: true
+            },
+            valorRecebido: {
+                type: sequelize_1.DataTypes.DECIMAL(14, 2),
+                allowNull: true
+            },
+            valorTaxaProcessamento: {
+                type: sequelize_1.DataTypes.DECIMAL(14, 2),
+                allowNull: true
             }
         }, {
             sequelize,

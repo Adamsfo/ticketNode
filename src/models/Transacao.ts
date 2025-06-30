@@ -14,6 +14,8 @@ interface TransacaoAttributes {
     valorTotal: number;
     status: "Aguardando pagamento" | "Aguardando confirmação" | "Pago" | "Cancelado";
     aceiteCompra: boolean;
+    valorRecebido?: number; // Valor líquido após taxas e descontos
+    valorTaxaProcessamento?: number; // Valor total das taxas aplicadas
 }
 
 interface TransacaoCreationAttributes extends Optional<TransacaoAttributes, 'id'> { }
@@ -27,6 +29,8 @@ class Transacao extends Model<TransacaoAttributes, TransacaoCreationAttributes> 
     public valorTotal!: number;
     public status!: "Aguardando pagamento" | "Aguardando confirmação" | "Pago" | "Cancelado";
     public aceiteCompra!: boolean;
+    public valorRecebido?: number; // Valor líquido após taxas e descontos
+    public valorTaxaProcessamento?: number; // Valor total das taxas aplicadas
 
     static initialize(sequelize: Sequelize) {
         Transacao.init({
@@ -67,6 +71,14 @@ class Transacao extends Model<TransacaoAttributes, TransacaoCreationAttributes> 
                 type: DataTypes.BOOLEAN,
                 allowNull: false,
                 defaultValue: true
+            },
+            valorRecebido: {
+                type: DataTypes.DECIMAL(14, 2),
+                allowNull: true
+            },
+            valorTaxaProcessamento: {
+                type: DataTypes.DECIMAL(14, 2),
+                allowNull: true
             }
         }, {
             sequelize,

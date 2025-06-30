@@ -934,6 +934,11 @@ module.exports = {
                             return res.status(404).json({ error: 'Transação não encontrada' });
                         }
 
+                        transacao.valorTaxaProcessamento = data.fee_details
+                            ?.find((fee: any) => fee.type === 'mercadopago_fee')?.amount || 0;
+
+                        transacao.valorRecebido = data.transaction_details?.net_received_amount || 0;
+
                         if (transacao.status != 'Pago') {
                             await transacaoPaga(idTransacao, 'Pagamento Realizado e enviado por WebHook', transacao.idUsuario)
                         }
