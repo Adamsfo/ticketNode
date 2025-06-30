@@ -215,7 +215,6 @@ module.exports = {
                 issuer_id: issuer_id,
                 payer: {
                     ...payer,
-                    name: `${first_name} ${last_name}`,
                     first_name: first_name,
                     last_name: last_name,
                 },
@@ -421,7 +420,6 @@ module.exports = {
                     description: descricao || ' - Pagamento via Pix',
                     payer: {
                         email: email,
-                        name: `${users[0]?.nomeCompleto} ${users[0]?.sobreNome}`,
                         first_name: users[0]?.nomeCompleto,
                         last_name: users[0]?.sobreNome,
                     },
