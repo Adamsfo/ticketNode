@@ -27,21 +27,21 @@ function generateUniqueIdempotencyKey(): string {
 }
 
 // Função para salvar dados de pagamento
-async function savePaymentData(paymentResponse: any, payer: any, idUsuario: number, token: string) {
-    const encryptedData = encrypt(JSON.stringify({
-        payment_method_id: paymentResponse.payment_method_id,
-        issuer_id: paymentResponse.issuer_id,
-        card: paymentResponse.card,
-        payer: payer,
-        token: token,
-    }));
+// async function savePaymentData(paymentResponse: any, payer: any, idUsuario: number, token: string) {
+//     const encryptedData = encrypt(JSON.stringify({
+//         payment_method_id: paymentResponse.payment_method_id,
+//         issuer_id: paymentResponse.issuer_id,
+//         card: paymentResponse.card,
+//         payer: payer,
+//         token: token,
+//     }));
 
-    // Supondo que você tenha um modelo de banco de dados PaymentData
-    await UsuarioMetodoPagamento.create({
-        idUsuario: idUsuario,
-        dados: encryptedData,
-    });
-}
+//     // Supondo que você tenha um modelo de banco de dados PaymentData
+//     await UsuarioMetodoPagamento.create({
+//         idUsuario: idUsuario,
+//         dados: encryptedData,
+//     });
+// }
 
 async function transacaoPaga(idTransacao: number, descricao: string, idUsuario: number) {
     const transaction = await connection.transaction(); // substitua pela instância correta do Sequelize
@@ -263,6 +263,7 @@ module.exports = {
                 issuer_id: issuer_id,
                 payer: {
                     ...payer,
+                    name: `${first_name} ${last_name}`,
                     first_name: first_name,
                     last_name: last_name,
                 },
@@ -314,9 +315,6 @@ module.exports = {
             } else {
                 await HistoricoTransacao.create({ idTransacao, data, descricao: `Pagamento ${response.status} - ${response.status_detail}`, idUsuario });
             }
-
-            // Salvar dados de pagamento
-            // await savePaymentData(response, payer, idUsuario, token);
 
             res.status(200).json({
                 status: response.status,
@@ -452,8 +450,6 @@ module.exports = {
             } else {
                 await HistoricoTransacao.create({ idTransacao, data, descricao: `Pagamento ${response.status} - ${response.status_detail}`, idUsuario });
             }
-            // Salvar dados de pagamento
-            // await savePaymentData(response, payer, idUsuario, token);
 
             res.status(200).json({
                 status: response.status,
@@ -508,6 +504,7 @@ module.exports = {
                     description: descricao || ' - Pagamento via Pix',
                     payer: {
                         email: email,
+                        name: `${users[0]?.nomeCompleto} ${users[0]?.sobreNome}`,
                         first_name: users[0]?.nomeCompleto,
                         last_name: users[0]?.sobreNome,
                     },
