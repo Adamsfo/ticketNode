@@ -16,6 +16,7 @@ interface TransacaoAttributes {
     aceiteCompra: boolean;
     valorRecebido?: number; // Valor líquido após taxas e descontos
     valorTaxaProcessamento?: number; // Valor total das taxas aplicadas
+    idTransacaoRecebidoMP?: number; // Opcional, usado para transações de pagamento
 }
 
 interface TransacaoCreationAttributes extends Optional<TransacaoAttributes, 'id'> { }
@@ -31,6 +32,7 @@ class Transacao extends Model<TransacaoAttributes, TransacaoCreationAttributes> 
     public aceiteCompra!: boolean;
     public valorRecebido?: number; // Valor líquido após taxas e descontos
     public valorTaxaProcessamento?: number; // Valor total das taxas aplicadas
+    public idTransacaoRecebidoMP?: number; // Opcional, usado para transações de pagamento
 
     static initialize(sequelize: Sequelize) {
         Transacao.init({
@@ -79,6 +81,10 @@ class Transacao extends Model<TransacaoAttributes, TransacaoCreationAttributes> 
             valorTaxaProcessamento: {
                 type: DataTypes.DECIMAL(14, 2),
                 allowNull: true
+            },
+            idTransacaoRecebidoMP: {
+                type: DataTypes.INTEGER,
+                allowNull: true,
             }
         }, {
             sequelize,
@@ -281,6 +287,7 @@ interface TransacaoPagamentoAttributes {
     id: number;
     idTransacao: number;
     PagamentoCodigo: string;
+
 }
 
 interface TransacaoPagamentoCreationAttributes extends Optional<TransacaoPagamentoAttributes, 'id'> { }

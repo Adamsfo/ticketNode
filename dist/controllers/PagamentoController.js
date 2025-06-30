@@ -554,11 +554,21 @@ module.exports = {
             });
             const data = await response.json();
             if (data.status === 'approved') {
-                const Transacao = await Transacao_1.TransacaoPagamento.findOne({
+                const transacaoPagamento = await Transacao_1.TransacaoPagamento.findOne({
                     where: { PagamentoCodigo: id }
                 });
-                if (Transacao) {
-                    const idTransacao = Transacao.idTransacao;
+                if (transacaoPagamento) {
+                    const idTransacao = transacaoPagamento.idTransacao;
+                    const transacao = await Transacao_1.Transacao.findOne({
+                        where: { id: transacaoPagamento.idTransacao },
+                    });
+                    if (!transacao) {
+                        return res.status(404).json({ error: 'Transação não encontrada' });
+                    }
+                    transacao.valorTaxaProcessamento = data.fee_details
+                        ?.find((fee) => fee.type === 'mercadopago_fee')?.amount || 0;
+                    transacao.valorRecebido = data.transaction_details?.net_received_amount || 0;
+                    transacao.idTransacaoRecebidoMP = id;
                     // Atualiza status da transação
                     await transacaoPaga(idTransacao, 'Pagamento Via Pix Aprovado', idUsuario);
                 }
@@ -723,9 +733,11 @@ module.exports = {
                 accessToken: empresa.accessToken ?? '',
             });
             const paymentRefund = new mercadopago_1.PaymentRefund(client);
+            console.log('Transação PagamentoCodigo:', transacao.PagamentoCodigo);
             const response = await paymentRefund.create({
                 payment_id: transacao.PagamentoCodigo,
             });
+            console.log('response', response);
             await transacaoCancelada(idTransacao, 'Estorno realizado com sucesso id:' + response.id, idUsuario);
             console.log('Estorno realizado:', response);
             return res.status(200).json({
@@ -776,6 +788,7 @@ module.exports = {
                         transacao.valorTaxaProcessamento = data.fee_details
                             ?.find((fee) => fee.type === 'mercadopago_fee')?.amount || 0;
                         transacao.valorRecebido = data.transaction_details?.net_received_amount || 0;
+                        transacao.idTransacaoRecebidoMP = paymentId;
                         if (transacao.status != 'Pago') {
                             await transacaoPaga(idTransacao, 'Pagamento Realizado e enviado por WebHook', transacao.idUsuario);
                         }

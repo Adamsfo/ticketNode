@@ -52,6 +52,10 @@ class Transacao extends sequelize_1.Model {
             valorTaxaProcessamento: {
                 type: sequelize_1.DataTypes.DECIMAL(14, 2),
                 allowNull: true
+            },
+            idTransacaoRecebidoMP: {
+                type: sequelize_1.DataTypes.INTEGER,
+                allowNull: true,
             }
         }, {
             sequelize,
