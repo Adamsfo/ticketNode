@@ -14,6 +14,7 @@ const Ingresso_1 = require("../models/Ingresso");
 const Transacao_1 = require("../models/Transacao");
 const ClienteMetodoPagamento_1 = require("../models/ClienteMetodoPagamento");
 const CupomPromocional_1 = require("../models/CupomPromocional");
+const Visitas_1 = require("../models/Visitas");
 const ConfigIniciais = require('./ConfigIniciais');
 const FuncaoSistema = require('./FuncaoSistema');
 const connection = new Sequelize(dbConfig);
@@ -39,6 +40,7 @@ const connection = new Sequelize(dbConfig);
         (0, Ingresso_1.IngressoInit)(connection);
         (0, Transacao_1.TransacaoInit)(connection);
         (0, ClienteMetodoPagamento_1.UsuarioMetodoPagamentoInit)(connection);
+        (0, Visitas_1.VisitasInit)(connection);
         // Sincronizando os modelos com o banco de dados        
         await connection.sync();
         // await connection.sync({ alter: true });

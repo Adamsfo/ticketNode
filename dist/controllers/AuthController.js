@@ -5,6 +5,7 @@ const jwtUtils_1 = require("../utils/jwtUtils");
 const customError_1 = require("../utils/customError");
 const twilioService_1 = require("../utils/twilioService");
 const resend_1 = require("../utils/resend");
+const Visitas_1 = require("../models/Visitas");
 // import chatpro from '@api/chatpro'
 const codeStore = new Map();
 function formatPhoneToE164(phone) {
@@ -216,4 +217,16 @@ module.exports = {
             }
         }
     },
+    visitasNoSite: async (req, res) => {
+        let visitas = await Visitas_1.Visitas.findByPk(1);
+        if (!visitas) {
+            const novaVisita = await Visitas_1.Visitas.create({ quantidade: 1 });
+            visitas = novaVisita;
+        }
+        if (visitas) {
+            visitas.quantidade += 1;
+            await visitas.save();
+        }
+        return res.json({ success: true, visitasNoSite: visitas ? visitas.quantidade : 1 });
+    }
 };

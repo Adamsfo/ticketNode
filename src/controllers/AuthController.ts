@@ -4,6 +4,7 @@ import { CustomError } from '../utils/customError'
 import nodemailer from 'nodemailer'
 import { sendCodeSMS, sendCodeWhatsApp } from '../utils/twilioService'
 import { resend } from '../utils/resend'
+import { Visitas } from '../models/Visitas'
 // import chatpro from '@api/chatpro'
 
 const codeStore = new Map<string, string>()
@@ -248,4 +249,20 @@ module.exports = {
       }
     }
   },
+
+  visitasNoSite: async (req: any, res: any) => {
+
+    let visitas = await Visitas.findByPk(1);
+    if (!visitas) {
+      const novaVisita = await Visitas.create({ quantidade: 1 });
+      visitas = novaVisita;
+    }
+
+    if (visitas) {
+      visitas.quantidade += 1;
+      await visitas.save();
+    }
+
+    return res.json({ success: true, visitasNoSite: visitas ? visitas.quantidade : 1 });
+  }
 }
