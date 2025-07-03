@@ -306,13 +306,13 @@ module.exports = {
                             ingressoTransacao.precoDesconto = Number(cupomDesconto.valorDesconto);
                         }
 
-                        ingressoTransacao.preco = Number(ingressoTransacao.precoOriginal) - Number(ingressoTransacao.precoDesconto);
-                        ingressoTransacao.valorTotal = Number(ingressoTransacao.preco) + Number(ingressoTransacao.taxaServico);
-
                         if (cupomDesconto.valorDescontoTaxa) {
                             ingressoTransacao.taxaServico = Number(ingressoTransacao.taxaServico) - Number(cupomDesconto.valorDescontoTaxa);
                             ingressoTransacao.taxaServicoDesconto = Number(cupomDesconto.valorDescontoTaxa);
                         }
+
+                        ingressoTransacao.preco = Number(ingressoTransacao.precoOriginal) - Number(ingressoTransacao.precoDesconto);
+                        ingressoTransacao.valorTotal = Number(ingressoTransacao.preco) + Number(ingressoTransacao.taxaServico);
 
                         await ingressoTransacao.save();
                     } catch (error) {
