@@ -145,6 +145,10 @@ class IngressoTransacao extends sequelize_1.Model {
                 type: sequelize_1.DataTypes.DECIMAL(14, 2),
                 allowNull: true,
                 defaultValue: 0 // Valor padrão
+            },
+            taxaServicoOriginal: {
+                type: sequelize_1.DataTypes.DECIMAL(14, 2),
+                allowNull: true,
             }
         }, {
             sequelize,

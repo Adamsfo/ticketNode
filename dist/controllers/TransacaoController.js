@@ -245,6 +245,9 @@ module.exports = {
                         if (ingressoTransacao.precoOriginal === null) {
                             ingressoTransacao.precoOriginal = ingressoTransacao.preco;
                         }
+                        if (ingressoTransacao.taxaServicoOriginal === null) {
+                            ingressoTransacao.taxaServicoOriginal = ingressoTransacao.taxaServico;
+                        }
                         if (!ingressoTransacao.precoOriginal) {
                             throw new customError_1.CustomError('Preço original do ingresso não definido.', 400, '');
                         }
@@ -259,7 +262,7 @@ module.exports = {
                             ingressoTransacao.precoDesconto = Number(cupomDesconto.valorDesconto);
                         }
                         if (cupomDesconto.valorDescontoTaxa) {
-                            ingressoTransacao.taxaServico = Number(ingressoTransacao.taxaServico) - Number(cupomDesconto.valorDescontoTaxa);
+                            ingressoTransacao.taxaServico = Number(ingressoTransacao.taxaServicoOriginal) - Number(cupomDesconto.valorDescontoTaxa);
                             ingressoTransacao.taxaServicoDesconto = Number(cupomDesconto.valorDescontoTaxa);
                         }
                         ingressoTransacao.preco = Number(ingressoTransacao.precoOriginal) - Number(ingressoTransacao.precoDesconto);
@@ -274,15 +277,18 @@ module.exports = {
                 else {
                     // 🚩 REVERTER PARA VALORES ORIGINAIS
                     try {
-                        console.log('Evento Ingresso não encontrado promicional');
                         if (ingressoTransacao.precoOriginal !== null && ingressoTransacao.precoOriginal !== undefined) {
                             ingressoTransacao.preco = Number(ingressoTransacao.precoOriginal);
                             ingressoTransacao.valorTotal = Number(ingressoTransacao.preco) + Number(ingressoTransacao.taxaServico);
+                        }
+                        if (ingressoTransacao.taxaServicoOriginal === null) {
+                            ingressoTransacao.taxaServicoOriginal = Number(ingressoTransacao.taxaServico);
                         }
                         ingressoTransacao.idCupomPromocionalValidade = null;
                         ingressoTransacao.tipoDesconto = CupomPromocional_1.TipoDesconto.Nenhum;
                         ingressoTransacao.valorDesconto = null;
                         ingressoTransacao.precoDesconto = null;
+                        ingressoTransacao.taxaServico = Number(ingressoTransacao.taxaServicoOriginal);
                         ingressoTransacao.taxaServicoDesconto = 0;
                         await ingressoTransacao.save();
                     }

@@ -126,6 +126,7 @@ interface IngressoTransacaoAttributes {
     taxaServico: number;
     valorTotal: number;
     taxaServicoDesconto?: number;
+    taxaServicoOriginal?: number;
 }
 
 interface IngressoTransacaoCreationAttributes extends Optional<IngressoTransacaoAttributes, 'id'> { }
@@ -143,6 +144,7 @@ class IngressoTransacao extends Model<IngressoTransacaoAttributes, IngressoTrans
     public taxaServico!: number;
     public valorTotal!: number;
     public taxaServicoDesconto?: number;
+    public taxaServicoOriginal?: number;
 
     static initialize(sequelize: Sequelize) {
         IngressoTransacao.init({
@@ -208,6 +210,10 @@ class IngressoTransacao extends Model<IngressoTransacaoAttributes, IngressoTrans
                 type: DataTypes.DECIMAL(14, 2),
                 allowNull: true,
                 defaultValue: 0 // Valor padrão
+            },
+            taxaServicoOriginal: {
+                type: DataTypes.DECIMAL(14, 2),
+                allowNull: true,
             }
         }, {
             sequelize,

@@ -45,8 +45,8 @@ const connection = new Sequelize(dbConfig);
     VisitasInit(connection)
 
     // Sincronizando os modelos com o banco de dados        
-    await connection.sync();
-    // await connection.sync({ alter: true });
+    // await connection.sync();
+    await connection.sync({ alter: true });
 
     // Executando configurações iniciais
     await FuncaoSistema.funcaoSistema();
