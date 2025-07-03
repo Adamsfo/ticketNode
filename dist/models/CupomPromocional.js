@@ -36,6 +36,11 @@ class CupomPromocional extends sequelize_1.Model {
                 type: sequelize_1.DataTypes.FLOAT,
                 allowNull: false,
                 defaultValue: 0 // Valor padrão
+            },
+            valorDescontoTaxa: {
+                type: sequelize_1.DataTypes.FLOAT,
+                allowNull: true, // Pode ser nulo se não houver desconto na taxa
+                defaultValue: 0 // Valor padrão
             }
         }, {
             sequelize,

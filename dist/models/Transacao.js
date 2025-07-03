@@ -56,6 +56,11 @@ class Transacao extends sequelize_1.Model {
             idTransacaoRecebidoMP: {
                 type: sequelize_1.DataTypes.STRING,
                 allowNull: true
+            },
+            taxaServicoDesconto: {
+                type: sequelize_1.DataTypes.DECIMAL(14, 2),
+                allowNull: true,
+                defaultValue: 0 // Valor padrão
             }
         }, {
             sequelize,
@@ -135,6 +140,11 @@ class IngressoTransacao extends sequelize_1.Model {
             valorTotal: {
                 type: sequelize_1.DataTypes.DECIMAL(14, 2),
                 allowNull: false
+            },
+            taxaServicoDesconto: {
+                type: sequelize_1.DataTypes.DECIMAL(14, 2),
+                allowNull: true,
+                defaultValue: 0 // Valor padrão
             }
         }, {
             sequelize,

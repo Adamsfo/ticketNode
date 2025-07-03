@@ -260,6 +260,10 @@ module.exports = {
                         }
                         ingressoTransacao.preco = Number(ingressoTransacao.precoOriginal) - Number(ingressoTransacao.precoDesconto);
                         ingressoTransacao.valorTotal = Number(ingressoTransacao.preco) + Number(ingressoTransacao.taxaServico);
+                        if (cupomDesconto.valorDescontoTaxa) {
+                            ingressoTransacao.taxaServico = Number(ingressoTransacao.taxaServico) - Number(cupomDesconto.valorDescontoTaxa);
+                            ingressoTransacao.taxaServicoDesconto = Number(cupomDesconto.valorDescontoTaxa);
+                        }
                         await ingressoTransacao.save();
                     }
                     catch (error) {
@@ -279,6 +283,7 @@ module.exports = {
                         ingressoTransacao.tipoDesconto = CupomPromocional_1.TipoDesconto.Nenhum;
                         ingressoTransacao.valorDesconto = null;
                         ingressoTransacao.precoDesconto = null;
+                        ingressoTransacao.taxaServicoDesconto = 0;
                         await ingressoTransacao.save();
                     }
                     catch (error) {
@@ -293,8 +298,8 @@ module.exports = {
             });
             transacao.preco = ingressosTransacaoTotal.reduce((preco, ingresso) => preco + Number(ingresso.preco || 0), 0);
             transacao.taxaServico = ingressosTransacaoTotal.reduce((taxa, ingresso) => taxa + Number(ingresso.taxaServico || 0), 0);
+            transacao.taxaServicoDesconto = ingressosTransacaoTotal.reduce((taxa, ingresso) => taxa + Number(ingresso.taxaServicoDesconto || 0), 0);
             transacao.valorTotal = ingressosTransacaoTotal.reduce((total, ingresso) => total + Number(ingresso.valorTotal || 0), 0);
-            console.log('Transação atualizada:', transacao);
             await transacao.save();
             return res.status(200).json({
                 message: "Cupom promocional aplicado com sucesso.",

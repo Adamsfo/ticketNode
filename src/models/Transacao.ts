@@ -17,6 +17,7 @@ interface TransacaoAttributes {
     valorRecebido?: number; // Valor líquido após taxas e descontos
     valorTaxaProcessamento?: number; // Valor total das taxas aplicadas
     idTransacaoRecebidoMP?: string; // Opcional, usado para transações de pagamento
+    taxaServicoDesconto?: number; // Valor do desconto aplicado na taxa de serviço, se aplicável
 }
 
 interface TransacaoCreationAttributes extends Optional<TransacaoAttributes, 'id'> { }
@@ -33,6 +34,7 @@ class Transacao extends Model<TransacaoAttributes, TransacaoCreationAttributes> 
     public valorRecebido?: number; // Valor líquido após taxas e descontos
     public valorTaxaProcessamento?: number; // Valor total das taxas aplicadas
     public idTransacaoRecebidoMP?: string; // Opcional, usado para transações de pagamento
+    public taxaServicoDesconto?: number; // Valor do desconto aplicado na taxa de serviço, se aplicável
 
     static initialize(sequelize: Sequelize) {
         Transacao.init({
@@ -85,6 +87,11 @@ class Transacao extends Model<TransacaoAttributes, TransacaoCreationAttributes> 
             idTransacaoRecebidoMP: {
                 type: DataTypes.STRING,
                 allowNull: true
+            },
+            taxaServicoDesconto: {
+                type: DataTypes.DECIMAL(14, 2),
+                allowNull: true,
+                defaultValue: 0 // Valor padrão
             }
         }, {
             sequelize,
@@ -118,6 +125,7 @@ interface IngressoTransacaoAttributes {
     preco: number;
     taxaServico: number;
     valorTotal: number;
+    taxaServicoDesconto?: number;
 }
 
 interface IngressoTransacaoCreationAttributes extends Optional<IngressoTransacaoAttributes, 'id'> { }
@@ -134,6 +142,7 @@ class IngressoTransacao extends Model<IngressoTransacaoAttributes, IngressoTrans
     public preco!: number;
     public taxaServico!: number;
     public valorTotal!: number;
+    public taxaServicoDesconto?: number;
 
     static initialize(sequelize: Sequelize) {
         IngressoTransacao.init({
@@ -194,6 +203,11 @@ class IngressoTransacao extends Model<IngressoTransacaoAttributes, IngressoTrans
             valorTotal: {
                 type: DataTypes.DECIMAL(14, 2),
                 allowNull: false
+            },
+            taxaServicoDesconto: {
+                type: DataTypes.DECIMAL(14, 2),
+                allowNull: true,
+                defaultValue: 0 // Valor padrão
             }
         }, {
             sequelize,

@@ -15,6 +15,7 @@ interface CupomPromocionalAttributes {
     idProdutor: number;
     tipoDesconto: TipoDesconto; // Exemplo: 'percentual', 'valor_fixo'
     valorDesconto: number; // Valor do desconto, se aplicável
+    valorDescontoTaxa?: number; // Valor do desconto aplicado na taxa de serviço, se aplicável
 }
 
 interface CupomPromocionalCreationAttributes extends Optional<CupomPromocionalAttributes, 'id'> { }
@@ -25,6 +26,7 @@ class CupomPromocional extends Model<CupomPromocionalAttributes, CupomPromociona
     public idProdutor!: number;
     public tipoDesconto!: TipoDesconto;
     public valorDesconto!: number; // Valor do desconto, se aplicável
+    public valorDescontoTaxa?: number; // Valor do desconto aplicado na taxa de serviço, se aplicável
 
     static initialize(sequelize: Sequelize) {
         CupomPromocional.init({
@@ -50,6 +52,11 @@ class CupomPromocional extends Model<CupomPromocionalAttributes, CupomPromociona
             valorDesconto: {
                 type: DataTypes.FLOAT,
                 allowNull: false,
+                defaultValue: 0 // Valor padrão
+            },
+            valorDescontoTaxa: {
+                type: DataTypes.FLOAT,
+                allowNull: true, // Pode ser nulo se não houver desconto na taxa
                 defaultValue: 0 // Valor padrão
             }
         }, {
