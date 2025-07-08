@@ -61,6 +61,18 @@ class Transacao extends sequelize_1.Model {
                 type: sequelize_1.DataTypes.DECIMAL(14, 2),
                 allowNull: true,
                 defaultValue: 0 // Valor padrão
+            },
+            dataPagamento: {
+                type: sequelize_1.DataTypes.DATE,
+                allowNull: true
+            },
+            idEvento: {
+                type: sequelize_1.DataTypes.INTEGER,
+                allowNull: true,
+                references: {
+                    model: 'Evento',
+                    key: 'id'
+                }
             }
         }, {
             sequelize,

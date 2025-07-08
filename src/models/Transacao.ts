@@ -18,6 +18,8 @@ interface TransacaoAttributes {
     valorTaxaProcessamento?: number; // Valor total das taxas aplicadas
     idTransacaoRecebidoMP?: string; // Opcional, usado para transações de pagamento
     taxaServicoDesconto?: number; // Valor do desconto aplicado na taxa de serviço, se aplicável
+    dataPagamento?: Date; // Data do pagamento, se aplicável
+    idEvento?: number; // Opcional, usado para transações de eventos
 }
 
 interface TransacaoCreationAttributes extends Optional<TransacaoAttributes, 'id'> { }
@@ -35,6 +37,8 @@ class Transacao extends Model<TransacaoAttributes, TransacaoCreationAttributes> 
     public valorTaxaProcessamento?: number; // Valor total das taxas aplicadas
     public idTransacaoRecebidoMP?: string; // Opcional, usado para transações de pagamento
     public taxaServicoDesconto?: number; // Valor do desconto aplicado na taxa de serviço, se aplicável
+    public dataPagamento?: Date; // Data do pagamento, se aplicável
+    public idEvento?: number;
 
     static initialize(sequelize: Sequelize) {
         Transacao.init({
@@ -92,6 +96,18 @@ class Transacao extends Model<TransacaoAttributes, TransacaoCreationAttributes> 
                 type: DataTypes.DECIMAL(14, 2),
                 allowNull: true,
                 defaultValue: 0 // Valor padrão
+            },
+            dataPagamento: {
+                type: DataTypes.DATE,
+                allowNull: true
+            },
+            idEvento: {
+                type: DataTypes.INTEGER,
+                allowNull: true,
+                references: {
+                    model: 'Evento',
+                    key: 'id'
+                }
             }
         }, {
             sequelize,

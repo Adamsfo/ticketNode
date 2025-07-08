@@ -11,6 +11,7 @@ import { parseISO } from "date-fns";
 import { Usuario } from "../models/Usuario";
 import { formatInTimeZone } from "date-fns-tz";
 import apiJango from "../api/apiJango";
+import { col, fn, Op } from "sequelize";
 
 export const addIngressoTransacao = async (idTransacao: number, idIngresso: number, preco: number, taxaServico: number, valorTotal: number) => {
     try {
@@ -385,4 +386,57 @@ module.exports = {
             next(error); // Passa o erro para o middleware de tratamento de erros
         }
     },
+
+    async getDadosIngressos(req: any, res: any, next: any) {
+        try {
+            const { idEvento, dataInicio, dataFim } = req.query;
+
+            if (!idEvento) {
+                throw new CustomError('ID do evento é obrigatório.', 400, '');
+            }
+
+            const ingressos = await Ingresso.findAll({
+                where: {
+                    idEvento,
+                    status: 'Utilizado',
+                    dataUtilizado: {
+                        [Op.between]: [dataInicio + ' 00:00:00', dataFim + ' 23:59:59'], // Inclui o final do dia
+                    },
+                },
+                attributes: [
+                    [fn('DATE', col('data_utilizado')), 'data'],
+                    'id_evento_ingresso',
+                    [fn('COUNT', fn('DISTINCT', col('Ingresso.id'))), 'quantidade'], // 👈 AQUI
+                ],
+                include: [
+                    {
+                        model: EventoIngresso,
+                        as: 'EventoIngresso',
+                        attributes: ['nome'],
+                    },
+                ],
+                group: [
+                    fn('DATE', col('data_utilizado')),
+                    'id_evento_ingresso',
+                    col('EventoIngresso.nome'),
+                ],
+                order: [[fn('DATE', col('data_utilizado')), 'ASC']],
+                raw: false,
+            });
+
+            const result = {
+                data: ingressos,
+                meta: {
+                    totalItems: ingressos.length,
+                    totalPages: 1, // Como estamos retornando todos os dados de uma vez, totalPages é 1
+                    currentPage: 1,
+                    pageSize: ingressos.length
+                }
+            };
+
+            return res.status(200).json(result);
+        } catch (error) {
+            next(error);
+        }
+    }
 }

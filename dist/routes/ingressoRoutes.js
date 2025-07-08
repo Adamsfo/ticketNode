@@ -14,4 +14,5 @@ router.put('/ingressonome/:id', authenticate, IngressoController.editNomeImpress
 router.put('/atribuiroutrousuario/:id', authenticate, IngressoController.atribuirOutroUsuario);
 router.delete('/ingresso/:id', authenticate, IngressoController.delete);
 router.post('/validadorjango', authenticate, IngressoController.validadorJango);
+router.get('/dadosingressos', authenticate, IngressoController.getDadosIngressos);
 module.exports = router;

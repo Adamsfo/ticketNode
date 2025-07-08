@@ -320,5 +320,68 @@ module.exports = {
             }
             next(error);
         }
+    },
+    getDadosTransacoesPagas: async (req, res, next) => {
+        try {
+            const { idEvento, dataInicio, dataFim } = req.query;
+            if (!idEvento) {
+                throw new customError_1.CustomError("ID do evento é obrigatório.", 400, "");
+            }
+            const transacoesPagas = await Transacao_1.Transacao.findAll({
+                where: {
+                    status: "Pago",
+                    idEvento,
+                    dataPagamento: {
+                        [sequelize_1.Op.between]: [`${dataInicio} 00:00:00`, `${dataFim} 23:59:59`],
+                    },
+                },
+                raw: true,
+            });
+            const resumoPorData = {};
+            for (const item of transacoesPagas) {
+                const dataPagamento = item.dataPagamento
+                    ? new Date(item.dataPagamento)
+                    : null;
+                if (!dataPagamento || isNaN(dataPagamento.getTime())) {
+                    console.warn("Transação com data inválida:", item);
+                    continue;
+                }
+                const data = dataPagamento.toISOString().split("T")[0];
+                if (!resumoPorData[data]) {
+                    resumoPorData[data] = {
+                        preco: 0,
+                        valorRecebido: 0,
+                        valorTaxaProcessamento: 0,
+                    };
+                }
+                resumoPorData[data].preco += Number(item.preco || 0);
+                resumoPorData[data].valorRecebido += Number(item.valorRecebido || 0);
+                resumoPorData[data].valorTaxaProcessamento += Number(item.valorTaxaProcessamento || 0);
+            }
+            let resultado = Object.entries(resumoPorData).map(([data, valores]) => ({
+                data,
+                ...valores,
+            }));
+            const total = resultado.reduce((acc, curr) => ({
+                preco: acc.preco + curr.preco,
+                valorRecebido: acc.valorRecebido + curr.valorRecebido,
+                valorTaxaProcessamento: acc.valorTaxaProcessamento + curr.valorTaxaProcessamento,
+            }), { preco: 0, valorRecebido: 0, valorTaxaProcessamento: 0 });
+            // adiciona linha de total como último item do array
+            resultado.push({
+                data: "Total",
+                ...total,
+            });
+            return res.status(200).json({ data: resultado });
+        }
+        catch (error) {
+            console.error("Erro ao obter transações pagas:", error);
+            if (error instanceof customError_1.CustomError) {
+                return res
+                    .status(error.statusCode)
+                    .json({ message: error.message });
+            }
+            return res.status(500).json({ message: "Erro interno", error: error.message });
+        }
     }
 };

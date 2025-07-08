@@ -49,7 +49,7 @@ async function transacaoPaga(idTransacao: number, descricao: string, idUsuario: 
     try {
         // Atualiza status da transação
         await Transacao.update(
-            { status: 'Pago' },
+            { status: 'Pago', dataPagamento: new Date() }, // Adiciona a data do pagamento
             { where: { id: idTransacao }, transaction }
         );
 

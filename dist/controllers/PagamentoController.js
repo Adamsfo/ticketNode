@@ -43,7 +43,8 @@ async function transacaoPaga(idTransacao, descricao, idUsuario) {
     const transaction = await database_1.default.transaction(); // substitua pela instância correta do Sequelize
     try {
         // Atualiza status da transação
-        await Transacao_1.Transacao.update({ status: 'Pago' }, { where: { id: idTransacao }, transaction });
+        await Transacao_1.Transacao.update({ status: 'Pago', dataPagamento: new Date() }, // Adiciona a data do pagamento
+        { where: { id: idTransacao }, transaction });
         // Cria histórico da transação
         await Transacao_1.HistoricoTransacao.create({
             idTransacao,

@@ -13,4 +13,5 @@ router.put('/transacao/:id', authenticate, TransacaoController.edit);
 router.delete('/transacao/:id', authenticate, TransacaoController.delete);
 router.get('/ingressotransacao', authenticate, TransacaoController.getIngressoTransacao);
 router.post('/ingressotransacaocupomdesconto', authenticate, TransacaoController.getTransacaoCupomDesconto);
+router.get('/dadostransacoespagas', authenticate, TransacaoController.getDadosTransacoesPagas);
 module.exports = router;

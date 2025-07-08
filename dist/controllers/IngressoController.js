@@ -16,6 +16,7 @@ const uuid_1 = require("uuid");
 const Usuario_1 = require("../models/Usuario");
 const date_fns_tz_1 = require("date-fns-tz");
 const apiJango_1 = __importDefault(require("../api/apiJango"));
+const sequelize_1 = require("sequelize");
 const addIngressoTransacao = async (idTransacao, idIngresso, preco, taxaServico, valorTotal) => {
     try {
         await Transacao_1.IngressoTransacao.create({ idTransacao, idIngresso, preco, taxaServico, valorTotal });
@@ -324,4 +325,53 @@ module.exports = {
             next(error); // Passa o erro para o middleware de tratamento de erros
         }
     },
+    async getDadosIngressos(req, res, next) {
+        try {
+            const { idEvento, dataInicio, dataFim } = req.query;
+            if (!idEvento) {
+                throw new customError_1.CustomError('ID do evento é obrigatório.', 400, '');
+            }
+            const ingressos = await Ingresso_1.Ingresso.findAll({
+                where: {
+                    idEvento,
+                    status: 'Utilizado',
+                    dataUtilizado: {
+                        [sequelize_1.Op.between]: [dataInicio + ' 00:00:00', dataFim + ' 23:59:59'], // Inclui o final do dia
+                    },
+                },
+                attributes: [
+                    [(0, sequelize_1.fn)('DATE', (0, sequelize_1.col)('data_utilizado')), 'data'],
+                    'id_evento_ingresso',
+                    [(0, sequelize_1.fn)('COUNT', (0, sequelize_1.fn)('DISTINCT', (0, sequelize_1.col)('Ingresso.id'))), 'quantidade'], // 👈 AQUI
+                ],
+                include: [
+                    {
+                        model: EventoIngresso_1.EventoIngresso,
+                        as: 'EventoIngresso',
+                        attributes: ['nome'],
+                    },
+                ],
+                group: [
+                    (0, sequelize_1.fn)('DATE', (0, sequelize_1.col)('data_utilizado')),
+                    'id_evento_ingresso',
+                    (0, sequelize_1.col)('EventoIngresso.nome'),
+                ],
+                order: [[(0, sequelize_1.fn)('DATE', (0, sequelize_1.col)('data_utilizado')), 'ASC']],
+                raw: false,
+            });
+            const result = {
+                data: ingressos,
+                meta: {
+                    totalItems: ingressos.length,
+                    totalPages: 1, // Como estamos retornando todos os dados de uma vez, totalPages é 1
+                    currentPage: 1,
+                    pageSize: ingressos.length
+                }
+            };
+            return res.status(200).json(result);
+        }
+        catch (error) {
+            next(error);
+        }
+    }
 };
