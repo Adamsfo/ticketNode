@@ -352,25 +352,29 @@ module.exports = {
                         preco: 0,
                         valorRecebido: 0,
                         valorTaxaProcessamento: 0,
+                        transacoes: [],
                     };
                 }
                 resumoPorData[data].preco += Number(item.preco || 0);
                 resumoPorData[data].valorRecebido += Number(item.valorRecebido || 0);
                 resumoPorData[data].valorTaxaProcessamento += Number(item.valorTaxaProcessamento || 0);
+                resumoPorData[data].transacoes.push(item);
             }
             let resultado = Object.entries(resumoPorData).map(([data, valores]) => ({
                 data,
                 ...valores,
             }));
+            // Cálculo total
             const total = resultado.reduce((acc, curr) => ({
                 preco: acc.preco + curr.preco,
                 valorRecebido: acc.valorRecebido + curr.valorRecebido,
                 valorTaxaProcessamento: acc.valorTaxaProcessamento + curr.valorTaxaProcessamento,
             }), { preco: 0, valorRecebido: 0, valorTaxaProcessamento: 0 });
-            // adiciona linha de total como último item do array
+            // Linha "Total" (sem transações)
             resultado.push({
                 data: "Total",
                 ...total,
+                transacoes: [],
             });
             return res.status(200).json({ data: resultado });
         }

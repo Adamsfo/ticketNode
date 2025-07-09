@@ -412,7 +412,12 @@ module.exports = {
 
             const resumoPorData: Record<
                 string,
-                { preco: number; valorRecebido: number; valorTaxaProcessamento: number }
+                {
+                    preco: number;
+                    valorRecebido: number;
+                    valorTaxaProcessamento: number;
+                    transacoes: any[];
+                }
             > = {};
 
             for (const item of transacoesPagas) {
@@ -432,6 +437,7 @@ module.exports = {
                         preco: 0,
                         valorRecebido: 0,
                         valorTaxaProcessamento: 0,
+                        transacoes: [],
                     };
                 }
 
@@ -440,6 +446,7 @@ module.exports = {
                 resumoPorData[data].valorTaxaProcessamento += Number(
                     item.valorTaxaProcessamento || 0
                 );
+                resumoPorData[data].transacoes.push(item);
             }
 
             let resultado = Object.entries(resumoPorData).map(([data, valores]) => ({
@@ -447,6 +454,7 @@ module.exports = {
                 ...valores,
             }));
 
+            // Cálculo total
             const total = resultado.reduce(
                 (acc, curr) => ({
                     preco: acc.preco + curr.preco,
@@ -457,10 +465,11 @@ module.exports = {
                 { preco: 0, valorRecebido: 0, valorTaxaProcessamento: 0 }
             );
 
-            // adiciona linha de total como último item do array
+            // Linha "Total" (sem transações)
             resultado.push({
                 data: "Total",
                 ...total,
+                transacoes: [],
             });
 
             return res.status(200).json({ data: resultado });
@@ -474,4 +483,5 @@ module.exports = {
             return res.status(500).json({ message: "Erro interno", error: (error as any).message });
         }
     }
+
 }
