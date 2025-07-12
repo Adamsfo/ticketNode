@@ -399,12 +399,16 @@ module.exports = {
                 throw new CustomError("ID do evento é obrigatório.", 400, "");
             }
 
+            const inicioUTC = new Date(`${dataInicio}T00:00:00-03:00`).toISOString();
+            const fimUTC = new Date(`${dataFim}T23:59:59-03:00`).toISOString();
+
+
             const transacoesPagas = await Transacao.findAll({
                 where: {
                     status: "Pago",
                     idEvento,
                     dataPagamento: {
-                        [Op.between]: [`${dataInicio} 00:00:00`, `${dataFim} 23:59:59`],
+                        [Op.between]: [inicioUTC, fimUTC],
                     },
                 },
                 raw: true,
@@ -430,7 +434,11 @@ module.exports = {
                     continue;
                 }
 
-                const data = dataPagamento.toISOString().split("T")[0];
+                // Corrige o horário para o local (ex: UTC-3)
+                const localDate = new Date(dataPagamento.getTime() - dataPagamento.getTimezoneOffset() * 60000);
+
+
+                const data = localDate.toISOString().split("T")[0];
 
                 if (!resumoPorData[data]) {
                     resumoPorData[data] = {
