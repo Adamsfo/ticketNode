@@ -214,7 +214,7 @@ module.exports = {
             catch (error) {
                 console.error('Erro ao criar cartão:', error);
             }
-            const body = {
+            let body = {
                 transaction_amount: transaction_amount,
                 token: token,
                 description: 'Compra de Ingressos',
@@ -337,7 +337,7 @@ module.exports = {
             if (!tokenData.id) {
                 throw new Error("Erro ao gerar token com card_id e CVV: " + JSON.stringify(tokenData));
             }
-            const body = {
+            let body = {
                 transaction_amount: parseFloat(transaction_amount),
                 token: tokenData.id,
                 description: 'Compra de Ingressos',
