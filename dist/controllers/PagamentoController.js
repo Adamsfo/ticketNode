@@ -13,6 +13,7 @@ const Usuario_1 = require("../models/Usuario");
 const Ingresso_1 = require("../models/Ingresso");
 const database_1 = __importDefault(require("../database"));
 const Empresa_1 = require("../models/Empresa");
+const Evento_1 = require("../models/Evento");
 const ClienteID = "8085308516889383";
 const ClienteSecret = "OFA6rEsej17acU0oIQM87PMwG4x4h123";
 const TanzAcessToken = "APP_USR-8085308516889383-061214-28451d6dd008b6342b99c07fdbd960a4-2470516573";
@@ -164,8 +165,21 @@ module.exports = {
         }
         const transacao = await Transacao_1.Transacao.findOne({
             where: { id: idTransacao },
+            include: [
+                {
+                    model: Evento_1.Evento,
+                    as: 'Evento',
+                    attributes: ['idProdutor'],
+                },
+            ],
         });
-        const client = new mercadopago_1.MercadoPagoConfig({ accessToken: empresa.accessToken ?? "" });
+        if (!transacao) {
+            return res.status(404).json({ error: 'Transação não encontrada' });
+        }
+        const evento = await Evento_1.Evento.findOne({
+            where: { id: transacao.idEvento },
+        });
+        const client = new mercadopago_1.MercadoPagoConfig({ accessToken: evento?.idProdutor === 1 ? (empresa.accessToken ?? "") : TanzAcessToken });
         const tanzMP = new mercadopago_1.MercadoPagoConfig({ accessToken: TanzAcessToken });
         // const client = new MercadoPagoConfig({ accessToken: JangoAcessToken });
         // const tanzMP = new MercadoPagoConfig({ accessToken: JangoAcessToken });
@@ -235,9 +249,11 @@ module.exports = {
                         }
                     ]
                 },
-                application_fee: parseFloat((transacao?.taxaServico ?? "0").toString()) || 0.00,
             };
-            console.log('body', body);
+            // Só adiciona application_fee se cobrarTaxa for verdadeiro
+            if (evento?.idProdutor === 1) {
+                body.application_fee = parseFloat((transacao?.taxaServico ?? "0").toString()) || 0.00;
+            }
             const requestOptions = {
                 idempotencyKey: generateUniqueIdempotencyKey(), // Gere uma chave de idempotência única
             };
@@ -292,10 +308,14 @@ module.exports = {
         const transacao = await Transacao_1.Transacao.findOne({
             where: { id: idTransacao },
         });
-        const client = new mercadopago_1.MercadoPagoConfig({ accessToken: empresa.accessToken ?? "" });
+        if (!transacao) {
+            return res.status(404).json({ error: 'Transação não encontrada' });
+        }
+        const evento = await Evento_1.Evento.findOne({
+            where: { id: transacao.idEvento },
+        });
+        const client = new mercadopago_1.MercadoPagoConfig({ accessToken: evento?.idProdutor === 1 ? (empresa.accessToken ?? "") : TanzAcessToken });
         const tanzMP = new mercadopago_1.MercadoPagoConfig({ accessToken: TanzAcessToken });
-        // const client = new MercadoPagoConfig({ accessToken: JangoAcessToken });
-        // const tanzMP = new MercadoPagoConfig({ accessToken: JangoAcessToken });
         const payment = new mercadopago_1.Payment(client);
         const customer = new mercadopago_1.Customer(tanzMP);
         try {
@@ -352,9 +372,11 @@ module.exports = {
                         }
                     ]
                 },
-                application_fee: parseFloat((transacao?.taxaServico ?? "0").toString()) || 0.00,
             };
-            console.log('body', body);
+            // Só adiciona application_fee se cobrarTaxa for verdadeiro
+            if (evento?.idProdutor === 1) {
+                body.application_fee = parseFloat((transacao?.taxaServico ?? "0").toString()) || 0.00;
+            }
             const requestOptions = {
                 idempotencyKey: generateUniqueIdempotencyKey(), // Gere uma chave de idempotência única
             };
@@ -406,7 +428,13 @@ module.exports = {
             const transacao = await Transacao_1.Transacao.findOne({
                 where: { id: idTransacao },
             });
-            const client = new mercadopago_1.MercadoPagoConfig({ accessToken: empresa.accessToken ?? "" });
+            if (!transacao) {
+                return res.status(404).json({ error: 'Transação não encontrada' });
+            }
+            const evento = await Evento_1.Evento.findOne({
+                where: { id: transacao.idEvento },
+            });
+            const client = new mercadopago_1.MercadoPagoConfig({ accessToken: evento?.idProdutor === 1 ? (empresa.accessToken ?? "") : TanzAcessToken });
             // const client = new MercadoPagoConfig({ accessToken: TanzAcessToken });
             // const client = new MercadoPagoConfig({ accessToken: acessToken });
             const payment = new mercadopago_1.Payment(client);
@@ -414,34 +442,35 @@ module.exports = {
                 where: { email: email },
             });
             console.log('deviceId', deviceId);
-            const body = {
-                body: {
-                    transaction_amount: valorTotal,
-                    payment_method_id: 'pix',
-                    description: descricao || ' - Pagamento via Pix',
-                    payer: {
-                        email: email,
-                        first_name: users[0]?.nomeCompleto,
-                        last_name: users[0]?.sobreNome,
-                    },
-                    // device_id: deviceId,
-                    external_reference: idTransacao,
-                    additional_info: {
-                        items: [
-                            {
-                                id: '2154',
-                                title: 'Compra de Ingressos',
-                                description: 'Compra de Ingressos',
-                                quantity: 1,
-                                unit_price: valorTotal,
-                                category_id: 'tickets'
-                            }
-                        ]
-                    },
-                    application_fee: parseFloat((transacao?.taxaServico ?? "0").toString()) || 0.00,
+            let body = {
+                transaction_amount: valorTotal,
+                payment_method_id: 'pix',
+                description: descricao || ' - Pagamento via Pix',
+                payer: {
+                    email: email,
+                    first_name: users[0]?.nomeCompleto,
+                    last_name: users[0]?.sobreNome,
+                },
+                // device_id: deviceId,
+                external_reference: idTransacao,
+                additional_info: {
+                    items: [
+                        {
+                            id: '2154',
+                            title: 'Compra de Ingressos',
+                            description: 'Compra de Ingressos',
+                            quantity: 1,
+                            unit_price: valorTotal,
+                            category_id: 'tickets'
+                        }
+                    ]
                 },
             };
-            const result = await payment.create(body);
+            // Só adiciona application_fee se cobrarTaxa for verdadeiro
+            if (evento?.idProdutor === 1) {
+                body.application_fee = parseFloat((transacao?.taxaServico ?? "0").toString()) || 0.00;
+            }
+            const result = await payment.create({ body });
             // Salvar dados de pagamento
             await Transacao_1.TransacaoPagamento.create({
                 idTransacao: idTransacao,
@@ -704,6 +733,9 @@ module.exports = {
             if (!transacao) {
                 return res.status(404).json({ error: 'Transação não encontrada' });
             }
+            const evento = await Evento_1.Evento.findOne({
+                where: { id: transacao.idEvento },
+            });
             const ingressoTransacao = await Transacao_1.IngressoTransacao.findAll({
                 where: { idTransacao },
             });
@@ -728,7 +760,7 @@ module.exports = {
                 });
             }
             const client = new mercadopago_1.MercadoPagoConfig({
-                accessToken: empresa.accessToken ?? '',
+                accessToken: evento?.idProdutor === 1 ? (empresa.accessToken ?? "") : TanzAcessToken,
             });
             const paymentRefund = new mercadopago_1.PaymentRefund(client);
             console.log('Transação PagamentoCodigo:', transacao.idTransacaoRecebidoMP);
