@@ -165,13 +165,6 @@ module.exports = {
         }
         const transacao = await Transacao_1.Transacao.findOne({
             where: { id: idTransacao },
-            include: [
-                {
-                    model: Evento_1.Evento,
-                    as: 'Evento',
-                    attributes: ['idProdutor'],
-                },
-            ],
         });
         if (!transacao) {
             return res.status(404).json({ error: 'Transação não encontrada' });

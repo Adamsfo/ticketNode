@@ -206,13 +206,6 @@ module.exports = {
 
         const transacao = await Transacao.findOne({
             where: { id: idTransacao },
-            include: [
-                {
-                    model: Evento,
-                    as: 'Evento',
-                    attributes: ['idProdutor'],
-                },
-            ],
         });
 
         if (!transacao) {
