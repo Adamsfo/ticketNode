@@ -35,14 +35,14 @@ module.exports = {
         try {
             const { cpf, nomeCompleto, sobreNome, telefone, email } = req.body;
             // Validação básica
-            if (!cpf || !nomeCompleto || !sobreNome || !telefone || !email) {
+            if (!cpf || !nomeCompleto || !sobreNome || !telefone) {
                 throw new customError_1.CustomError('Faltando informações em campos obrigatórios.', 400, '');
             }
             await (0, apiJango_1.default)().atualizarCliente({
                 CPF_CNPJ: (cpf ?? "").replace(/\D/g, ""),
                 NOME: nomeCompleto + " " + sobreNome,
                 TELEFONE_CELULAR: (telefone ?? "").replace(/\D/g, ""),
-                EMAIL: email,
+                EMAIL: email ? email : "",
             });
             await new Promise((resolve) => setTimeout(resolve, 1000));
             const dadosJango = await (0, apiJango_1.default)().getCliente(cpf);

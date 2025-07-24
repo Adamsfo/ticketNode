@@ -102,10 +102,11 @@ class Usuario extends sequelize_1.Model {
             },
             email: {
                 type: sequelize_1.DataTypes.STRING,
-                unique: true,
-                validate: {
-                    isEmail: true
-                }
+                // unique: true,
+                // validate: {
+                //     isEmail: true
+                // },
+                allowNull: true
             },
             login: {
                 type: sequelize_1.DataTypes.STRING,

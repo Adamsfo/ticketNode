@@ -46,6 +46,7 @@ class Produtor extends Model<ProdutorAttributes, ProdutorCreationAttributes> imp
 enum TipoAcesso {
     Administrador = 'Administrador',
     Validador = 'Validador',
+    PDV = 'PDV'
 }
 
 interface ProdutorAcessoAttributes {
@@ -53,6 +54,8 @@ interface ProdutorAcessoAttributes {
     idProdutor: number;
     tipoAcesso: TipoAcesso;
     idUsuario: number;
+    cliente_chavePOS?: string; // Optional field for client key
+    pos_id?: number; // Optional field for POS ID
 }
 
 interface ProdutorAcessoCreationAttributes extends Optional<ProdutorAcessoAttributes, 'id'> { }
@@ -62,6 +65,8 @@ class ProdutorAcesso extends Model<ProdutorAcessoAttributes, ProdutorAcessoCreat
     public idProdutor!: number;
     public tipoAcesso!: TipoAcesso;
     public idUsuario!: number;
+    public cliente_chavePOS?: string; // Optional field for client key
+    public pos_id?: number; // Optional field for POS ID
 
     static initialize(sequelize: Sequelize) {
         ProdutorAcesso.init({
@@ -81,6 +86,14 @@ class ProdutorAcesso extends Model<ProdutorAcessoAttributes, ProdutorAcessoCreat
             idUsuario: {
                 type: DataTypes.INTEGER,
                 allowNull: false
+            },
+            cliente_chavePOS: {
+                type: DataTypes.STRING,
+                allowNull: true
+            },
+            pos_id: {
+                type: DataTypes.INTEGER,
+                allowNull: true
             }
         }, {
             sequelize,

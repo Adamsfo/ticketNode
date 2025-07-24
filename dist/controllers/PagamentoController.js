@@ -14,6 +14,7 @@ const Ingresso_1 = require("../models/Ingresso");
 const database_1 = __importDefault(require("../database"));
 const Empresa_1 = require("../models/Empresa");
 const Evento_1 = require("../models/Evento");
+const Produtor_1 = require("../models/Produtor");
 const ClienteID = "8085308516889383";
 const ClienteSecret = "OFA6rEsej17acU0oIQM87PMwG4x4h123";
 const TanzAcessToken = "APP_USR-8085308516889383-061214-28451d6dd008b6342b99c07fdbd960a4-2470516573";
@@ -574,7 +575,7 @@ module.exports = {
             const data = await response.json();
             if (data.status === 'approved') {
                 const transacaoPagamento = await Transacao_1.TransacaoPagamento.findOne({
-                    where: { PagamentoCodigo: id }
+                    where: { PagamentoCodigo: id, gatewayPagamento: 'MercadoPago' }
                 });
                 if (transacaoPagamento) {
                     const idTransacao = transacaoPagamento.idTransacao;
@@ -801,7 +802,7 @@ module.exports = {
                 console.log('Dados do pagamento:', data);
                 if (data.status === 'approved') {
                     const transacaoPagamento = await Transacao_1.TransacaoPagamento.findOne({
-                        where: { PagamentoCodigo: paymentId }
+                        where: { PagamentoCodigo: paymentId, gatewayPagamento: 'MercadoPago' }
                     });
                     if (transacaoPagamento) {
                         const idTransacao = transacaoPagamento.idTransacao;
@@ -831,5 +832,162 @@ module.exports = {
         else {
             res.status(400).json({ error: 'Tipo de webhook não suportado' });
         }
-    }
+    },
+    async pagamentoPos(req, res) {
+        try {
+            const { valorTotal, descricao, email, idTransacao, transaction_type, idUsuarioPDV } = req.body;
+            const transacao = await Transacao_1.Transacao.findOne({
+                where: { id: idTransacao },
+            });
+            if (!transacao) {
+                return res.status(404).json({ error: 'Transação não encontrada' });
+            }
+            const usuario = await Produtor_1.ProdutorAcesso.findOne({
+                where: { idUsuario: idUsuarioPDV, tipoAcesso: Produtor_1.TipoAcesso.PDV },
+            });
+            if (!usuario) {
+                return res.status(404).json({ error: 'ProdutorAcesso não encontrado' });
+            }
+            const posData = JSON.stringify({
+                "cliente_chave": usuario.cliente_chavePOS,
+                "pos_id": usuario.pos_id,
+                "transaction_type": transaction_type,
+                "installment_count": 1,
+                "amount": Number(valorTotal),
+                "order_id": transacao.id.toString(),
+                "description": "Pagamento de Ingresso",
+                "installment_type": 1
+            });
+            var config = {
+                method: 'post',
+                url: 'https://api.supertef.com.br/api/pagamentos',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer 74b1f7466a552959ac2eb3f4fa9b4386bd65f2c5440dfd61c5e90af018b81ead`
+                },
+                data: posData
+            };
+            // 🔹 Chamada da API SuperTEF
+            const response = await axios(config);
+            const result = response.data;
+            // Salvar dados de pagamento
+            await Transacao_1.TransacaoPagamento.create({
+                idTransacao: idTransacao,
+                PagamentoCodigo: result.payment_uniqueid?.toString() || '',
+                gatewayPagamento: 'TEF Stone'
+            });
+            transacao.tipoPagamento = transaction_type === 1 ? Transacao_1.TipoPagamento.Debito : transaction_type === 2 ? Transacao_1.TipoPagamento.Credito : Transacao_1.TipoPagamento.Pix;
+            transacao.save();
+            const idUsuario = transacao.idUsuario;
+            const data = new Date(); // Data atual
+            await Transacao_1.HistoricoTransacao.create({ idTransacao, data, descricao: 'Pagamento via Pos Criado', idUsuario });
+            return res.status(200).json({
+                id: result.payment_uniqueid,
+                status: 'pending', // O status pode ser 'pending' ou outro dependendo da resposta da API
+                // status_detail: result.status_detail,
+                // point_of_interaction: result.point_of_interaction,
+            });
+        }
+        catch (error) {
+            console.error('Erro ao criar pagamento PIX:', error);
+            return res.status(500).json({ error: 'Erro ao gerar pagamento Pix' });
+        }
+    },
+    async consultaPagamentoPos(req, res) {
+        const filters = req.query.filters ? JSON.parse(req.query.filters) : {};
+        const payment_uniqueid = filters.payment_uniqueid;
+        if (payment_uniqueid) {
+            try {
+                var config = {
+                    method: 'get',
+                    url: `https://api.supertef.com.br/api/pagamentos/by-uniqueid/${payment_uniqueid}?payment_uniqueid`,
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer 74b1f7466a552959ac2eb3f4fa9b4386bd65f2c5440dfd61c5e90af018b81ead`
+                    },
+                };
+                const response = await axios(config);
+                const data = response.data;
+                // const data = await response.json()
+                console.log('Dados do pagamento:', data);
+                if (data.payment_status === 4) {
+                    const transacaoPagamento = await Transacao_1.TransacaoPagamento.findOne({
+                        where: { PagamentoCodigo: payment_uniqueid, gatewayPagamento: 'TEF Stone' }
+                    });
+                    if (transacaoPagamento) {
+                        const idTransacao = transacaoPagamento.idTransacao;
+                        const transacao = await Transacao_1.Transacao.findOne({
+                            where: { id: idTransacao },
+                        });
+                        if (!transacao) {
+                            return res.status(404).json({ error: 'Transação POS não encontrada' });
+                        }
+                        transacao.valorTaxaProcessamento = 0;
+                        transacao.valorRecebido = transacao.valorTotal;
+                        transacao.idTransacaoRecebidoMP = payment_uniqueid;
+                        transacao.gatewayPagamento = 'TEF Stone';
+                        transacao.save();
+                        if (transacao.status != 'Pago') {
+                            await transacaoPaga(idTransacao, 'Pagamento Realizado via POS', transacao.idUsuario);
+                        }
+                    }
+                }
+                res.status(200).json({
+                    data: data
+                });
+            }
+            catch (error) {
+                console.error('Erro ao processar POS:', error);
+                res.status(500).json({ error: 'Erro ao processar POS' });
+            }
+        }
+        else {
+            res.status(400).json({ error: 'Tipo de POS não suportado' });
+        }
+    },
+    async pagamentoDinheiro(req, res) {
+        try {
+            const { idTransacao, idUsuarioPDV } = req.body;
+            const transacao = await Transacao_1.Transacao.findOne({
+                where: { id: idTransacao },
+            });
+            if (!transacao) {
+                return res.status(404).json({ error: 'Transação não encontrada' });
+            }
+            const usuario = await Produtor_1.ProdutorAcesso.findOne({
+                where: { idUsuario: idUsuarioPDV, tipoAcesso: Produtor_1.TipoAcesso.PDV },
+            });
+            if (!usuario) {
+                return res.status(404).json({ error: 'ProdutorAcesso não encontrado' });
+            }
+            // Salvar dados de pagamento
+            await Transacao_1.TransacaoPagamento.create({
+                idTransacao: idTransacao,
+                PagamentoCodigo: '',
+                gatewayPagamento: 'Portaria'
+            });
+            transacao.tipoPagamento = Transacao_1.TipoPagamento.Dinheiro;
+            transacao.valorTaxaProcessamento = 0;
+            transacao.valorRecebido = transacao.valorTotal;
+            transacao.gatewayPagamento = 'Portaria';
+            transacao.save();
+            const data = new Date(); // Data atual
+            await Transacao_1.HistoricoTransacao.create({ idTransacao, data, descricao: 'Pagamento Criado em Dinheiro na Portaria', idUsuario: idUsuarioPDV });
+            if (transacao.status != 'Pago') {
+                await transacaoPaga(idTransacao, 'Pagamento Dinheiro na Portaria', transacao.idUsuario);
+            }
+            return res.status(200).json({
+                data: {
+                    payment_uniqueid: 0,
+                    payment_status: 4,
+                    payment_message: 'Pagamento realizado em Dinheiro',
+                    created_at: new Date().toISOString(),
+                }
+            });
+        }
+        catch (error) {
+            console.error('Erro ao criar pagamento dinheiro:', error);
+            return res.status(500).json({ error: 'Erro ao gerar pagamento Dinheiro' });
+        }
+    },
 };

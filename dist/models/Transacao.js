@@ -1,9 +1,16 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.TransacaoPagamento = exports.HistoricoTransacao = exports.IngressoTransacao = exports.Transacao = exports.TransacaoInit = void 0;
+exports.TipoPagamento = exports.TransacaoPagamento = exports.HistoricoTransacao = exports.IngressoTransacao = exports.Transacao = exports.TransacaoInit = void 0;
 const sequelize_1 = require("sequelize");
 const Usuario_1 = require("./Usuario");
 const Ingresso_1 = require("./Ingresso");
+var TipoPagamento;
+(function (TipoPagamento) {
+    TipoPagamento["Debito"] = "D\u00E9bito";
+    TipoPagamento["Credito"] = "Cr\u00E9dito";
+    TipoPagamento["Pix"] = "Pix";
+    TipoPagamento["Dinheiro"] = "Dinheiro";
+})(TipoPagamento || (exports.TipoPagamento = TipoPagamento = {}));
 class Transacao extends sequelize_1.Model {
     static initialize(sequelize) {
         Transacao.init({
@@ -73,6 +80,16 @@ class Transacao extends sequelize_1.Model {
                     model: 'Evento',
                     key: 'id'
                 }
+            },
+            gatewayPagamento: {
+                type: sequelize_1.DataTypes.STRING,
+                allowNull: true,
+                defaultValue: 'MercadoPago' // Valor padrão
+            },
+            tipoPagamento: {
+                type: sequelize_1.DataTypes.ENUM(...Object.values(TipoPagamento)),
+                allowNull: true,
+                // defaultValue: TipoPagamento.Debito // Valor padrão
             }
         }, {
             sequelize,
@@ -249,6 +266,11 @@ class TransacaoPagamento extends sequelize_1.Model {
             PagamentoCodigo: {
                 type: sequelize_1.DataTypes.STRING,
                 allowNull: false,
+            },
+            gatewayPagamento: {
+                type: sequelize_1.DataTypes.STRING,
+                allowNull: true,
+                defaultValue: 'MercadoPago' // Valor padrão
             }
         }, {
             sequelize,

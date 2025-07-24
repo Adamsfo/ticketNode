@@ -93,16 +93,21 @@ module.exports = {
             if (preCadastro) {
                 senha = cpf.replace(/\D/g, '').slice(-4); // Últimos 4 dígitos do CPF como senha
             }
-            if (!login || !senha || !email || !nomeCompleto || !cpf || !sobreNome) {
+            if (!login) {
+                login = email ? email : cpf;
+            }
+            if (!login || !senha || !nomeCompleto || !cpf || !sobreNome) {
                 throw new customError_1.CustomError('Login, email e senha são obrigatórios.', 400, '');
             }
-            let registro = await Usuario_1.Usuario.findOne({ where: { email } });
-            if (registro) {
-                throw new customError_1.CustomError('Este email já foi cadastrado, utilize recuperar senha.', 400, '');
-            }
-            registro = await Usuario_1.Usuario.findOne({ where: { cpf } });
+            let registro = await Usuario_1.Usuario.findOne({ where: { cpf } });
             if (registro) {
                 throw new customError_1.CustomError('Este cpf já tem cadastro no sistema .', 400, '');
+            }
+            if (email) {
+                registro = await Usuario_1.Usuario.findOne({ where: { email } });
+                if (registro) {
+                    throw new customError_1.CustomError('Este email já foi cadastrado, utilize recuperar senha.', 400, '');
+                }
             }
             registro = await Usuario_1.Usuario.findOne({ where: { login } });
             if (registro) {

@@ -37,7 +37,7 @@ module.exports = {
             const { cpf, nomeCompleto, sobreNome, telefone, email } = req.body;
 
             // Validação básica
-            if (!cpf || !nomeCompleto || !sobreNome || !telefone || !email) {
+            if (!cpf || !nomeCompleto || !sobreNome || !telefone) {
                 throw new CustomError('Faltando informações em campos obrigatórios.', 400, '');
             }
 
@@ -45,7 +45,7 @@ module.exports = {
                 CPF_CNPJ: (cpf ?? "").replace(/\D/g, ""),
                 NOME: nomeCompleto + " " + sobreNome,
                 TELEFONE_CELULAR: (telefone ?? "").replace(/\D/g, ""),
-                EMAIL: email,
+                EMAIL: email ? email : "",
             });
 
             await new Promise((resolve) => setTimeout(resolve, 1000));

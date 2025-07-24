@@ -7,7 +7,8 @@ import { CupomPromocional } from './CupomPromocional';
 enum Status {
     Disponivel = 'Ativo',
     Oculto = 'Oculto',
-    Finalizado = 'Finalizado'
+    Finalizado = 'Finalizado',
+    PDV = 'PDV'
 }
 
 interface EventoIngressoAttributes {
@@ -93,7 +94,7 @@ class EventoIngresso extends Model<EventoIngressoAttributes, EventoIngressoCreat
             },
             status: {
                 type: DataTypes.ENUM,
-                values: ['Ativo', 'Oculto', 'Finalizado'],
+                values: ['Ativo', 'Oculto', 'Finalizado', 'PDV'],
                 defaultValue: 'Oculto'
             },
             idCupomPromocional: {

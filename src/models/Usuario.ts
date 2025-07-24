@@ -172,10 +172,11 @@ class Usuario extends Model<UsuarioAttributes, UsuarioCreationAttributes> implem
             },
             email: {
                 type: DataTypes.STRING,
-                unique: true,
-                validate: {
-                    isEmail: true
-                }
+                // unique: true,
+                // validate: {
+                //     isEmail: true
+                // },
+                allowNull: true
             },
             login: {
                 type: DataTypes.STRING,

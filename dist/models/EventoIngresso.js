@@ -10,6 +10,7 @@ var Status;
     Status["Disponivel"] = "Ativo";
     Status["Oculto"] = "Oculto";
     Status["Finalizado"] = "Finalizado";
+    Status["PDV"] = "PDV";
 })(Status || (Status = {}));
 class EventoIngresso extends sequelize_1.Model {
     static initialize(sequelize) {
@@ -63,7 +64,7 @@ class EventoIngresso extends sequelize_1.Model {
             },
             status: {
                 type: sequelize_1.DataTypes.ENUM,
-                values: ['Ativo', 'Oculto', 'Finalizado'],
+                values: ['Ativo', 'Oculto', 'Finalizado', 'PDV'],
                 defaultValue: 'Oculto'
             },
             idCupomPromocional: {

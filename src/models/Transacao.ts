@@ -4,6 +4,13 @@ import { Usuario } from './Usuario';
 import { Ingresso } from './Ingresso';
 import { TipoDesconto } from './CupomPromocional';
 
+enum TipoPagamento {
+    Debito = "Débito",
+    Credito = "Crédito",
+    Pix = "Pix",
+    Dinheiro = "Dinheiro"
+}
+
 // Transacao
 interface TransacaoAttributes {
     id: number;
@@ -20,6 +27,8 @@ interface TransacaoAttributes {
     taxaServicoDesconto?: number; // Valor do desconto aplicado na taxa de serviço, se aplicável
     dataPagamento?: Date; // Data do pagamento, se aplicável
     idEvento?: number; // Opcional, usado para transações de eventos
+    gatewayPagamento?: string; // Gateway de pagamento utilizado
+    tipoPagamento?: TipoPagamento; // Tipo de pagamento utilizado (ex: Cartão de Crédito, Pix, etc.)
 }
 
 interface TransacaoCreationAttributes extends Optional<TransacaoAttributes, 'id'> { }
@@ -39,6 +48,8 @@ class Transacao extends Model<TransacaoAttributes, TransacaoCreationAttributes> 
     public taxaServicoDesconto?: number; // Valor do desconto aplicado na taxa de serviço, se aplicável
     public dataPagamento?: Date; // Data do pagamento, se aplicável
     public idEvento?: number;
+    public gatewayPagamento?: string; // Gateway de pagamento utilizado
+    public tipoPagamento?: TipoPagamento; // Tipo de pagamento utilizado (ex: Cartão de Crédito, Pix, etc.)
 
     static initialize(sequelize: Sequelize) {
         Transacao.init({
@@ -108,6 +119,16 @@ class Transacao extends Model<TransacaoAttributes, TransacaoCreationAttributes> 
                     model: 'Evento',
                     key: 'id'
                 }
+            },
+            gatewayPagamento: {
+                type: DataTypes.STRING,
+                allowNull: true,
+                defaultValue: 'MercadoPago' // Valor padrão
+            },
+            tipoPagamento: {
+                type: DataTypes.ENUM(...Object.values(TipoPagamento)),
+                allowNull: true,
+                // defaultValue: TipoPagamento.Debito // Valor padrão
             }
         }, {
             sequelize,
@@ -323,7 +344,7 @@ interface TransacaoPagamentoAttributes {
     id: number;
     idTransacao: number;
     PagamentoCodigo: string;
-
+    gatewayPagamento?: string; // Gateway de pagamento utilizado
 }
 
 interface TransacaoPagamentoCreationAttributes extends Optional<TransacaoPagamentoAttributes, 'id'> { }
@@ -332,6 +353,7 @@ class TransacaoPagamento extends Model<TransacaoPagamentoAttributes, TransacaoPa
     public id!: number;
     public idTransacao!: number;
     public PagamentoCodigo!: string;
+    public gatewayPagamento?: string; // Gateway de pagamento utilizado
 
     static initialize(sequelize: Sequelize) {
         TransacaoPagamento.init({
@@ -351,6 +373,11 @@ class TransacaoPagamento extends Model<TransacaoPagamentoAttributes, TransacaoPa
             PagamentoCodigo: {
                 type: DataTypes.STRING,
                 allowNull: false,
+            },
+            gatewayPagamento: {
+                type: DataTypes.STRING,
+                allowNull: true,
+                defaultValue: 'MercadoPago' // Valor padrão
             }
         }, {
             sequelize,
@@ -382,5 +409,6 @@ export {
     Transacao,
     IngressoTransacao,
     HistoricoTransacao,
-    TransacaoPagamento
+    TransacaoPagamento,
+    TipoPagamento
 };

@@ -35,6 +35,7 @@ var TipoAcesso;
 (function (TipoAcesso) {
     TipoAcesso["Administrador"] = "Administrador";
     TipoAcesso["Validador"] = "Validador";
+    TipoAcesso["PDV"] = "PDV";
 })(TipoAcesso || (exports.TipoAcesso = TipoAcesso = {}));
 class ProdutorAcesso extends sequelize_1.Model {
     static initialize(sequelize) {
@@ -55,6 +56,14 @@ class ProdutorAcesso extends sequelize_1.Model {
             idUsuario: {
                 type: sequelize_1.DataTypes.INTEGER,
                 allowNull: false
+            },
+            cliente_chavePOS: {
+                type: sequelize_1.DataTypes.STRING,
+                allowNull: true
+            },
+            pos_id: {
+                type: sequelize_1.DataTypes.INTEGER,
+                allowNull: true
             }
         }, {
             sequelize,
