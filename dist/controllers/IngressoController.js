@@ -100,11 +100,15 @@ module.exports = {
             if (!idEvento || !idEventoIngresso || !idTipoIngresso || !idUsuario) {
                 throw new customError_1.CustomError('Faltando informações em campos obrigatórios.', 400, '');
             }
-            const dataValidade = new Date(); // Data atual
+            let dataValidade = new Date(); // Data atual
             const dataNascimento = new Date(); // Data atual
             const eventoIngresso = await EventoIngresso_1.EventoIngresso.findByPk(idEventoIngresso);
             if (eventoIngresso?.nome.includes('Antecipado')) {
                 dataValidade.setDate(dataValidade.getDate() + 1);
+            }
+            if (idEvento != 1) {
+                const evento = await Evento_1.Evento.findByPk(idEvento);
+                dataValidade = evento?.data_hora_inicio || dataValidade;
             }
             if (!tipo) {
                 tipo = Ingresso_1.TipoVendidoCortesia.Vendido;
