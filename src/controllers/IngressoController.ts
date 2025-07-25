@@ -250,8 +250,6 @@ module.exports = {
         try {
             const { ingressos, idUsuario } = req.body;
 
-            console.log('Validador Jango - Ingressos:asdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfasdfa');
-
             // Verifica se o array de ingressos está vazio
             if (!ingressos || ingressos.length === 0) {
                 throw new CustomError('Nenhum ingresso marcado para abrir conta!', 400, '');
@@ -443,5 +441,53 @@ module.exports = {
         } catch (error) {
             next(error);
         }
-    }
+    },
+
+    async validadorQrCode(req: any, res: any, next: any) {
+        try {
+            const { ingresso, idUsuario } = req.body;
+
+            // Verifica se o array de ingressos está vazio
+            if (!ingresso) {
+                throw new CustomError('Nenhum ingresso enviado!', 400, '');
+            }
+
+            // Verifica se o ingresso existe no banco de dados
+            const ingressoExistente = await Ingresso.findByPk(ingresso);
+            if (!ingressoExistente) {
+                throw new CustomError('Ingresso não encontrado: ' + ingresso, 404, '');
+            }
+
+            // Verifica se os ingressos estão disponíveis            
+            if (ingressoExistente.status != "Confirmado") {
+                throw new CustomError('Ingressos não disponíveis: ' + ingressoExistente.id, 400, '');
+            }
+
+            const user = await Usuario.findByPk(idUsuario);
+            if (!user) {
+                throw new CustomError('Usuário validador não encontrado.', 404, '');
+            }
+
+            const dataUtilizado = new Date(); // Data atual
+
+            ingressoExistente.status = 'Utilizado';
+            ingressoExistente.dataUtilizado = dataUtilizado;
+            await ingressoExistente.save();
+            await addHistorico(
+                ingressoExistente.id,
+                idUsuario,
+                'Ingresso Utilizado ' +
+                formatInTimeZone(
+                    dataUtilizado,
+                    "America/Cuiaba",
+                    "dd/MM/yyyy HH:mm"
+                ) +
+                ' validado por ' + user.nomeCompleto
+            );
+
+            return res.status(200).json('Ingressos validados com sucesso!');
+        } catch (error) {
+            next(error); // Passa o erro para o middleware de tratamento de erros
+        }
+    },
 }
