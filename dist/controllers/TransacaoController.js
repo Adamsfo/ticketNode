@@ -327,8 +327,8 @@ module.exports = {
             if (!idEvento) {
                 throw new customError_1.CustomError("ID do evento é obrigatório.", 400, "");
             }
-            const inicioUTC = new Date(`${dataInicio}T00:00:00-03:00`).toISOString();
-            const fimUTC = new Date(`${dataFim}T23:59:59-03:00`).toISOString();
+            const inicioUTC = new Date(`${dataInicio}T00:00:00-04:00`).toISOString();
+            const fimUTC = new Date(`${dataFim}T23:59:59-04:00`).toISOString();
             const transacoesPagas = await Transacao_1.Transacao.findAll({
                 where: {
                     status: "Pago",
