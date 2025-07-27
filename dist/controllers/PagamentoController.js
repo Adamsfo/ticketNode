@@ -880,7 +880,7 @@ module.exports = {
             transacao.save();
             const idUsuario = transacao.idUsuario;
             const data = new Date(); // Data atual
-            await Transacao_1.HistoricoTransacao.create({ idTransacao, data, descricao: 'Pagamento via Pos Criado', idUsuario });
+            await Transacao_1.HistoricoTransacao.create({ idTransacao, data, descricao: 'Pagamento via Pos Criado: ' + result.payment_uniqueid, idUsuario });
             return res.status(200).json({
                 id: result.payment_uniqueid,
                 status: 'pending', // O status pode ser 'pending' ou outro dependendo da resposta da API
@@ -988,6 +988,36 @@ module.exports = {
         catch (error) {
             console.error('Erro ao criar pagamento dinheiro:', error);
             return res.status(500).json({ error: 'Erro ao gerar pagamento Dinheiro' });
+        }
+    },
+    async cancelaPagamentoPos(req, res) {
+        const filters = req.query.filters ? JSON.parse(req.query.filters) : {};
+        const payment_uniqueid = filters.payment_uniqueid;
+        console.log('cancelamento payment_uniqueid', payment_uniqueid);
+        if (payment_uniqueid) {
+            try {
+                var config = {
+                    method: 'put',
+                    url: `https://api.supertef.com.br/api/pagamentos/cancelar/${payment_uniqueid}`,
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer 74b1f7466a552959ac2eb3f4fa9b4386bd65f2c5440dfd61c5e90af018b81ead`
+                    },
+                };
+                const response = await axios(config);
+                const data = response.data;
+                console.log('Dados do cancelamento:', data);
+                res.status(200).json({
+                    data: data
+                });
+            }
+            catch (error) {
+                console.error('Erro ao processar POS:', error);
+                res.status(500).json({ error: 'Erro ao processar POS' });
+            }
+        }
+        else {
+            res.status(400).json({ error: 'Tipo de POS não suportado' });
         }
     },
 };
