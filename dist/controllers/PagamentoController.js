@@ -15,6 +15,7 @@ const database_1 = __importDefault(require("../database"));
 const Empresa_1 = require("../models/Empresa");
 const Evento_1 = require("../models/Evento");
 const Produtor_1 = require("../models/Produtor");
+const apiJango_1 = __importDefault(require("../api/apiJango"));
 const ClienteID = "8085308516889383";
 const ClienteSecret = "OFA6rEsej17acU0oIQM87PMwG4x4h123";
 const TanzAcessToken = "APP_USR-8085308516889383-061214-28451d6dd008b6342b99c07fdbd960a4-2470516573";
@@ -954,6 +955,24 @@ module.exports = {
             if (!transacao) {
                 return res.status(404).json({ error: 'Transação não encontrada' });
             }
+            const evento = await Evento_1.Evento.findOne({
+                where: { id: transacao.idEvento },
+            });
+            if (evento?.idProdutor === 1) {
+                const caixa = await (0, apiJango_1.default)().getCaixa();
+                if (!caixa[0]) {
+                    return res.status(200).json({
+                        data: {
+                            payment_uniqueid: 0,
+                            payment_status: 5,
+                            payment_message: 'Caixa não esta aberto',
+                            created_at: new Date().toISOString(),
+                        }
+                    });
+                }
+                console.log('caixa', caixa[0].id_caixa);
+                await (0, apiJango_1.default)().inseriCaixaItem(caixa[0].id_caixa, transacao.valorTotal);
+            }
             const usuario = await Produtor_1.ProdutorAcesso.findOne({
                 where: { idUsuario: idUsuarioPDV, tipoAcesso: Produtor_1.TipoAcesso.PDV },
             });
@@ -1007,6 +1026,58 @@ module.exports = {
                 const response = await axios(config);
                 const data = response.data;
                 console.log('Dados do cancelamento:', data);
+                res.status(200).json({
+                    data: data
+                });
+            }
+            catch (error) {
+                console.error('Erro ao processar POS:', error);
+                res.status(500).json({ error: 'Erro ao processar POS' });
+            }
+        }
+        else {
+            res.status(400).json({ error: 'Tipo de POS não suportado' });
+        }
+    },
+    async webHookPagamentoPos(req, res) {
+        const filters = req.query.filters ? JSON.parse(req.query.filters) : {};
+        const payment_uniqueid = filters.payment_uniqueid;
+        if (payment_uniqueid) {
+            try {
+                var config = {
+                    method: 'get',
+                    url: `https://api.supertef.com.br/api/pagamentos/by-uniqueid/${payment_uniqueid}?payment_uniqueid`,
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer 74b1f7466a552959ac2eb3f4fa9b4386bd65f2c5440dfd61c5e90af018b81ead`
+                    },
+                };
+                const response = await axios(config);
+                const data = response.data;
+                // const data = await response.json()
+                console.log('Dados do pagamento:', data);
+                if (data.payment_status === 4) {
+                    const transacaoPagamento = await Transacao_1.TransacaoPagamento.findOne({
+                        where: { PagamentoCodigo: payment_uniqueid, gatewayPagamento: 'TEF Stone' }
+                    });
+                    if (transacaoPagamento) {
+                        const idTransacao = transacaoPagamento.idTransacao;
+                        const transacao = await Transacao_1.Transacao.findOne({
+                            where: { id: idTransacao },
+                        });
+                        if (!transacao) {
+                            return res.status(404).json({ error: 'Transação POS não encontrada' });
+                        }
+                        transacao.valorTaxaProcessamento = 0;
+                        transacao.valorRecebido = transacao.valorTotal;
+                        transacao.idTransacaoRecebidoMP = payment_uniqueid;
+                        transacao.gatewayPagamento = 'TEF Stone';
+                        transacao.save();
+                        if (transacao.status != 'Pago') {
+                            await transacaoPaga(idTransacao, 'Pagamento Realizado via POS', transacao.idUsuario);
+                        }
+                    }
+                }
                 res.status(200).json({
                     data: data
                 });
