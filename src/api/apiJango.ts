@@ -115,7 +115,30 @@ const PdvApiJango = {
       console.log("Erro ao abrir conta na api: ", error);
     }
     return null;
-  }
+  },
+
+  getCaixa: async () => {
+    let str = "";
+
+    str = "/Caixa/";
+
+    let json = await apiFetchGet(
+      str + "CAIXA.ID_STATUS = 0 AND CAST(CAIXA.DATA_ABERTURA AS DATE) = CURRENT_DATE"
+    );
+
+    return json;
+  },
+
+  inseriCaixaItem: async (id_caixa: string, valor: number) => {
+    const qry = `insert into caixa_item (DESCRICAO, ID_FORMA_PAGAMENTO, ID_CAIXA, ID_USUARIO, TIPO_LANCAMENTO, TIPO_VALOR, VALOR) values ('Venda de Ingresso', 23, ${id_caixa}, 3, 3, 'C', ${valor})`;
+    try {
+      console.log("Inserindo item no caixa: ", qry);
+      await apiFetchGet("/select/" + qry);
+    } catch (error) {
+      console.log("Erro ao inserir item caixa na api: ", error);
+    }
+    return null;
+  },
 };
 
 export default () => PdvApiJango;
