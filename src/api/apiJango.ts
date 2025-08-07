@@ -118,19 +118,21 @@ const PdvApiJango = {
   },
 
   getCaixa: async () => {
-    let str = "";
-
-    str = "/Caixa/";
-
-    let json = await apiFetchGet(
-      str + "CAIXA.ID_STATUS = 0 AND CAST(CAIXA.DATA_ABERTURA AS DATE) = CURRENT_DATE"
-    );
-
-    return json;
+    try {
+      const str = "/Caixa/";
+      const json = await apiFetchGet(
+        str + " CAST(CAIXA.DATA_ABERTURA AS DATE) = CURRENT_DATE"
+      );
+      return json;
+    } catch (error) {
+      console.error("Erro ao buscar caixa:", error);
+      return null; // ou [] ou {} dependendo do esperado
+    }
   },
 
-  inseriCaixaItem: async (id_caixa: string, valor: number) => {
-    const qry = `insert into caixa_item (DESCRICAO, ID_FORMA_PAGAMENTO, ID_CAIXA, ID_USUARIO, TIPO_LANCAMENTO, TIPO_VALOR, VALOR) values ('Venda de Ingresso', 23, ${id_caixa}, 3, 3, 'C', ${valor})`;
+
+  inseriCaixaItem: async (id_caixa: string, valor: number, id_forma_pagamento: number) => {
+    const qry = `insert into caixa_item (DESCRICAO, ID_FORMA_PAGAMENTO, ID_CAIXA, ID_USUARIO, TIPO_LANCAMENTO, TIPO_VALOR, VALOR) values ('Venda de Ingresso', ${id_forma_pagamento}, ${id_caixa}, 3, 1, 'C', ${valor})`;
     try {
       console.log("Inserindo item no caixa: ", qry);
       await apiFetchGet("/select/" + qry);

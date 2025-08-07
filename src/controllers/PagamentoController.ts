@@ -1123,6 +1123,19 @@ module.exports = {
                         transacao.save();
 
                         if (transacao.status != 'Pago') {
+                            const evento = await Evento.findOne({
+                                where: { id: transacao.idEvento },
+                            });
+
+                            if (evento?.idProdutor === 1) {
+                                const caixa = await apiJango().getCaixa();
+
+                                if (caixa[0]) {
+                                    await apiJango().inseriCaixaItem(caixa[0].id_caixa, transacao.valorTotal,
+                                        transacao.tipoPagamento === TipoPagamento.Debito ? 40 : transacao.tipoPagamento === TipoPagamento.Credito ? 39 : 42);
+                                }
+                            }
+
                             await transacaoPaga(idTransacao, 'Pagamento Realizado via POS', transacao.idUsuario)
                         }
                     }
@@ -1159,19 +1172,9 @@ module.exports = {
             if (evento?.idProdutor === 1) {
                 const caixa = await apiJango().getCaixa();
 
-                if (!caixa[0]) {
-                    return res.status(200).json({
-                        data: {
-                            payment_uniqueid: 0,
-                            payment_status: 5,
-                            payment_message: 'Caixa não esta aberto',
-                            created_at: new Date().toISOString(),
-                        }
-                    });
+                if (caixa[0]) {
+                    await apiJango().inseriCaixaItem(caixa[0].id_caixa, transacao.valorTotal, 38);
                 }
-                console.log('caixa', caixa[0].id_caixa)
-
-                await apiJango().inseriCaixaItem(caixa[0].id_caixa, transacao.valorTotal);
             }
 
             const usuario = await ProdutorAcesso.findOne({
