@@ -929,6 +929,15 @@ module.exports = {
                         transacao.gatewayPagamento = 'TEF Stone';
                         transacao.save();
                         if (transacao.status != 'Pago') {
+                            const evento = await Evento_1.Evento.findOne({
+                                where: { id: transacao.idEvento },
+                            });
+                            if (evento?.idProdutor === 1) {
+                                const caixa = await (0, apiJango_1.default)().getCaixa();
+                                if (caixa[0]) {
+                                    await (0, apiJango_1.default)().inseriCaixaItem(caixa[0].id_caixa, transacao.valorTotal, transacao.tipoPagamento === Transacao_1.TipoPagamento.Debito ? 40 : transacao.tipoPagamento === Transacao_1.TipoPagamento.Credito ? 39 : 42);
+                                }
+                            }
                             await transacaoPaga(idTransacao, 'Pagamento Realizado via POS', transacao.idUsuario);
                         }
                     }
@@ -960,18 +969,9 @@ module.exports = {
             });
             if (evento?.idProdutor === 1) {
                 const caixa = await (0, apiJango_1.default)().getCaixa();
-                if (!caixa[0]) {
-                    return res.status(200).json({
-                        data: {
-                            payment_uniqueid: 0,
-                            payment_status: 5,
-                            payment_message: 'Caixa não esta aberto',
-                            created_at: new Date().toISOString(),
-                        }
-                    });
+                if (caixa[0]) {
+                    await (0, apiJango_1.default)().inseriCaixaItem(caixa[0].id_caixa, transacao.valorTotal, 38);
                 }
-                console.log('caixa', caixa[0].id_caixa);
-                await (0, apiJango_1.default)().inseriCaixaItem(caixa[0].id_caixa, transacao.valorTotal);
             }
             const usuario = await Produtor_1.ProdutorAcesso.findOne({
                 where: { idUsuario: idUsuarioPDV, tipoAcesso: Produtor_1.TipoAcesso.PDV },
