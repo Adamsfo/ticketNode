@@ -7,7 +7,8 @@ import { TipoIngresso } from './TipoIngresso';
 
 enum TipoVendidoCortesia {
     Vendido = "Vendido",
-    Cortesia = "Cortesia"
+    Cortesia = "Cortesia",
+    PDV = "PDV"
 }
 
 // Ingresso
