@@ -116,7 +116,18 @@ module.exports = {
 
       let registro = await Usuario.findOne({ where: { cpf } })
       if (registro) {
-        throw new CustomError('Este cpf já tem cadastro no sistema .', 400, '');
+        if (registro.preCadastro) {
+          registro.senha = senha;
+          registro.email = email;
+          registro.login = login;
+          registro.nomeCompleto = nomeCompleto;
+          registro.sobreNome = sobreNome;
+          registro.preCadastro = false;
+          await registro.save();
+          return res.status(201).json(registro);
+        } else {
+          throw new CustomError('Este cpf já tem cadastro no sistema .', 400, '');
+        }
       }
 
       if (email) {
