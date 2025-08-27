@@ -44,6 +44,12 @@ async function aguardarContaCriada(idCliente, tentativas = 5, intervaloMs = 1000
     }
     throw new Error('Conta não foi criada após múltiplas tentativas.');
 }
+function formatPhoneToE164(phone) {
+    // Remove caracteres não numéricos
+    const cleaned = phone.replace(/\D/g, "");
+    // Adiciona o código do país se não estiver presente
+    return cleaned.startsWith("55") ? `+${cleaned}` : `+55${cleaned}`;
+}
 module.exports = {
     async get(req, res, next) {
         try {
@@ -106,8 +112,8 @@ module.exports = {
             if (eventoIngresso?.nome.includes('Antecipado')) {
                 dataValidade.setDate(dataValidade.getDate() + 1);
             }
+            const evento = await Evento_1.Evento.findByPk(idEvento);
             if (idEvento != 1) {
-                const evento = await Evento_1.Evento.findByPk(idEvento);
                 dataValidade = evento?.data_hora_inicio || dataValidade;
             }
             if (!tipo) {
@@ -128,6 +134,32 @@ module.exports = {
                 await (0, exports.addIngressoTransacao)(idTransacao, registro.id, eventoIngresso.preco, eventoIngresso.taxaServico, eventoIngresso.valor);
                 // Adiciona o histórico após a criação do ingresso
                 await addHistorico(registro.id, idUsuario, 'Vinculado a transação ' + idTransacao);
+            }
+            if (tipo === Ingresso_1.TipoVendidoCortesia.PDV) {
+                try {
+                    const user = await Usuario_1.Usuario.findByPk(idUsuario);
+                    const url = `https://jangoingressos.com.br/ingresso?qrcode=${registro.qrcode}`;
+                    const options = {
+                        method: "POST",
+                        headers: {
+                            accept: "application/json",
+                            "content-type": "application/json",
+                            Authorization: "d597037283078574746e95b4e78ddd52",
+                        },
+                        body: JSON.stringify({
+                            number: formatPhoneToE164(user?.telefone ?? ""),
+                            url: `https://api.jangoingressos.com.br/uploads/${evento?.imagem}`,
+                            caption: `Para acessar seu ingresso clique aqui ${url}`
+                        }),
+                    };
+                    fetch("https://v5.chatpro.com.br/chatpro-4p8b76i8oq/api/v1/send_message_file_from_url", options)
+                        .then((res) => res.json())
+                        .then((res) => console.log(res))
+                        .catch((err) => console.log("Erro ao enviar mensagem via WhatsApp: " + err));
+                }
+                catch (error) {
+                    next(error);
+                }
             }
             return res.status(201).json(registro);
         }

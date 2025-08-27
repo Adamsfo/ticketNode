@@ -10,6 +10,7 @@ var TipoVendidoCortesia;
 (function (TipoVendidoCortesia) {
     TipoVendidoCortesia["Vendido"] = "Vendido";
     TipoVendidoCortesia["Cortesia"] = "Cortesia";
+    TipoVendidoCortesia["PDV"] = "PDV";
 })(TipoVendidoCortesia || (exports.TipoVendidoCortesia = TipoVendidoCortesia = {}));
 class Ingresso extends sequelize_1.Model {
     static initialize(sequelize) {
