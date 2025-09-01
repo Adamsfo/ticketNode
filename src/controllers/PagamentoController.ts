@@ -950,14 +950,14 @@ module.exports = {
             const paymentId = data.id;
 
             try {
-                let empresa = await Empresa.findOne({
-                    where: { id: 1 },
-                });
+                // let empresa = await Empresa.findOne({
+                //     where: { id: 1 },
+                // });
 
-                if (!empresa || !empresa.accessToken) {
-                    console.log('Empresa não encontrada ou accessToken não definido');
-                    return res.status(404).json({ error: 'Empresa não encontrada ou accessToken não definido' });
-                }
+                // if (!empresa || !empresa.accessToken) {
+                //     console.log('Empresa não encontrada ou accessToken não definido');
+                //     return res.status(404).json({ error: 'Empresa não encontrada ou accessToken não definido' });
+                // }
 
                 const response = await fetch(`https://api.mercadopago.com/v1/payments/${paymentId}`, {
                     method: 'GET',
@@ -1252,25 +1252,11 @@ module.exports = {
     },
 
     async webHookPagamentoPos(req: any, res: any) {
-        const filters = req.query.filters ? JSON.parse(req.query.filters) : {};
-        const payment_uniqueid = filters.payment_uniqueid
+        const { data } = req.body;
+        const payment_uniqueid = data.payment_uniqueid
 
         if (payment_uniqueid) {
             try {
-                var config = {
-                    method: 'get',
-                    url: `https://api.supertef.com.br/api/pagamentos/by-uniqueid/${payment_uniqueid}?payment_uniqueid`,
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer 74b1f7466a552959ac2eb3f4fa9b4386bd65f2c5440dfd61c5e90af018b81ead`
-                    },
-                };
-
-                const response = await axios(config);
-                const data = response.data;
-
-                // const data = await response.json()
-                console.log('Dados do pagamento:', data);
 
                 if (data.payment_status === 4) {
                     const transacaoPagamento = await TransacaoPagamento.findOne({
