@@ -151,7 +151,7 @@ module.exports = {
                 await addHistorico(registro.id, idUsuario, 'Vinculado a transação ' + idTransacao);
             }
 
-            if (tipo === TipoVendidoCortesia.PDV && tipo === TipoVendidoCortesia.Cortesia) {
+            if (tipo === TipoVendidoCortesia.PDV || tipo === TipoVendidoCortesia.Cortesia) {
                 try {
                     const user = await Usuario.findByPk(idUsuario);
                     const url = `https://jangoingressos.com.br/ingresso?qrcode=${registro.qrcode}`;
@@ -165,7 +165,7 @@ module.exports = {
                         body: JSON.stringify({
                             number: formatPhoneToE164(user?.telefone ?? ""),
                             url: `https://api.jangoingressos.com.br/uploads/${evento?.imagem}`,
-                            caption: `Para acessar seu ingresso clique aqui ${url}`
+                            caption: `Olá ${user?.nomeCompleto}, \n\nVocé esta recebendo seu ingresso para ${evento?.nome}. \n\nPara acessá-lo ou mais informações, clique aqui ${url}`
                         }),
                     };
 

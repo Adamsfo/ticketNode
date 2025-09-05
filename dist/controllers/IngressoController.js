@@ -135,7 +135,7 @@ module.exports = {
                 // Adiciona o histórico após a criação do ingresso
                 await addHistorico(registro.id, idUsuario, 'Vinculado a transação ' + idTransacao);
             }
-            if (tipo === Ingresso_1.TipoVendidoCortesia.PDV && tipo === Ingresso_1.TipoVendidoCortesia.Cortesia) {
+            if (tipo === Ingresso_1.TipoVendidoCortesia.PDV || tipo === Ingresso_1.TipoVendidoCortesia.Cortesia) {
                 try {
                     const user = await Usuario_1.Usuario.findByPk(idUsuario);
                     const url = `https://jangoingressos.com.br/ingresso?qrcode=${registro.qrcode}`;
@@ -149,7 +149,7 @@ module.exports = {
                         body: JSON.stringify({
                             number: formatPhoneToE164(user?.telefone ?? ""),
                             url: `https://api.jangoingressos.com.br/uploads/${evento?.imagem}`,
-                            caption: `Para acessar seu ingresso clique aqui ${url}`
+                            caption: `Olá ${user?.nomeCompleto}, \n\nVocé esta recebendo seu ingresso para ${evento?.nome}. \n\nPara acessá-lo ou mais informações, clique aqui ${url}`
                         }),
                     };
                     fetch("https://v5.chatpro.com.br/chatpro-4p8b76i8oq/api/v1/send_message_file_from_url", options)
