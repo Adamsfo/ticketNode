@@ -151,7 +151,7 @@ module.exports = {
                 await addHistorico(registro.id, idUsuario, 'Vinculado a transação ' + idTransacao);
             }
 
-            if (tipo === TipoVendidoCortesia.PDV) {
+            if (tipo === TipoVendidoCortesia.PDV && tipo === TipoVendidoCortesia.Cortesia) {
                 try {
                     const user = await Usuario.findByPk(idUsuario);
                     const url = `https://jangoingressos.com.br/ingresso?qrcode=${registro.qrcode}`;
