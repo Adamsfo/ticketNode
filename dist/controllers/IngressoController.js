@@ -442,4 +442,46 @@ module.exports = {
             next(error); // Passa o erro para o middleware de tratamento de erros
         }
     },
+    async enviarIngressoWhatsApp(req, res, next) {
+        try {
+            let { idIngresso } = req.body;
+            if (!idIngresso) {
+                throw new customError_1.CustomError('Faltando informações em campos obrigatórios.', 400, '');
+            }
+            const registro = await Ingresso_1.Ingresso.findByPk(idIngresso);
+            if (!registro) {
+                throw new customError_1.CustomError('Ingresso não encontrado.', 404, '');
+            }
+            const evento = await Evento_1.Evento.findByPk(registro.idEvento);
+            let user;
+            try {
+                user = await Usuario_1.Usuario.findByPk(registro.idUsuario);
+                const url = `https://jangoingressos.com.br/ingresso?qrcode=${registro.qrcode}`;
+                const options = {
+                    method: "POST",
+                    headers: {
+                        accept: "application/json",
+                        "content-type": "application/json",
+                        Authorization: "d597037283078574746e95b4e78ddd52",
+                    },
+                    body: JSON.stringify({
+                        number: formatPhoneToE164(user?.telefone ?? ""),
+                        url: `https://api.jangoingressos.com.br/uploads/${evento?.imagem}`,
+                        caption: `Olá ${user?.nomeCompleto}, \n\nVocé esta recebendo seu ingresso para ${evento?.nome}. \n\nPara acessá-lo ou mais informações, clique aqui ${url}`
+                    }),
+                };
+                fetch("https://v5.chatpro.com.br/chatpro-4p8b76i8oq/api/v1/send_message_file_from_url", options)
+                    .then((res) => res.json())
+                    .then((res) => console.log(res))
+                    .catch((err) => console.log("Erro ao enviar mensagem via WhatsApp: " + err));
+            }
+            catch (error) {
+                next(error);
+            }
+            return res.status(201).json({ ...registro, telefone: user?.telefone });
+        }
+        catch (error) {
+            next(error);
+        }
+    },
 };

@@ -16,4 +16,5 @@ router.delete('/ingresso/:id', authenticate, IngressoController.delete);
 router.post('/validadorjango', authenticate, IngressoController.validadorJango);
 router.post('/validadorqrcode', authenticate, IngressoController.validadorQrCode);
 router.get('/dadosingressos', authenticate, IngressoController.getDadosIngressos);
+router.post('/enviaingressowhatsapp', authenticate, IngressoController.enviarIngressoWhatsApp);
 module.exports = router;
