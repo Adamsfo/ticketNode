@@ -369,13 +369,18 @@ module.exports = {
                         preco: 0,
                         valorRecebido: 0,
                         valorTaxaProcessamento: 0,
+                        qtdeIngressos: 0,
                         transacoes: [],
                     };
                 }
                 resumoPorData[data].preco += Number(item.preco || 0);
                 resumoPorData[data].valorRecebido += Number(item.valorRecebido || 0);
                 resumoPorData[data].valorTaxaProcessamento += Number(item.valorTaxaProcessamento || 0);
-                resumoPorData[data].transacoes.push(item);
+                const qtde = await Transacao_1.IngressoTransacao.count({
+                    where: { idTransacao: item.id }
+                });
+                resumoPorData[data].qtdeIngressos += Number(qtde || 1);
+                resumoPorData[data].transacoes.push({ ...item, qtdeIngressos: qtde });
             }
             let resultado = Object.entries(resumoPorData).map(([data, valores]) => ({
                 data,
@@ -386,7 +391,8 @@ module.exports = {
                 preco: acc.preco + curr.preco,
                 valorRecebido: acc.valorRecebido + curr.valorRecebido,
                 valorTaxaProcessamento: acc.valorTaxaProcessamento + curr.valorTaxaProcessamento,
-            }), { preco: 0, valorRecebido: 0, valorTaxaProcessamento: 0 });
+                qtdeIngressos: acc.qtdeIngressos + curr.qtdeIngressos,
+            }), { preco: 0, valorRecebido: 0, valorTaxaProcessamento: 0, qtdeIngressos: 0 });
             // Linha "Total" (sem transações)
             resultado.push({
                 data: "Total",
