@@ -146,6 +146,10 @@ class Transacao extends Model<TransacaoAttributes, TransacaoCreationAttributes> 
             foreignKey: 'idTransacao',
             as: 'IngressoTransacao'
         });
+        Transacao.belongsTo(Evento, {
+            foreignKey: 'idEvento',
+            as: 'Evento'
+        });
     }
 }
 

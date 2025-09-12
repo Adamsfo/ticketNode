@@ -23,7 +23,14 @@ export const addHistorico = async (idTransacao: number, idUsuario: number, descr
 module.exports = {
     async get(req: any, res: any, next: any) {
         await getRegistros(Transacao, req, res, next,
-            // [
+            [
+                {
+                    model: Evento,
+                    as: 'Evento',
+                    attributes: ['nome']
+                }
+            ]
+
             //     {
             //         model: IngressoTransacao,
             //         as: 'IngressoTransacao',

@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.TipoPagamento = exports.TransacaoPagamento = exports.HistoricoTransacao = exports.IngressoTransacao = exports.Transacao = exports.TransacaoInit = void 0;
 const sequelize_1 = require("sequelize");
+const Evento_1 = require("./Evento");
 const Usuario_1 = require("./Usuario");
 const Ingresso_1 = require("./Ingresso");
 var TipoPagamento;
@@ -105,6 +106,10 @@ class Transacao extends sequelize_1.Model {
         Transacao.hasMany(IngressoTransacao, {
             foreignKey: 'idTransacao',
             as: 'IngressoTransacao'
+        });
+        Transacao.belongsTo(Evento_1.Evento, {
+            foreignKey: 'idEvento',
+            as: 'Evento'
         });
     }
 }
