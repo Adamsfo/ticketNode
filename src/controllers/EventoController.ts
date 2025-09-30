@@ -41,7 +41,7 @@ module.exports = {
                         console.log("Caminho da imagem existe:", filePath);
                         // Redimensiona para largura 320px e converte em PNG
                         const buffer = await sharp(filePath)
-                            .resize({ width: 320 }) // largura ajustada para bobina
+                            .resize({ width: 350 }) // largura ajustada para bobina
                             .png({
                                 compressionLevel: 9,         // máxima compressão PNG
                                 adaptiveFiltering: true,     // melhora compressão em imagens simples
