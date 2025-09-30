@@ -1,18 +1,66 @@
 "use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 const getRegistros_1 = require("../utils/getRegistros");
 const customError_1 = require("../utils/customError");
 const Evento_1 = require("../models/Evento");
 const Produtor_1 = require("../models/Produtor");
+const path_1 = __importDefault(require("path"));
+const fs_1 = __importDefault(require("fs"));
+const sharp_1 = __importDefault(require("sharp"));
 module.exports = {
     async get(req, res, next) {
-        await (0, getRegistros_1.getRegistros)(Evento_1.Evento, req, res, next, [
+        // await getRegistros(Evento, req, res, next,
+        //     [
+        //         {
+        //             model: Produtor,
+        //             as: 'Produtor',
+        //             attributes: ['logo'],
+        //         }
+        //     ]
+        // )
+        const result = await (0, getRegistros_1.getRegistros)(Evento_1.Evento, req, res, next, [
             {
                 model: Produtor_1.Produtor,
                 as: 'Produtor',
                 attributes: ['logo'],
             }
-        ]);
+        ], true);
+        const { data, meta } = result ?? { data: [], meta: { totalItems: 0, totalPages: 0, currentPage: 0, pageSize: 0 } };
+        const dataComQrCode = await Promise.all(data.map(async (registro) => {
+            try {
+                const filePath = path_1.default.join(__dirname.replace("\controllers", ""), 'public/uploads', registro.imagem); // caminho físico no servidor                    
+                let imagemBase64 = null;
+                console.log("Caminho da imagem:", filePath);
+                if (fs_1.default.existsSync(filePath)) {
+                    console.log("Caminho da imagem existe:", filePath);
+                    // Redimensiona para largura 320px e converte em PNG
+                    const buffer = await (0, sharp_1.default)(filePath)
+                        .resize({ width: 320 }) // largura ajustada para bobina
+                        .png({
+                        compressionLevel: 9, // máxima compressão PNG
+                        adaptiveFiltering: true, // melhora compressão em imagens simples
+                    })
+                        .toBuffer();
+                    imagemBase64 = buffer.toString("base64");
+                }
+                return {
+                    ...registro.toJSON?.() ?? registro,
+                    imagemBase64,
+                };
+            }
+            catch (err) {
+                console.error("Erro ao converter imagem:", err);
+                return {
+                    ...registro.toJSON?.() ?? registro,
+                    imagemBase64: null,
+                };
+            }
+        }));
+        console.log("Data enviada:", dataComQrCode);
+        return res.status(200).json({ data: dataComQrCode, meta });
     },
     async add(req, res, next) {
         try {
