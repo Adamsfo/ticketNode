@@ -1297,4 +1297,75 @@ module.exports = {
             res.status(400).json({ error: 'Tipo de POS não suportado' });
         }
     },
+
+    async pagamentoPOSStone(req: any, res: any) {
+        try {
+            const { idTransacao, idUsuarioPDV, tipoPagamento } = req.body;
+
+            const transacao = await Transacao.findOne({
+                where: { id: idTransacao },
+            });
+
+            if (!transacao) {
+                return res.status(404).json({ error: 'Transação não encontrada' });
+            }
+
+            transacao.tipoPagamento = tipoPagamento;
+            transacao.valorTaxaProcessamento = 0;
+            transacao.valorRecebido = transacao.valorTotal;
+            transacao.gatewayPagamento = 'POS Stone';
+
+            const evento = await Evento.findOne({
+                where: { id: transacao.idEvento },
+            });
+
+            if (evento?.idProdutor === 1) {
+                const caixa = await apiJango().getCaixa();
+
+                if (caixa[0]) {
+                    await apiJango().inseriCaixaItem(caixa[0].id_caixa, transacao.valorTotal,
+                        transacao.tipoPagamento === TipoPagamento.Debito ? 40 :
+                            transacao.tipoPagamento === TipoPagamento.Credito ? 39 :
+                                transacao.tipoPagamento === TipoPagamento.Dinheiro ? 38 : 42);
+                }
+            }
+
+            const usuario = await ProdutorAcesso.findOne({
+                where: { idUsuario: idUsuarioPDV, tipoAcesso: TipoAcesso.PDV },
+            });
+
+            if (!usuario) {
+                return res.status(404).json({ error: 'ProdutorAcesso não encontrado' });
+            }
+
+            // Salvar dados de pagamento
+            await TransacaoPagamento.create({
+                idTransacao: idTransacao,
+                PagamentoCodigo: '',
+                gatewayPagamento: 'POS Stone'
+            });
+
+
+            transacao.save();
+
+            const data = new Date(); // Data atual
+            await HistoricoTransacao.create({ idTransacao, data, descricao: 'Pagamento Criado em Dinheiro na Portaria', idUsuario: idUsuarioPDV });
+
+            if (transacao.status != 'Pago') {
+                await transacaoPaga(idTransacao, 'Pagamento POS Terminal Stone', transacao.idUsuario)
+            }
+
+            return res.status(200).json({
+                data: {
+                    payment_uniqueid: 0,
+                    payment_status: 4,
+                    payment_message: 'Pagamento POS Terminal Stone',
+                    created_at: new Date().toISOString(),
+                }
+            });
+        } catch (error) {
+            console.error('Erro ao criar pagamento dinheiro:', error);
+            return res.status(500).json({ error: 'Erro ao gerar pagamento Dinheiro' });
+        }
+    },
 }

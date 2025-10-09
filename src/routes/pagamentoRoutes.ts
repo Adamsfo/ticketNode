@@ -18,6 +18,7 @@ router.get('/consultapagamentopos', PagamentoController.consultaPagamentoPos)
 router.get('/cancelapagamentopos', PagamentoController.cancelaPagamentoPos)
 router.post('/pagamentodinheiro', PagamentoController.pagamentoDinheiro)
 router.post('/webhookpagamentopos', PagamentoController.webHookPagamentoPos)
+router.post('/pagamentoposstone', PagamentoController.pagamentoPOSStone)
 
 // router.post('/geracode', PagamentoController.geraTokenSplit)
 // router.post('/createCardToken', PagamentoController.createCardToken)
