@@ -1,5 +1,5 @@
 import express from 'express';
-const { login, addLogin, enviarEmailRecuperacaoSenha, varificaAtivarConta, enviaCodigoAtivacao, visitasNoSite } = require('../controllers/AuthController');
+const { login, addLogin, enviarEmailRecuperacaoSenha, varificaAtivarConta, enviaCodigoAtivacao, visitasNoSite, loginEmailCodigo } = require('../controllers/AuthController');
 
 const router = express.Router();
 
@@ -9,5 +9,6 @@ router.post('/emailrecuperarsenha', enviarEmailRecuperacaoSenha);
 router.post('/verificaativaconta', varificaAtivarConta);
 router.post('/enviacodigoativacao', enviaCodigoAtivacao);
 router.post('/visitasnosite', visitasNoSite);
+router.post('/loginemailcodigo', loginEmailCodigo)
 
 module.exports = router;

@@ -5,20 +5,57 @@ const customError_1 = require("../utils/customError");
 const EventoIngresso_1 = require("../models/EventoIngresso");
 const TipoIngresso_1 = require("../models/TipoIngresso");
 const CupomPromocional_1 = require("../models/CupomPromocional");
+const Ingresso_1 = require("../models/Ingresso");
+const sequelize_1 = require("sequelize");
 module.exports = {
     async get(req, res, next) {
-        await (0, getRegistros_1.getRegistros)(EventoIngresso_1.EventoIngresso, req, res, next, [
-            {
-                model: TipoIngresso_1.TipoIngresso,
-                as: 'TipoIngresso',
-                attributes: ['descricao'],
-            },
-            {
-                model: CupomPromocional_1.CupomPromocional,
-                as: 'CupomPromocional',
-                attributes: ['nome'],
-            }
-        ]);
+        try {
+            // Busca os registros padrão
+            const result = await (0, getRegistros_1.getRegistros)(EventoIngresso_1.EventoIngresso, req, res, next, [
+                {
+                    model: TipoIngresso_1.TipoIngresso,
+                    as: 'TipoIngresso',
+                    attributes: ['descricao'],
+                },
+                {
+                    model: CupomPromocional_1.CupomPromocional,
+                    as: 'CupomPromocional',
+                    attributes: ['nome'],
+                },
+            ], true);
+            const { data, meta } = result ?? {
+                data: [],
+                meta: { totalItems: 0, totalPages: 0, currentPage: 0, pageSize: 0 },
+            };
+            // Busca apenas a contagem de ingressos confirmados por EventoIngresso
+            const contagens = await Ingresso_1.Ingresso.findAll({
+                attributes: [
+                    'idEventoIngresso',
+                    [(0, sequelize_1.fn)('COUNT', (0, sequelize_1.col)('id')), 'totalConfirmados'],
+                ],
+                where: { status: 'Confirmado' },
+                group: ['idEventoIngresso'],
+                raw: true,
+            });
+            // Cria um mapa para acesso rápido
+            const mapaContagens = {};
+            contagens.forEach((item) => {
+                mapaContagens[item.idEventoIngresso] = Number(item.totalConfirmados);
+            });
+            // Adiciona o campo `ingressosConfirmados` aos registros
+            const dataComContagem = data.map((registro) => ({
+                ...registro,
+                ingressosConfirmados: mapaContagens[registro.id] ?? 0,
+            }));
+            // Retorna o resultado final
+            res.status(200).json({
+                data: dataComContagem,
+                meta,
+            });
+        }
+        catch (err) {
+            next(err);
+        }
     },
     async add(req, res, next) {
         try {

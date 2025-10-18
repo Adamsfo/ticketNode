@@ -9,6 +9,7 @@ const { authenticate } = require('../middlewares/authMiddleware');
 const UsuarioController = require('../controllers/UsuarioController');
 router.get('/funcaosistema', authenticate, UsuarioController.getFuncaoSistema);
 router.get('/usuario', authenticate, UsuarioController.getUsuario);
+router.get('/usuarioemailtelefone', UsuarioController.getUsuarioEmailTelefone);
 router.post('/usuario', authenticate, UsuarioController.addUsuario);
 router.put('/usuario/:id', authenticate, UsuarioController.editUsuario);
 router.delete('/usuario/:id', authenticate, UsuarioController.deleteUsuario);

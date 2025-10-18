@@ -14,6 +14,17 @@ module.exports = {
             }
         ]);
     },
+    async getUsuarioEmailTelefone(req, res, next) {
+        const result = await (0, getRegistros_1.getRegistros)(Usuario_1.Usuario, req, res, next, [], true);
+        console.log(result);
+        const { data, meta } = result ?? { data: [], meta: { totalItems: 0, totalPages: 0, currentPage: 0, pageSize: 0 } };
+        const dataFiltrada = data.map((registro) => ({
+            id: registro.id,
+            email: registro.email,
+            telefone: registro.telefone,
+        }));
+        res.status(200).json({ data: dataFiltrada, meta });
+    },
     async addUsuario(req, res, next) {
         try {
             const { email, login, senha, nomeCompleto, idFuncaoUsuario, ativo, alterarSenha, sobreNome, id_cliente } = req.body;

@@ -49,6 +49,39 @@ const enviaCodigoEmail = async (email: string, codigo: string) => {
   }
 };
 
+// Envia código de verificação por e-mail usando Resend
+const enviaCodigoEmailLogin = async (email: string, codigo: string) => {
+  try {
+    if (!email) {
+      throw new Error('Email é obrigatório');
+    }
+
+    const response = await resend.emails.send({
+      from: 'Jango Ingressos <no-reply@jangoingressos.com.br>',
+      to: [email],
+      subject: 'Seu código de verificação Jango Ingressos',
+      html: `
+        <div style="font-family: Arial, sans-serif; color: #333;">
+          <h2>Olá!</h2>
+          <p>Seu código para entrar é:</p>
+          <h1 style="color:#007BFF;">${codigo}</h1>
+          <p>Este código expira em 15 minutos.</p>
+          <p>Se você não solicitou esse código, ignore este e-mail.</p>
+          <br/>
+          <small>Jango Ingressos © ${new Date().getFullYear()}</small>
+          <small>Desenvolvido por Tanz Tecnologia Ltda</small>
+        </div>
+      `,
+    });
+
+    if (response.error) {
+      console.error('Erro ao enviar e-mail via Resend:', response.error);
+    }
+  } catch (error) {
+    console.error('Erro geral no envio de e-mail:', error);
+  }
+};
+
 async function enviarCodigoAtivacaoChatPro(numeroCliente: string, codigo: string) {
   // chatpro.auth('d597037283078574746e95b4e78ddd52');
   // chatpro.send_message({
@@ -226,8 +259,38 @@ module.exports = {
     return res.status(400).json({ error: "Código inválido ou expirado" });
   },
 
+  async loginEmailCodigo(req: any, res: any) {
+    const { info, codigo, id } = req.body;
+
+    if (!id) {
+      throw new CustomError('id é obrigatórios.', 400, '');
+    }
+
+    if (!info || !codigo) {
+      throw new CustomError('info e codigo são obrigatórios.', 400, '');
+    }
+
+    const storedCode = codeStore.get(info);
+
+    if (storedCode === codigo) {
+      const usuario = await Usuario.findOne({ where: { id } });
+      if (!usuario) {
+        return res.status(404).json({ error: "Usuário não encontrado" });
+      }
+
+      const token = generateToken(usuario);
+      usuario.token = token
+      usuario.save()
+      return res.status(200).json({
+        data: token
+      });
+    }
+
+    return res.status(400).json({ error: "Código inválido ou expirado" });
+  },
+
   enviaCodigoAtivacao: async (req: any, res: any, next: any) => {
-    const { info, tipo } = req.body;
+    const { info, tipo, login } = req.body;
 
     if (!info) {
       throw new CustomError(`${tipo} é obrigatórios.`, 400, '');
@@ -237,7 +300,11 @@ module.exports = {
 
     if (tipo === 'email') {
       try {
-        await enviaCodigoEmail(info, code);
+        if (login) {
+          await enviaCodigoEmailLogin(info, code)
+        } else {
+          await enviaCodigoEmail(info, code);
+        }
         codeStore.set(info, code);
         setTimeout(() => codeStore.delete(info), 15 * 60 * 1000); // Expira em 15 minutos
         res.json({ success: true });
