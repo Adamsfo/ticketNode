@@ -8,6 +8,7 @@ const resend_1 = require("../utils/resend");
 const Visitas_1 = require("../models/Visitas");
 // import chatpro from '@api/chatpro'
 const codeStore = new Map();
+const codeLogin = new Map();
 function formatPhoneToE164(phone) {
     // Remove caracteres não numéricos
     const cleaned = phone.replace(/\D/g, '');
@@ -206,6 +207,8 @@ module.exports = {
     },
     async varificaAtivarConta(req, res) {
         const { info, codigo, id } = req.body;
+        console.log('codigo', codigo);
+        console.log('info', info);
         if (!id) {
             throw new customError_1.CustomError('id é obrigatórios.', 400, '');
         }
@@ -219,7 +222,7 @@ module.exports = {
                 return res.status(404).json({ error: "Usuário não encontrado" });
             }
             usuario.ativo = true;
-            codeStore.delete(info);
+            // codeStore.delete(info);
             usuario.save();
             return res.json({ success: true });
         }
@@ -233,7 +236,7 @@ module.exports = {
         if (!info || !codigo) {
             throw new customError_1.CustomError('info e codigo são obrigatórios.', 400, '');
         }
-        const storedCode = codeStore.get(info);
+        const storedCode = codeLogin.get(info);
         if (storedCode === codigo) {
             const usuario = await Usuario_1.Usuario.findOne({ where: { id } });
             if (!usuario) {
@@ -254,6 +257,8 @@ module.exports = {
             throw new customError_1.CustomError(`${tipo} é obrigatórios.`, 400, '');
         }
         const code = Math.floor(1000 + Math.random() * 9000).toString();
+        console.log('info', info);
+        console.log('code', code);
         if (tipo === 'email') {
             try {
                 if (login) {
@@ -278,6 +283,51 @@ module.exports = {
                     // await enviarCodigoAtivacaoChatPro(formatPhoneToE164(info), code)
                     codeStore.set(info, code);
                     setTimeout(() => codeStore.delete(info), 15 * 60 * 1000); // Expira em 15 minutos
+                    res.json({ success: true, code });
+                    return;
+                }
+                if (tipo === 'sms') {
+                    console.log('info', formatPhoneToE164(info));
+                    console.log('code', code);
+                    await (0, twilioService_1.sendCodeSMS)(formatPhoneToE164(info), code);
+                }
+                res.json({ success: true });
+            }
+            catch (error) {
+                return res.status(500).json({ error: 'Erro ao enviar código', details: error.message });
+            }
+        }
+    },
+    geraCodigoLogin: async (req, res, next) => {
+        const { info, tipo, login } = req.body;
+        if (!info) {
+            throw new customError_1.CustomError(`${tipo} é obrigatórios.`, 400, '');
+        }
+        const code = Math.floor(1000 + Math.random() * 9000).toString();
+        if (tipo === 'email') {
+            try {
+                if (login) {
+                    await enviaCodigoEmailLogin(info, code);
+                }
+                else {
+                    await enviaCodigoEmail(info, code);
+                }
+                codeLogin.set(info, code);
+                setTimeout(() => codeLogin.delete(info), 15 * 60 * 1000); // Expira em 15 minutos
+                res.json({ success: true });
+            }
+            catch (error) {
+                console.error("Erro ao enviar código:", error);
+                res.status(500).json({ error: "Erro ao enviar código" });
+            }
+        }
+        else if (tipo === 'sms' || tipo === 'whatsapp') {
+            try {
+                if (tipo === 'whatsapp') {
+                    // await sendCodeWhatsApp(formatPhoneToE164(info), code);
+                    // await enviarCodigoAtivacaoChatPro(formatPhoneToE164(info), code)
+                    codeLogin.set(info, code);
+                    setTimeout(() => codeLogin.delete(info), 15 * 60 * 1000); // Expira em 15 minutos
                     res.json({ success: true, code });
                     return;
                 }

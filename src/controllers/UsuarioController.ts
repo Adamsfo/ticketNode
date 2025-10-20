@@ -5,13 +5,16 @@ import { Empresa } from '../models/Empresa'
 
 module.exports = {
   async getUsuario(req: any, res: any, next: any) {
-    await getRegistros(Usuario, req, res, next, [
+    console.log('req.query:', req);
+    const result = await getRegistros(Usuario, req, res, next, [
       {
         model: FuncaoUsuario,
         as: 'funcaoUsuario',
         attributes: ['funcaoUsuario'],
       }
-    ])
+    ], true)
+    console.log(result)
+    res.status(200).json(result ?? { data: [], meta: { totalItems: 0, totalPages: 0, currentPage: 0, pageSize: 0 } })
   },
 
   async getUsuarioEmailTelefone(req: any, res: any, next: any) {

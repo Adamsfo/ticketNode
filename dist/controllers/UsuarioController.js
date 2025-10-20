@@ -6,13 +6,16 @@ const customError_1 = require("../utils/customError");
 const Empresa_1 = require("../models/Empresa");
 module.exports = {
     async getUsuario(req, res, next) {
-        await (0, getRegistros_1.getRegistros)(Usuario_1.Usuario, req, res, next, [
+        console.log('req.query:', req);
+        const result = await (0, getRegistros_1.getRegistros)(Usuario_1.Usuario, req, res, next, [
             {
                 model: Usuario_1.FuncaoUsuario,
                 as: 'funcaoUsuario',
                 attributes: ['funcaoUsuario'],
             }
-        ]);
+        ], true);
+        console.log(result);
+        res.status(200).json(result ?? { data: [], meta: { totalItems: 0, totalPages: 0, currentPage: 0, pageSize: 0 } });
     },
     async getUsuarioEmailTelefone(req, res, next) {
         const result = await (0, getRegistros_1.getRegistros)(Usuario_1.Usuario, req, res, next, [], true);
