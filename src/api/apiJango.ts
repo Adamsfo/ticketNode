@@ -141,6 +141,34 @@ const PdvApiJango = {
     }
     return null;
   },
+
+  consultaPedidosPorUsuario: async (dataInicial: string, dataFinal: string) => {
+    const qry = `select 
+                    u.usuario,
+                    sum(vi.valor_total),
+                    cast(p.data_hora as date) as data
+                from pedido p
+                inner join pedido_item pi on pi.id_pedido = p.id_pedido
+                inner join venda_item vi on vi.id_venda = p.id_venda 
+                    and vi.id_produto = pi.id_produto
+                inner join usuario u on u.id_usuario = p.id_usuario
+                where p.status = 5
+                  and p.data_hora between '${dataInicial} 00:00:00' and '${dataFinal} 23:59:59'
+                group by u.usuario, cast(p.data_hora as date)`;
+    try {
+      console.log("Consultando pedidos por usuário: ", qry);
+      const json = await apiFetchGet("/select/" + qry);
+      if (json.length === 0) {
+        const erro = JSON.parse('{"error": "CPF e/ou senha errados!"}');
+        return erro;
+      } else {
+        return json;
+      }
+    } catch (error) {
+      console.log("Erro ao abrir conta na api: ", error);
+    }
+    return null;
+  },
 };
 
 export default () => PdvApiJango;

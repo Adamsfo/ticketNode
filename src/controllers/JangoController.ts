@@ -59,4 +59,23 @@ module.exports = {
             next(error);
         }
     },
+
+    async getPedidosUsuario(req: any, res: any, next: any) {
+        try {
+            const { dataInicio, dataFim } = req.query;
+            console.log("Parâmetros recebidos:", { dataInicio, dataFim });
+
+            if (!dataInicio || !dataFim) {
+                throw new CustomError('Data de início e fim são obrigatórias.', 400, '');
+            }
+
+            const dadosJango = await apiJango().consultaPedidosPorUsuario(dataInicio, dataFim);
+            console.log("Pedidos retornados:", dadosJango);
+            // return res.status(200).json(dadosJango);
+            return res.status(200).json([]);
+
+        } catch (error) {
+            next(error);
+        }
+    }
 }
