@@ -55,4 +55,20 @@ module.exports = {
             next(error);
         }
     },
+    async getPedidosUsuario(req, res, next) {
+        try {
+            const { dataInicio, dataFim } = req.query;
+            console.log("Parâmetros recebidos:", { dataInicio, dataFim });
+            if (!dataInicio || !dataFim) {
+                throw new customError_1.CustomError('Data de início e fim são obrigatórias.', 400, '');
+            }
+            const dadosJango = await (0, apiJango_1.default)().consultaPedidosPorUsuario(dataInicio, dataFim);
+            console.log("Pedidos retornados:", dadosJango);
+            // return res.status(200).json(dadosJango);
+            return res.status(200).json({ data: dadosJango, meta: { totalItems: 0, totalPages: 0, currentPage: 0, pageSize: 0 } });
+        }
+        catch (error) {
+            next(error);
+        }
+    },
 };

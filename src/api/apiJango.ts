@@ -2,6 +2,8 @@
 // const BASEAPI = 'http://192.168.1.2:80/PDVServer.dll/datasnap/rest/TSM';
 // const BASEAPIFotos = 'http://192.168.1.2:80';
 
+import { query } from "../database/ConexaoJango";
+
 const BASEAPI = "http://160.20.20.102:8010/PDVServer.dll/datasnap/rest/TSM";
 const BASEAPIFotos = "http://160.20.20.102:8010";
 
@@ -143,7 +145,7 @@ const PdvApiJango = {
   },
 
   consultaPedidosPorUsuario: async (dataInicial: string, dataFinal: string) => {
-    const qry = `select 
+    const qry = `select u.id_usuario id,
                     u.usuario,
                     sum(vi.valor_total),
                     cast(p.data_hora as date) as data
@@ -154,16 +156,16 @@ const PdvApiJango = {
                 inner join usuario u on u.id_usuario = p.id_usuario
                 where p.status = 5
                   and p.data_hora between '${dataInicial} 00:00:00' and '${dataFinal} 23:59:59'
-                group by u.usuario, cast(p.data_hora as date)`;
+                group by u.id_usuario,u.usuario, cast(p.data_hora as date)`;
     try {
-      console.log("Consultando pedidos por usuário: ", qry);
-      const json = await apiFetchGet("/select/" + qry);
-      if (json.length === 0) {
-        const erro = JSON.parse('{"error": "CPF e/ou senha errados!"}');
-        return erro;
+      const rows = await query(qry);
+
+      if (rows.length > 0) {
+        return rows;
       } else {
-        return json;
+        return [];
       }
+
     } catch (error) {
       console.log("Erro ao abrir conta na api: ", error);
     }

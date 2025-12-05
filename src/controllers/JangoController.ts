@@ -72,10 +72,10 @@ module.exports = {
             const dadosJango = await apiJango().consultaPedidosPorUsuario(dataInicio, dataFim);
             console.log("Pedidos retornados:", dadosJango);
             // return res.status(200).json(dadosJango);
-            return res.status(200).json([]);
+            return res.status(200).json({ data: dadosJango, meta: { totalItems: 0, totalPages: 0, currentPage: 0, pageSize: 0 } });
 
         } catch (error) {
             next(error);
         }
-    }
+    },
 }
