@@ -44,7 +44,7 @@ const connection = new Sequelize(dbConfig);
         (0, ClienteMetodoPagamento_1.UsuarioMetodoPagamentoInit)(connection);
         (0, Visitas_1.VisitasInit)(connection);
         // Sincronizando os modelos com o banco de dados        
-        await connection.sync();
+        // await connection.sync();
         // await connection.sync({ alter: true });
         // Executando configurações iniciais
         await FuncaoSistema.funcaoSistema();
