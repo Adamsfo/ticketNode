@@ -135,7 +135,8 @@ class Ingresso extends Model<IngressoAttributes, IngressoCreationAttributes> imp
             tipo: {
                 type: DataTypes.ENUM(
                     TipoVendidoCortesia.Vendido,
-                    TipoVendidoCortesia.Cortesia
+                    TipoVendidoCortesia.Cortesia,
+                    TipoVendidoCortesia.PDV
                 ),
                 allowNull: true,
                 defaultValue: TipoVendidoCortesia.Vendido

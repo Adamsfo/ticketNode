@@ -3,6 +3,7 @@ import { Evento } from './Evento';
 import { Usuario } from './Usuario';
 import { Ingresso } from './Ingresso';
 import { TipoDesconto } from './CupomPromocional';
+import { EventoSuite } from './EventoSuite';
 
 enum TipoPagamento {
     Debito = "Débito",
@@ -398,15 +399,151 @@ class TransacaoPagamento extends Model<TransacaoPagamentoAttributes, TransacaoPa
     }
 }
 
+interface EventoSuiteTransacaoAttributes {
+    id: number;
+    idTransacao: number;
+    idEventoSuite: number;
+
+    precoOriginal?: number;
+    idCupomPromocionalValidade?: number | null;
+
+    tipoDesconto?: TipoDesconto;
+    valorDesconto?: number | null;
+    precoDesconto?: number | null;
+
+    preco: number;
+    taxaServico: number;
+    valorTotal: number;
+
+    taxaServicoOriginal?: number;
+    taxaServicoDesconto?: number;
+}
+
+interface EventoSuiteTransacaoCreationAttributes extends Optional<EventoSuiteTransacaoAttributes, 'id'> { }
+
+class EventoSuiteTransacao
+    extends Model<EventoSuiteTransacaoAttributes, EventoSuiteTransacaoCreationAttributes>
+    implements EventoSuiteTransacaoAttributes {
+
+    public id!: number;
+    public idTransacao!: number;
+    public idEventoSuite!: number;
+
+    public precoOriginal?: number;
+    public idCupomPromocionalValidade?: number | null;
+
+    public tipoDesconto?: TipoDesconto;
+    public valorDesconto?: number | null;
+    public precoDesconto?: number | null;
+
+    public preco!: number;
+    public taxaServico!: number;
+    public valorTotal!: number;
+
+    public taxaServicoOriginal?: number;
+    public taxaServicoDesconto?: number;
+
+    static initialize(sequelize: Sequelize) {
+        EventoSuiteTransacao.init({
+            id: {
+                type: DataTypes.INTEGER,
+                autoIncrement: true,
+                primaryKey: true
+            },
+            idTransacao: {
+                type: DataTypes.INTEGER,
+                allowNull: false,
+                references: {
+                    model: 'Transacao',
+                    key: 'id'
+                }
+            },
+            idEventoSuite: {
+                type: DataTypes.INTEGER,
+                allowNull: false,
+                references: {
+                    model: 'EventoSuite',
+                    key: 'id'
+                }
+            },
+            precoOriginal: {
+                type: DataTypes.DECIMAL(14, 2),
+                allowNull: true
+            },
+            idCupomPromocionalValidade: {
+                type: DataTypes.INTEGER,
+                allowNull: true,
+                references: {
+                    model: 'CupomPromocionalValidade',
+                    key: 'id'
+                }
+            },
+            tipoDesconto: {
+                type: DataTypes.ENUM('Nenhum', 'Percentual', 'Fixo'),
+                allowNull: true,
+                defaultValue: 'Nenhum'
+            },
+            valorDesconto: {
+                type: DataTypes.DECIMAL(14, 2),
+                allowNull: true
+            },
+            precoDesconto: {
+                type: DataTypes.DECIMAL(14, 2),
+                allowNull: true
+            },
+            preco: {
+                type: DataTypes.DECIMAL(14, 2),
+                allowNull: false
+            },
+            taxaServico: {
+                type: DataTypes.DECIMAL(14, 2),
+                allowNull: false
+            },
+            valorTotal: {
+                type: DataTypes.DECIMAL(14, 2),
+                allowNull: false
+            },
+            taxaServicoOriginal: {
+                type: DataTypes.DECIMAL(14, 2),
+                allowNull: true
+            },
+            taxaServicoDesconto: {
+                type: DataTypes.DECIMAL(14, 2),
+                allowNull: true,
+                defaultValue: 0
+            }
+        }, {
+            sequelize,
+            modelName: 'EventoSuiteTransacao',
+            freezeTableName: true
+        });
+    }
+
+    static associate() {
+        EventoSuiteTransacao.belongsTo(EventoSuite, {
+            foreignKey: 'idEventoSuite',
+            as: 'EventoSuite'
+        });
+
+        EventoSuiteTransacao.belongsTo(Transacao, {
+            foreignKey: 'idTransacao',
+            as: 'Transacao'
+        });
+    }
+}
+
 export const TransacaoInit = (sequelize: Sequelize) => {
     Transacao.initialize(sequelize);
     IngressoTransacao.initialize(sequelize);
     HistoricoTransacao.initialize(sequelize);
     TransacaoPagamento.initialize(sequelize);
+    EventoSuiteTransacao.initialize(sequelize);
+
     Transacao.associate();
     IngressoTransacao.associate();
     HistoricoTransacao.associate();
     TransacaoPagamento.associate();
+    EventoSuiteTransacao.associate();
 }
 
 export {
@@ -414,5 +551,6 @@ export {
     IngressoTransacao,
     HistoricoTransacao,
     TransacaoPagamento,
-    TipoPagamento
+    TipoPagamento,
+    EventoSuiteTransacao
 };

@@ -122,33 +122,28 @@ async function geraTokenSplit() {
         const empresa = await Empresa_1.Empresa.findOne({
             where: { id: 1 },
         });
-        if (!empresa || !empresa.accessTokenInicial) {
-            console.log('Empresa não encontrada ou accessTokenInicial não definido');
-            throw new customError_1.CustomError('Empresa não encontrada ou accessTokenInicial não definido', 404, null);
+        if (!empresa || !empresa.refreshToken) {
+            throw new customError_1.CustomError('Empresa não encontrada ou refreshToken não definido', 404, null);
         }
-        const client = new mercadopago_1.MercadoPagoConfig({ accessToken: empresa.accessTokenInicial });
-        const oauth = new mercadopago_1.OAuth(client);
-        // Ajuste conforme as propriedades válidas de OAuthCreateData
-        const body = {
-            client_secret: ClienteSecret,
+        const body = new URLSearchParams({
+            grant_type: 'refresh_token',
             client_id: ClienteID,
-            code: empresa.refreshToken,
-            redirect_uri: 'https://tanztecnologia.com.br/', // Substitua pela sua URL de redirecionamento                    
-        };
-        console.log('Gerando token split com os seguintes dados:', body);
-        const response = await oauth.create({
-            body: body,
+            client_secret: ClienteSecret,
+            refresh_token: empresa.refreshToken,
         });
-        console.log('Token Split gerado:', response);
-        // Atualiza o accessToken da empresa
-        empresa.accessToken = response.access_token;
-        empresa.refreshToken = response.refresh_token;
+        console.log('Renovando token split...');
+        const response = await axios.post('https://api.mercadopago.com/oauth/token', body, { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } });
+        const data = response.data;
+        console.log('Token Split renovado com sucesso');
+        // ⚠️ ATUALIZE OS DOIS
+        empresa.accessToken = data.access_token;
+        empresa.refreshToken = data.refresh_token;
         await empresa.save();
         return empresa;
     }
     catch (error) {
-        console.error('Erro ao gerar token split:', error);
-        throw new customError_1.CustomError('Erro ao gerar token split', 500, error);
+        console.error('Erro ao gerar token split:', error.response?.data || error);
+        throw new customError_1.CustomError('Erro ao gerar token split', 500, error.response?.data || error);
     }
 }
 module.exports = {

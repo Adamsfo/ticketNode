@@ -91,7 +91,7 @@ class Ingresso extends sequelize_1.Model {
                 allowNull: true
             },
             tipo: {
-                type: sequelize_1.DataTypes.ENUM(TipoVendidoCortesia.Vendido, TipoVendidoCortesia.Cortesia),
+                type: sequelize_1.DataTypes.ENUM(TipoVendidoCortesia.Vendido, TipoVendidoCortesia.Cortesia, TipoVendidoCortesia.PDV),
                 allowNull: true,
                 defaultValue: TipoVendidoCortesia.Vendido
             },

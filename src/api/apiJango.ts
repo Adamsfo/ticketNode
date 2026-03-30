@@ -145,31 +145,78 @@ const PdvApiJango = {
   },
 
   consultaPedidosPorUsuario: async (dataInicial: string, dataFinal: string) => {
-    const qry = `select u.id_usuario id,
-                    u.usuario,
-                    sum(vi.valor_total),
-                    cast(p.data_hora as date) as data
-                from pedido p
-                inner join pedido_item pi on pi.id_pedido = p.id_pedido
-                inner join venda_item vi on vi.id_venda = p.id_venda 
-                    and vi.id_produto = pi.id_produto
-                inner join usuario u on u.id_usuario = p.id_usuario
-                where p.status = 5
-                  and p.data_hora between '${dataInicial} 00:00:00' and '${dataFinal} 23:59:59'
-                group by u.id_usuario,u.usuario, cast(p.data_hora as date)`;
+    const qry = `
+    select 
+        id_usuario as id,
+        usuario,
+        data,
+        sum(valorPedido) as valorPedido,
+        sum(valorEntregue) as valorEntregue,
+        sum(valorPedido + valorEntregue) as total
+    from (
+
+        -- CRIADOR
+        select 
+            u.id_usuario,
+            u.usuario,
+            sum(vi.valor_total) / 2 as valorPedido,
+            0 as valorEntregue,
+            cast(p.data_hora as date) as data
+        from pedido p
+        inner join pedido_item pi 
+            on pi.id_pedido = p.id_pedido
+        inner join venda_item vi 
+            on vi.id_venda = p.id_venda 
+           and vi.id_produto = pi.id_produto
+        inner join usuario u 
+            on u.id_usuario = p.id_usuario
+        where p.status = 5
+          and p.data_hora between '${dataInicial} 00:00:00' and '${dataFinal} 23:59:59'
+        group by u.id_usuario, u.usuario, cast(p.data_hora as date)
+
+        UNION ALL
+
+        -- ENTREGADOR
+        select 
+            u.id_usuario,
+            u.usuario,
+            0 as valorPedido,
+            sum(vi.valor_total) / 2 as valorEntregue,
+            cast(p.data_hora as date) as data
+        from pedido p
+        inner join pedido_item pi 
+            on pi.id_pedido = p.id_pedido
+        inner join venda_item vi 
+            on vi.id_venda = p.id_venda 
+           and vi.id_produto = pi.id_produto
+        inner join pedido_status ps 
+            on ps.id_pedido = p.id_pedido 
+           and ps.status = 5
+        inner join usuario u 
+            on u.id_usuario = ps.id_usuario
+        where p.status = 5
+          and p.data_hora between '${dataInicial} 00:00:00' and '${dataFinal} 23:59:59'
+        group by u.id_usuario, u.usuario, cast(p.data_hora as date)
+
+    ) t
+
+    group by 
+        id_usuario,
+        usuario,
+        data
+
+    order by 
+        usuario,
+        data
+  `;
+
     try {
       const rows = await query(qry);
-
-      if (rows.length > 0) {
-        return rows;
-      } else {
-        return [];
-      }
-
+      return rows ?? [];
     } catch (error) {
-      console.log("Erro ao abrir conta na api: ", error);
+      console.log("Erro ao consultar pedidos por usuário: ", error);
+      return null;
     }
-    return null;
   },
 };
 

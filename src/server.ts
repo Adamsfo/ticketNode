@@ -13,6 +13,7 @@ const eventoRoutes = require('./routes/eventoRoutes');
 const eventoIngressoRoutes = require('./routes/eventoIngressoRoutes');
 const pagamentoRoutes = require('./routes/pagamentoRoutes');
 const ingresssoRoutes = require('./routes/ingressoRoutes');
+const suiteRoutes = require('./routes/eventoSuiteRoutes');
 const transacaoRoutes = require('./routes/transacaoRoutes');
 const cupomPromocionalRoutes = require('./routes/cupomPromocialRoutes');
 const jangoRoutes = require('./routes/jangoRoutes');
@@ -56,6 +57,7 @@ server.use(ingresssoRoutes)
 server.use(transacaoRoutes)
 server.use(cupomPromocionalRoutes)
 server.use(jangoRoutes)
+server.use(suiteRoutes)
 
 // Tratamento de erros
 server.use(errorHandler);

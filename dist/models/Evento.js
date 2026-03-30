@@ -9,6 +9,11 @@ var Status;
     Status["Oculto"] = "Oculto";
     Status["Finalizado"] = "Finalizado";
 })(Status || (Status = {}));
+var Tipo;
+(function (Tipo) {
+    Tipo["Ingresso"] = "Ingresso";
+    Tipo["Pousada"] = "Pousada";
+})(Tipo || (Tipo = {}));
 class Evento extends sequelize_1.Model {
     static initialize(sequelize) {
         Evento.init({
@@ -73,6 +78,11 @@ class Evento extends sequelize_1.Model {
                 type: sequelize_1.DataTypes.ENUM,
                 values: ['Ativo', 'Oculto', 'Finalizado'],
                 defaultValue: 'Oculto'
+            },
+            tipo: {
+                type: sequelize_1.DataTypes.ENUM,
+                values: ['Ingresso', 'Pousada'],
+                defaultValue: 'Ingresso'
             }
         }, {
             sequelize,

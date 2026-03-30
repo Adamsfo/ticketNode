@@ -7,6 +7,11 @@ enum Status {
     Finalizado = 'Finalizado'
 }
 
+enum Tipo {
+    Ingresso = 'Ingresso',
+    Pousada = 'Pousada',
+}
+
 interface EventoAttributes {
     id: number;
     nome: string;
@@ -21,6 +26,7 @@ interface EventoAttributes {
     idUsuario: number;
     idProdutor: number;
     status?: Status;
+    tipo?: Tipo;
 }
 
 interface EventoCreationAttributes extends Optional<EventoAttributes, 'id'> { }
@@ -39,6 +45,7 @@ class Evento extends Model<EventoAttributes, EventoCreationAttributes> implement
     public idUsuario!: number;
     public idProdutor!: number;
     public status!: Status;
+    public tipo!: Tipo;
 
     static initialize(sequelize: Sequelize) {
         Evento.init({
@@ -103,6 +110,11 @@ class Evento extends Model<EventoAttributes, EventoCreationAttributes> implement
                 type: DataTypes.ENUM,
                 values: ['Ativo', 'Oculto', 'Finalizado'],
                 defaultValue: 'Oculto'
+            },
+            tipo: {
+                type: DataTypes.ENUM,
+                values: ['Ingresso', 'Pousada'],
+                defaultValue: 'Ingresso'
             }
         }, {
             sequelize,

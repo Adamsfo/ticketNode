@@ -1,10 +1,11 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.TipoPagamento = exports.TransacaoPagamento = exports.HistoricoTransacao = exports.IngressoTransacao = exports.Transacao = exports.TransacaoInit = void 0;
+exports.EventoSuiteTransacao = exports.TipoPagamento = exports.TransacaoPagamento = exports.HistoricoTransacao = exports.IngressoTransacao = exports.Transacao = exports.TransacaoInit = void 0;
 const sequelize_1 = require("sequelize");
 const Evento_1 = require("./Evento");
 const Usuario_1 = require("./Usuario");
 const Ingresso_1 = require("./Ingresso");
+const EventoSuite_1 = require("./EventoSuite");
 var TipoPagamento;
 (function (TipoPagamento) {
     TipoPagamento["Debito"] = "D\u00E9bito";
@@ -291,14 +292,104 @@ class TransacaoPagamento extends sequelize_1.Model {
     }
 }
 exports.TransacaoPagamento = TransacaoPagamento;
+class EventoSuiteTransacao extends sequelize_1.Model {
+    static initialize(sequelize) {
+        EventoSuiteTransacao.init({
+            id: {
+                type: sequelize_1.DataTypes.INTEGER,
+                autoIncrement: true,
+                primaryKey: true
+            },
+            idTransacao: {
+                type: sequelize_1.DataTypes.INTEGER,
+                allowNull: false,
+                references: {
+                    model: 'Transacao',
+                    key: 'id'
+                }
+            },
+            idEventoSuite: {
+                type: sequelize_1.DataTypes.INTEGER,
+                allowNull: false,
+                references: {
+                    model: 'EventoSuite',
+                    key: 'id'
+                }
+            },
+            precoOriginal: {
+                type: sequelize_1.DataTypes.DECIMAL(14, 2),
+                allowNull: true
+            },
+            idCupomPromocionalValidade: {
+                type: sequelize_1.DataTypes.INTEGER,
+                allowNull: true,
+                references: {
+                    model: 'CupomPromocionalValidade',
+                    key: 'id'
+                }
+            },
+            tipoDesconto: {
+                type: sequelize_1.DataTypes.ENUM('Nenhum', 'Percentual', 'Fixo'),
+                allowNull: true,
+                defaultValue: 'Nenhum'
+            },
+            valorDesconto: {
+                type: sequelize_1.DataTypes.DECIMAL(14, 2),
+                allowNull: true
+            },
+            precoDesconto: {
+                type: sequelize_1.DataTypes.DECIMAL(14, 2),
+                allowNull: true
+            },
+            preco: {
+                type: sequelize_1.DataTypes.DECIMAL(14, 2),
+                allowNull: false
+            },
+            taxaServico: {
+                type: sequelize_1.DataTypes.DECIMAL(14, 2),
+                allowNull: false
+            },
+            valorTotal: {
+                type: sequelize_1.DataTypes.DECIMAL(14, 2),
+                allowNull: false
+            },
+            taxaServicoOriginal: {
+                type: sequelize_1.DataTypes.DECIMAL(14, 2),
+                allowNull: true
+            },
+            taxaServicoDesconto: {
+                type: sequelize_1.DataTypes.DECIMAL(14, 2),
+                allowNull: true,
+                defaultValue: 0
+            }
+        }, {
+            sequelize,
+            modelName: 'EventoSuiteTransacao',
+            freezeTableName: true
+        });
+    }
+    static associate() {
+        EventoSuiteTransacao.belongsTo(EventoSuite_1.EventoSuite, {
+            foreignKey: 'idEventoSuite',
+            as: 'EventoSuite'
+        });
+        EventoSuiteTransacao.belongsTo(Transacao, {
+            foreignKey: 'idTransacao',
+            as: 'Transacao'
+        });
+    }
+}
+exports.EventoSuiteTransacao = EventoSuiteTransacao;
 const TransacaoInit = (sequelize) => {
     Transacao.initialize(sequelize);
     IngressoTransacao.initialize(sequelize);
     HistoricoTransacao.initialize(sequelize);
     TransacaoPagamento.initialize(sequelize);
+    EventoSuiteTransacao.initialize(sequelize);
     Transacao.associate();
     IngressoTransacao.associate();
     HistoricoTransacao.associate();
     TransacaoPagamento.associate();
+    EventoSuiteTransacao.associate();
 };
 exports.TransacaoInit = TransacaoInit;
