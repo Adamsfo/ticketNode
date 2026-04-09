@@ -46,6 +46,14 @@ async function transacaoPaga(idTransacao, descricao, idUsuario) {
     const transaction = await database_1.default.transaction(); // substitua pela instância correta do Sequelize
     try {
         // Atualiza status da transação
+        const transacao = await Transacao_1.Transacao.findOne({ where: { id: idTransacao }, transaction });
+        if (!transacao) {
+            throw new Error('Transação não encontrada');
+        }
+        if (Math.round((transacao.valorRecebido ?? 0) * 100) < Math.round((transacao.valorTotal ?? 0) * 100)) {
+            await transaction.rollback();
+            return false;
+        }
         await Transacao_1.Transacao.update({ status: 'Pago', dataPagamento: new Date() }, // Adiciona a data do pagamento
         { where: { id: idTransacao }, transaction });
         // Cria histórico da transação
@@ -870,7 +878,8 @@ module.exports = {
             await Transacao_1.TransacaoPagamento.create({
                 idTransacao: idTransacao,
                 PagamentoCodigo: result.payment_uniqueid?.toString() || '',
-                gatewayPagamento: 'TEF Stone'
+                gatewayPagamento: 'TEF Stone',
+                valor: Number(valorTotal)
             });
             transacao.tipoPagamento = transaction_type === 1 ? Transacao_1.TipoPagamento.Debito : transaction_type === 2 ? Transacao_1.TipoPagamento.Credito : Transacao_1.TipoPagamento.Pix;
             transacao.save();
@@ -892,6 +901,7 @@ module.exports = {
     async consultaPagamentoPos(req, res) {
         const filters = req.query.filters ? JSON.parse(req.query.filters) : {};
         const payment_uniqueid = filters.payment_uniqueid;
+        let statusTransacao = 'Pendente';
         if (payment_uniqueid) {
             try {
                 var config = {
@@ -910,8 +920,17 @@ module.exports = {
                     const transacaoPagamento = await Transacao_1.TransacaoPagamento.findOne({
                         where: { PagamentoCodigo: payment_uniqueid, gatewayPagamento: 'TEF Stone' }
                     });
+                    // if (transacaoPagamento && transacaoPagamento.statusPagamento === "Pago") {
+                    //     return res.status(200).json({
+                    //         data: {
+                    //             ...data, payment_message: 'Parcial',
+                    //         }
+                    //     });
+                    // }
                     if (transacaoPagamento) {
                         const idTransacao = transacaoPagamento.idTransacao;
+                        transacaoPagamento.statusPagamento = "Pago"; // Pago
+                        await transacaoPagamento.save();
                         const transacao = await Transacao_1.Transacao.findOne({
                             where: { id: idTransacao },
                         });
@@ -919,10 +938,10 @@ module.exports = {
                             return res.status(404).json({ error: 'Transação POS não encontrada' });
                         }
                         transacao.valorTaxaProcessamento = 0;
-                        transacao.valorRecebido = transacao.valorTotal;
+                        transacao.valorRecebido = Number(transacao.valorRecebido ?? 0) + Number(transacaoPagamento.valor ?? 0);
                         transacao.idTransacaoRecebidoMP = payment_uniqueid;
                         transacao.gatewayPagamento = 'TEF Stone';
-                        transacao.save();
+                        await transacao.save();
                         if (transacao.status != 'Pago') {
                             const evento = await Evento_1.Evento.findOne({
                                 where: { id: transacao.idEvento },
@@ -930,15 +949,19 @@ module.exports = {
                             if (evento?.idProdutor === 1) {
                                 const caixa = await (0, apiJango_1.default)().getCaixa();
                                 if (caixa[0]) {
-                                    await (0, apiJango_1.default)().inseriCaixaItem(caixa[0].id_caixa, transacao.valorTotal, transacao.tipoPagamento === Transacao_1.TipoPagamento.Debito ? 40 : transacao.tipoPagamento === Transacao_1.TipoPagamento.Credito ? 39 : 42);
+                                    await (0, apiJango_1.default)().inseriCaixaItem(caixa[0].id_caixa, transacaoPagamento.valor ?? 0, transacao.tipoPagamento === Transacao_1.TipoPagamento.Debito ? 40 : transacao.tipoPagamento === Transacao_1.TipoPagamento.Credito ? 39 : 42);
                                 }
                             }
-                            await transacaoPaga(idTransacao, 'Pagamento Realizado via POS', transacao.idUsuario);
+                            statusTransacao = await transacaoPaga(idTransacao, 'Pagamento Realizado via POS', transacao.idUsuario) === true ? 'Pago' : 'Parcial';
+                            // statusTransacao = 'Parcial';
                         }
+                        // transacao.reload();
                     }
                 }
                 res.status(200).json({
-                    data: data
+                    data: {
+                        ...data, payment_message: statusTransacao != 'Pendente' ? statusTransacao : data.payment_message,
+                    }
                 });
             }
             catch (error) {
@@ -952,7 +975,7 @@ module.exports = {
     },
     async pagamentoDinheiro(req, res) {
         try {
-            const { idTransacao, idUsuarioPDV } = req.body;
+            const { idTransacao, idUsuarioPDV, valorTotal } = req.body;
             const transacao = await Transacao_1.Transacao.findOne({
                 where: { id: idTransacao },
             });
@@ -978,23 +1001,26 @@ module.exports = {
             await Transacao_1.TransacaoPagamento.create({
                 idTransacao: idTransacao,
                 PagamentoCodigo: '',
-                gatewayPagamento: 'Portaria'
+                gatewayPagamento: 'Portaria',
+                valor: valorTotal,
+                statusPagamento: 'Pago',
             });
             transacao.tipoPagamento = Transacao_1.TipoPagamento.Dinheiro;
             transacao.valorTaxaProcessamento = 0;
-            transacao.valorRecebido = transacao.valorTotal;
+            transacao.valorRecebido = Number(transacao.valorRecebido ?? 0) + Number(valorTotal ?? 0);
             transacao.gatewayPagamento = 'Portaria';
-            transacao.save();
+            await transacao.save();
             const data = new Date(); // Data atual
             await Transacao_1.HistoricoTransacao.create({ idTransacao, data, descricao: 'Pagamento Criado em Dinheiro na Portaria', idUsuario: idUsuarioPDV });
             if (transacao.status != 'Pago') {
                 await transacaoPaga(idTransacao, 'Pagamento Dinheiro na Portaria', transacao.idUsuario);
             }
+            // transacao.reload();
             return res.status(200).json({
                 data: {
                     payment_uniqueid: 0,
                     payment_status: 4,
-                    payment_message: 'Pagamento realizado em Dinheiro',
+                    payment_message: (transacao.valorRecebido ?? 0) < transacao.valorTotal ? 'Parcial' : 'Pagamento realizado em Dinheiro',
                     created_at: new Date().toISOString(),
                 }
             });

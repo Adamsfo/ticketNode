@@ -350,6 +350,8 @@ interface TransacaoPagamentoAttributes {
     idTransacao: number;
     PagamentoCodigo: string;
     gatewayPagamento?: string; // Gateway de pagamento utilizado
+    valor?: number; // Valor do pagamento, se aplicável
+    statusPagamento?: "Aguardando pagamento" | "Pago" | "Falhou"; // Status do pagamento, se aplicável
 }
 
 interface TransacaoPagamentoCreationAttributes extends Optional<TransacaoPagamentoAttributes, 'id'> { }
@@ -359,6 +361,8 @@ class TransacaoPagamento extends Model<TransacaoPagamentoAttributes, TransacaoPa
     public idTransacao!: number;
     public PagamentoCodigo!: string;
     public gatewayPagamento?: string; // Gateway de pagamento utilizado
+    public valor?: number; // Valor do pagamento, se aplicável
+    public statusPagamento?: "Aguardando pagamento" | "Pago" | "Falhou"; // Status do pagamento, se aplicável
 
     static initialize(sequelize: Sequelize) {
         TransacaoPagamento.init({
@@ -383,6 +387,15 @@ class TransacaoPagamento extends Model<TransacaoPagamentoAttributes, TransacaoPa
                 type: DataTypes.STRING,
                 allowNull: true,
                 defaultValue: 'MercadoPago' // Valor padrão
+            },
+            valor: {
+                type: DataTypes.DECIMAL(14, 2),
+                allowNull: true
+            },
+            statusPagamento: {
+                type: DataTypes.ENUM("Aguardando pagamento", "Pago", "Falhou"),
+                allowNull: true,
+                defaultValue: "Aguardando pagamento" // Valor padrão
             }
         }, {
             sequelize,

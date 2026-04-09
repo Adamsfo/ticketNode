@@ -277,6 +277,15 @@ class TransacaoPagamento extends sequelize_1.Model {
                 type: sequelize_1.DataTypes.STRING,
                 allowNull: true,
                 defaultValue: 'MercadoPago' // Valor padrão
+            },
+            valor: {
+                type: sequelize_1.DataTypes.DECIMAL(14, 2),
+                allowNull: true
+            },
+            statusPagamento: {
+                type: sequelize_1.DataTypes.ENUM("Aguardando pagamento", "Pago", "Falhou"),
+                allowNull: true,
+                defaultValue: "Aguardando pagamento" // Valor padrão
             }
         }, {
             sequelize,
