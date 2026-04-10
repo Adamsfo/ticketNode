@@ -42,7 +42,7 @@ function generateUniqueIdempotencyKey() {
 //         dados: encryptedData,
 //     });
 // }
-async function transacaoPaga(idTransacao, descricao, idUsuario) {
+async function transacaoPaga(idTransacao, descricao, idUsuario, ignorarValidacaoValor = true) {
     const transaction = await database_1.default.transaction(); // substitua pela instância correta do Sequelize
     try {
         // Atualiza status da transação
@@ -50,7 +50,7 @@ async function transacaoPaga(idTransacao, descricao, idUsuario) {
         if (!transacao) {
             throw new Error('Transação não encontrada');
         }
-        if (Math.round((transacao.valorRecebido ?? 0) * 100) < Math.round((transacao.valorTotal ?? 0) * 100)) {
+        if (!ignorarValidacaoValor && Math.round((transacao.valorRecebido ?? 0) * 100) < Math.round((transacao.valorTotal ?? 0) * 100)) {
             await transaction.rollback();
             return false;
         }
@@ -952,7 +952,7 @@ module.exports = {
                                     await (0, apiJango_1.default)().inseriCaixaItem(caixa[0].id_caixa, transacaoPagamento.valor ?? 0, transacao.tipoPagamento === Transacao_1.TipoPagamento.Debito ? 40 : transacao.tipoPagamento === Transacao_1.TipoPagamento.Credito ? 39 : 42);
                                 }
                             }
-                            statusTransacao = await transacaoPaga(idTransacao, 'Pagamento Realizado via POS', transacao.idUsuario) === true ? 'Pago' : 'Parcial';
+                            statusTransacao = await transacaoPaga(idTransacao, 'Pagamento Realizado via POS', transacao.idUsuario, false) === true ? 'Pago' : 'Parcial';
                             // statusTransacao = 'Parcial';
                         }
                         // transacao.reload();
@@ -1013,7 +1013,7 @@ module.exports = {
             const data = new Date(); // Data atual
             await Transacao_1.HistoricoTransacao.create({ idTransacao, data, descricao: 'Pagamento Criado em Dinheiro na Portaria', idUsuario: idUsuarioPDV });
             if (transacao.status != 'Pago') {
-                await transacaoPaga(idTransacao, 'Pagamento Dinheiro na Portaria', transacao.idUsuario);
+                await transacaoPaga(idTransacao, 'Pagamento Dinheiro na Portaria', transacao.idUsuario, false);
             }
             // transacao.reload();
             return res.status(200).json({
@@ -1083,7 +1083,7 @@ module.exports = {
                         transacao.gatewayPagamento = 'TEF Stone';
                         await transacao.save();
                         if (transacao.status != 'Pago') {
-                            await transacaoPaga(idTransacao, 'Pagamento Realizado via POS', transacao.idUsuario);
+                            await transacaoPaga(idTransacao, 'Pagamento Realizado via POS', transacao.idUsuario, false);
                         }
                     }
                 }
@@ -1140,7 +1140,7 @@ module.exports = {
             const data = new Date(); // Data atual
             await Transacao_1.HistoricoTransacao.create({ idTransacao, data, descricao: 'Pagamento Criado em Dinheiro na Portaria', idUsuario: idUsuarioPDV });
             if (transacao.status != 'Pago') {
-                await transacaoPaga(idTransacao, 'Pagamento POS Terminal Stone', transacao.idUsuario);
+                await transacaoPaga(idTransacao, 'Pagamento POS Terminal Stone', transacao.idUsuario, false);
             }
             return res.status(200).json({
                 data: {
