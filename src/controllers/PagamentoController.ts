@@ -725,7 +725,7 @@ module.exports = {
                         ?.find((fee: any) => fee.type === 'mercadopago_fee')?.amount || 0;
                     transacao.valorRecebido = data.transaction_details?.net_received_amount || 0;
                     transacao.idTransacaoRecebidoMP = id;
-                    transacao.save();
+                    await transacao.save();
 
                     // Atualiza status da transação
                     await transacaoPaga(idTransacao, 'Pagamento Aprovado', idUsuario)
@@ -1008,7 +1008,7 @@ module.exports = {
                             ?.find((fee: any) => fee.type === 'mercadopago_fee')?.amount || 0;
                         transacao.valorRecebido = data.transaction_details?.net_received_amount || 0;
                         transacao.idTransacaoRecebidoMP = paymentId;
-                        transacao.save();
+                        await transacao.save();
 
                         if (transacao.status != 'Pago') {
                             await transacaoPaga(idTransacao, 'Pagamento Realizado e enviado por WebHook', transacao.idUsuario)
@@ -1080,7 +1080,7 @@ module.exports = {
             });
 
             transacao.tipoPagamento = transaction_type === 1 ? TipoPagamento.Debito : transaction_type === 2 ? TipoPagamento.Credito : TipoPagamento.Pix;
-            transacao.save();
+            await transacao.save();
 
             const idUsuario = transacao.idUsuario;
 
@@ -1319,7 +1319,7 @@ module.exports = {
                         transacao.valorRecebido = transacao.valorTotal;
                         transacao.idTransacaoRecebidoMP = payment_uniqueid;
                         transacao.gatewayPagamento = 'TEF Stone';
-                        transacao.save();
+                        await transacao.save();
 
                         if (transacao.status != 'Pago') {
                             await transacaoPaga(idTransacao, 'Pagamento Realizado via POS', transacao.idUsuario)
@@ -1386,8 +1386,7 @@ module.exports = {
                 gatewayPagamento: 'POS Stone'
             });
 
-
-            transacao.save();
+            await transacao.save();
 
             const data = new Date(); // Data atual
             await HistoricoTransacao.create({ idTransacao, data, descricao: 'Pagamento Criado em Dinheiro na Portaria', idUsuario: idUsuarioPDV });
