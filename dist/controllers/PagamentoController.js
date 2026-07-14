@@ -16,6 +16,7 @@ const Empresa_1 = require("../models/Empresa");
 const Evento_1 = require("../models/Evento");
 const Produtor_1 = require("../models/Produtor");
 const apiJango_1 = __importDefault(require("../api/apiJango"));
+const reservaSuiteService_1 = require("../services/reservaSuiteService");
 const ClienteID = "8085308516889383";
 const ClienteSecret = "OFA6rEsej17acU0oIQM87PMwG4x4h123";
 const TanzAcessToken = "APP_USR-8085308516889383-061214-28451d6dd008b6342b99c07fdbd960a4-2470516573";
@@ -80,6 +81,13 @@ async function transacaoPaga(idTransacao, descricao, idUsuario, ignorarValidacao
         }));
         // Commita tudo
         await transaction.commit();
+        console.log('Transação confirmada');
+        try {
+            await (0, reservaSuiteService_1.confirmarHospedagem)(idTransacao);
+        }
+        catch (error) {
+            console.error('Erro ao confirmar hospedagem após pagamento:', error);
+        }
         return true;
     }
     catch (error) {
@@ -139,7 +147,28 @@ async function geraTokenSplit() {
             client_secret: ClienteSecret,
             refresh_token: empresa.refreshToken,
         });
-        console.log('Renovando token split...');
+        // ------------------- pra refazer vinculo --------------------------------------------
+        // const body = new URLSearchParams({
+        //     grant_type: 'authorization_code',
+        //     client_id: ClienteID,
+        //     client_secret: ClienteSecret,
+        //     code: 'TG-6a2d8a91e4838a0001c5086a-2497106970',
+        //     redirect_uri: 'https://tanztecnologia.com.br/'
+        // });
+        // console.log('Vinculando OAuth primeira vez...');
+        // const response2 = await axios.post(
+        //     'https://api.mercadopago.com/oauth/token',
+        //     body,
+        //     {
+        //         headers: {
+        //             'Content-Type': 'application/x-www-form-urlencoded'
+        //         }
+        //     }
+        // );
+        // const data2 = response2.data;
+        // console.log('OAuth vinculado com sucesso');
+        // console.log(data2);
+        // console.log('Renovando token split...');
         const response = await axios.post('https://api.mercadopago.com/oauth/token', body, { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } });
         const data = response.data;
         console.log('Token Split renovado com sucesso');
@@ -439,7 +468,6 @@ module.exports = {
             const users = await Usuario_1.Usuario.findAll({
                 where: { email: email },
             });
-            console.log('deviceId', deviceId);
             let body = {
                 transaction_amount: valorTotal,
                 payment_method_id: 'pix',
@@ -1154,6 +1182,60 @@ module.exports = {
         catch (error) {
             console.error('Erro ao criar pagamento dinheiro:', error);
             return res.status(500).json({ error: 'Erro ao gerar pagamento Dinheiro' });
+        }
+    },
+    /**
+     * Apenas dispara o mesmo fluxo pós-pagamento real (`transacaoPaga`).
+     * Sem lógica paralela de confirmação/hospedagem/notificação.
+     */
+    async aprovarPagamentoDev(req, res) {
+        if (process.env.NODE_ENV === 'production') {
+            return res.status(404).json({ message: 'Rota não disponível.' });
+        }
+        try {
+            console.log('Iniciando simulação');
+            const idTransacao = Number(req.body?.idTransacao);
+            if (!idTransacao) {
+                throw new customError_1.CustomError('idTransacao é obrigatório.', 400, '');
+            }
+            const transacao = await Transacao_1.Transacao.findByPk(idTransacao);
+            if (!transacao) {
+                throw new customError_1.CustomError('Transação não encontrada.', 404, '');
+            }
+            if (transacao.status === 'Pago') {
+                return res.status(200).json({
+                    data: {
+                        idTransacao,
+                        status: 'Pago',
+                        message: 'Transação já estava paga.',
+                    },
+                });
+            }
+            // Mesmo método chamado após pagamento real (MP, PIX, cartão, POS, etc.)
+            const aprovado = await transacaoPaga(idTransacao, 'Pagamento simulado (DEV)', transacao.idUsuario);
+            if (!aprovado) {
+                throw new customError_1.CustomError('Não foi possível aprovar a transação.', 400, '');
+            }
+            console.log('Simulação concluída');
+            return res.status(200).json({
+                data: {
+                    idTransacao,
+                    status: 'Pago',
+                },
+            });
+        }
+        catch (error) {
+            if (error instanceof customError_1.CustomError) {
+                return res.status(error.statusCode).json({
+                    status: 'fail',
+                    message: error.message,
+                });
+            }
+            console.error('Erro ao simular pagamento (DEV):', error);
+            return res.status(500).json({
+                status: 'fail',
+                message: 'Erro ao simular pagamento.',
+            });
         }
     },
 };

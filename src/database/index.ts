@@ -14,6 +14,9 @@ import { UsuarioMetodoPagamentoInit } from '../models/ClienteMetodoPagamento';
 import { CupomPromocionalInit } from '../models/CupomPromocional';
 import { VisitasInit } from '../models/Visitas';
 import { EventoSuiteInit } from '../models/EventoSuite';
+import { ReservaHospedagemInit } from '../models/ReservaHospedagem';
+import { ReservaSuiteInit } from '../models/ReservaSuite';
+import { ReservaHospedeInit } from '../models/ReservaHospede';
 const ConfigIniciais = require('./ConfigIniciais')
 const FuncaoSistema = require('./FuncaoSistema')
 
@@ -43,6 +46,9 @@ const connection = new Sequelize(dbConfig);
     IngressoInit(connection)
     EventoSuiteInit(connection)
     TransacaoInit(connection)
+    ReservaHospedagemInit(connection)
+    ReservaSuiteInit(connection)
+    ReservaHospedeInit(connection)
     UsuarioMetodoPagamentoInit(connection)
     VisitasInit(connection)
 
@@ -51,8 +57,8 @@ const connection = new Sequelize(dbConfig);
     // await connection.sync({ alter: true });
 
     // Executando configurações iniciais
-    await FuncaoSistema.funcaoSistema();
-    await ConfigIniciais.configUsuario();
+    // await FuncaoSistema.funcaoSistema();
+    // await ConfigIniciais.configUsuario();
 
 
   } catch (error) {

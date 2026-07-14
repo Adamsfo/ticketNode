@@ -20,6 +20,14 @@ router.post('/pagamentodinheiro', PagamentoController.pagamentoDinheiro)
 router.post('/webhookpagamentopos', PagamentoController.webHookPagamentoPos)
 router.post('/pagamentoposstone', PagamentoController.pagamentoPOSStone)
 
+// Gatilho DEV: apenas chama transacaoPaga (mesmo fluxo pós-pagamento real).
+// Em produção, o handler retorna 404.
+router.post(
+    '/pagamento/dev/aprovar',
+    authenticate,
+    PagamentoController.aprovarPagamentoDev
+);
+
 // router.post('/geracode', PagamentoController.geraTokenSplit)
 // router.post('/createCardToken', PagamentoController.createCardToken)
 // router.post('/create-customer', PagamentoController.createCustomer);

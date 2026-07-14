@@ -19,10 +19,12 @@ const eventoIngressoRoutes = require('./routes/eventoIngressoRoutes');
 const pagamentoRoutes = require('./routes/pagamentoRoutes');
 const ingresssoRoutes = require('./routes/ingressoRoutes');
 const suiteRoutes = require('./routes/eventoSuiteRoutes');
+const reservaSuiteRoutes = require('./routes/reservaSuiteRoutes');
 const transacaoRoutes = require('./routes/transacaoRoutes');
 const cupomPromocionalRoutes = require('./routes/cupomPromocialRoutes');
 const jangoRoutes = require('./routes/jangoRoutes');
 const fs_1 = __importDefault(require("fs"));
+const reservaHospedagemJobs_1 = require("./jobs/reservaHospedagemJobs");
 // Inicializa o banco de dados
 require('./database/index');
 const cors = require('cors');
@@ -57,6 +59,7 @@ server.use(transacaoRoutes);
 server.use(cupomPromocionalRoutes);
 server.use(jangoRoutes);
 server.use(suiteRoutes);
+server.use(reservaSuiteRoutes);
 // Tratamento de erros
 server.use(errorHandler);
 // Rota padrão
@@ -87,4 +90,5 @@ const httpServer = http_1.default.createServer(server);
 const PORT = process.env.PORT || 9000; // Define a porta padrão como 9000 se não estiver no .env
 httpServer.listen(PORT, () => {
     console.log(`Servidor rodando no endereço: ${process.env.BASE || `http://localhost:${PORT}`} e porta ${PORT}`);
+    (0, reservaHospedagemJobs_1.iniciarJobsReservaHospedagem)();
 });

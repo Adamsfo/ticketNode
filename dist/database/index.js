@@ -16,6 +16,9 @@ const ClienteMetodoPagamento_1 = require("../models/ClienteMetodoPagamento");
 const CupomPromocional_1 = require("../models/CupomPromocional");
 const Visitas_1 = require("../models/Visitas");
 const EventoSuite_1 = require("../models/EventoSuite");
+const ReservaHospedagem_1 = require("../models/ReservaHospedagem");
+const ReservaSuite_1 = require("../models/ReservaSuite");
+const ReservaHospede_1 = require("../models/ReservaHospede");
 const ConfigIniciais = require('./ConfigIniciais');
 const FuncaoSistema = require('./FuncaoSistema');
 const connection = new Sequelize(dbConfig);
@@ -41,14 +44,17 @@ const connection = new Sequelize(dbConfig);
         (0, Ingresso_1.IngressoInit)(connection);
         (0, EventoSuite_1.EventoSuiteInit)(connection);
         (0, Transacao_1.TransacaoInit)(connection);
+        (0, ReservaHospedagem_1.ReservaHospedagemInit)(connection);
+        (0, ReservaSuite_1.ReservaSuiteInit)(connection);
+        (0, ReservaHospede_1.ReservaHospedeInit)(connection);
         (0, ClienteMetodoPagamento_1.UsuarioMetodoPagamentoInit)(connection);
         (0, Visitas_1.VisitasInit)(connection);
         // Sincronizando os modelos com o banco de dados        
         // await connection.sync();
         // await connection.sync({ alter: true });
         // Executando configurações iniciais
-        await FuncaoSistema.funcaoSistema();
-        await ConfigIniciais.configUsuario();
+        // await FuncaoSistema.funcaoSistema();
+        // await ConfigIniciais.configUsuario();
     }
     catch (error) {
         console.error('Banco de dados não conectado:', error);
