@@ -9,6 +9,8 @@ var StatusReservaHospedagem;
 (function (StatusReservaHospedagem) {
     StatusReservaHospedagem["AguardandoPagamento"] = "AguardandoPagamento";
     StatusReservaHospedagem["Confirmada"] = "Confirmada";
+    StatusReservaHospedagem["Hospedada"] = "Hospedada";
+    StatusReservaHospedagem["CheckOutRealizado"] = "CheckOutRealizado";
     StatusReservaHospedagem["Cancelada"] = "Cancelada";
     StatusReservaHospedagem["Expirada"] = "Expirada";
 })(StatusReservaHospedagem || (exports.StatusReservaHospedagem = StatusReservaHospedagem = {}));
@@ -55,6 +57,37 @@ class ReservaHospedagem extends sequelize_1.Model {
                 type: sequelize_1.DataTypes.DECIMAL(14, 2),
                 allowNull: false,
             },
+            valorPago: {
+                type: sequelize_1.DataTypes.DECIMAL(14, 2),
+                allowNull: false,
+                defaultValue: 0,
+            },
+            saldoPendente: {
+                type: sequelize_1.DataTypes.DECIMAL(14, 2),
+                allowNull: true,
+            },
+            formaPagamentoRecepcao: {
+                type: sequelize_1.DataTypes.STRING(40),
+                allowNull: true,
+            },
+            observacaoPagamento: {
+                type: sequelize_1.DataTypes.TEXT,
+                allowNull: true,
+            },
+            comprovantePagamento: {
+                type: sequelize_1.DataTypes.STRING(255),
+                allowNull: true,
+            },
+            origemReserva: {
+                type: sequelize_1.DataTypes.ENUM('SITE', 'ATENDENTE'),
+                allowNull: false,
+                defaultValue: 'SITE',
+            },
+            idUsuarioCriacao: {
+                type: sequelize_1.DataTypes.INTEGER,
+                allowNull: true,
+                references: { model: Usuario_1.Usuario, key: 'id' },
+            },
             status: {
                 type: sequelize_1.DataTypes.ENUM(...Object.values(StatusReservaHospedagem)),
                 allowNull: false,
@@ -67,6 +100,28 @@ class ReservaHospedagem extends sequelize_1.Model {
             },
             dataConfirmacao: {
                 type: sequelize_1.DataTypes.DATE,
+                allowNull: true,
+            },
+            dataHoraCheckinReal: {
+                type: sequelize_1.DataTypes.DATE,
+                allowNull: true,
+            },
+            idUsuarioCheckin: {
+                type: sequelize_1.DataTypes.INTEGER,
+                allowNull: true,
+                references: { model: Usuario_1.Usuario, key: 'id' },
+            },
+            dataHoraCheckoutRealizado: {
+                type: sequelize_1.DataTypes.DATE,
+                allowNull: true,
+            },
+            idUsuarioCheckout: {
+                type: sequelize_1.DataTypes.INTEGER,
+                allowNull: true,
+                references: { model: Usuario_1.Usuario, key: 'id' },
+            },
+            observacoes: {
+                type: sequelize_1.DataTypes.TEXT,
                 allowNull: true,
             },
         }, {
@@ -87,6 +142,18 @@ class ReservaHospedagem extends sequelize_1.Model {
         ReservaHospedagem.belongsTo(Transacao_1.Transacao, {
             foreignKey: 'idTransacao',
             as: 'Transacao',
+        });
+        ReservaHospedagem.belongsTo(Usuario_1.Usuario, {
+            foreignKey: 'idUsuarioCheckin',
+            as: 'UsuarioCheckin',
+        });
+        ReservaHospedagem.belongsTo(Usuario_1.Usuario, {
+            foreignKey: 'idUsuarioCheckout',
+            as: 'UsuarioCheckout',
+        });
+        ReservaHospedagem.belongsTo(Usuario_1.Usuario, {
+            foreignKey: 'idUsuarioCriacao',
+            as: 'UsuarioCriacao',
         });
     }
 }

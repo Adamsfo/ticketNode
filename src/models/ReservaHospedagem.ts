@@ -5,6 +5,8 @@ import { Transacao } from './Transacao';
 export enum StatusReservaHospedagem {
     AguardandoPagamento = 'AguardandoPagamento',
     Confirmada = 'Confirmada',
+    Hospedada = 'Hospedada',
+    CheckOutRealizado = 'CheckOutRealizado',
     Cancelada = 'Cancelada',
     Expirada = 'Expirada',
 }
@@ -19,15 +21,43 @@ interface ReservaHospedagemAttributes {
     preco: number;
     taxaServico: number;
     valorTotal: number;
+    valorPago?: number;
+    saldoPendente?: number | null;
+    formaPagamentoRecepcao?: string | null;
+    observacaoPagamento?: string | null;
+    comprovantePagamento?: string | null;
+    /** SITE = cliente (site/app); ATENDENTE = Nova Reserva (recepção) */
+    origemReserva?: 'SITE' | 'ATENDENTE';
+    idUsuarioCriacao?: number | null;
     status: StatusReservaHospedagem;
     idTransacao?: number | null;
     dataConfirmacao?: Date | null;
+    dataHoraCheckinReal?: Date | null;
+    idUsuarioCheckin?: number | null;
+    dataHoraCheckoutRealizado?: Date | null;
+    idUsuarioCheckout?: number | null;
+    observacoes?: string | null;
 }
 
 interface ReservaHospedagemCreationAttributes
     extends Optional<
         ReservaHospedagemAttributes,
-        'id' | 'idTransacao' | 'status' | 'dataConfirmacao'
+        | 'id'
+        | 'idTransacao'
+        | 'status'
+        | 'dataConfirmacao'
+        | 'dataHoraCheckinReal'
+        | 'idUsuarioCheckin'
+        | 'dataHoraCheckoutRealizado'
+        | 'idUsuarioCheckout'
+        | 'observacoes'
+        | 'valorPago'
+        | 'saldoPendente'
+        | 'formaPagamentoRecepcao'
+        | 'observacaoPagamento'
+        | 'comprovantePagamento'
+        | 'origemReserva'
+        | 'idUsuarioCriacao'
     > {}
 
 class ReservaHospedagem
@@ -43,9 +73,21 @@ class ReservaHospedagem
     public preco!: number;
     public taxaServico!: number;
     public valorTotal!: number;
+    public valorPago?: number;
+    public saldoPendente?: number | null;
+    public formaPagamentoRecepcao?: string | null;
+    public observacaoPagamento?: string | null;
+    public comprovantePagamento?: string | null;
+    public origemReserva?: 'SITE' | 'ATENDENTE';
+    public idUsuarioCriacao?: number | null;
     public status!: StatusReservaHospedagem;
     public idTransacao?: number | null;
     public dataConfirmacao?: Date | null;
+    public dataHoraCheckinReal?: Date | null;
+    public idUsuarioCheckin?: number | null;
+    public dataHoraCheckoutRealizado?: Date | null;
+    public idUsuarioCheckout?: number | null;
+    public observacoes?: string | null;
 
     static initialize(sequelize: Sequelize) {
         ReservaHospedagem.init({
@@ -89,6 +131,37 @@ class ReservaHospedagem
                 type: DataTypes.DECIMAL(14, 2),
                 allowNull: false,
             },
+            valorPago: {
+                type: DataTypes.DECIMAL(14, 2),
+                allowNull: false,
+                defaultValue: 0,
+            },
+            saldoPendente: {
+                type: DataTypes.DECIMAL(14, 2),
+                allowNull: true,
+            },
+            formaPagamentoRecepcao: {
+                type: DataTypes.STRING(40),
+                allowNull: true,
+            },
+            observacaoPagamento: {
+                type: DataTypes.TEXT,
+                allowNull: true,
+            },
+            comprovantePagamento: {
+                type: DataTypes.STRING(255),
+                allowNull: true,
+            },
+            origemReserva: {
+                type: DataTypes.ENUM('SITE', 'ATENDENTE'),
+                allowNull: false,
+                defaultValue: 'SITE',
+            },
+            idUsuarioCriacao: {
+                type: DataTypes.INTEGER,
+                allowNull: true,
+                references: { model: Usuario, key: 'id' },
+            },
             status: {
                 type: DataTypes.ENUM(...Object.values(StatusReservaHospedagem)),
                 allowNull: false,
@@ -101,6 +174,28 @@ class ReservaHospedagem
             },
             dataConfirmacao: {
                 type: DataTypes.DATE,
+                allowNull: true,
+            },
+            dataHoraCheckinReal: {
+                type: DataTypes.DATE,
+                allowNull: true,
+            },
+            idUsuarioCheckin: {
+                type: DataTypes.INTEGER,
+                allowNull: true,
+                references: { model: Usuario, key: 'id' },
+            },
+            dataHoraCheckoutRealizado: {
+                type: DataTypes.DATE,
+                allowNull: true,
+            },
+            idUsuarioCheckout: {
+                type: DataTypes.INTEGER,
+                allowNull: true,
+                references: { model: Usuario, key: 'id' },
+            },
+            observacoes: {
+                type: DataTypes.TEXT,
                 allowNull: true,
             },
         }, {
@@ -122,6 +217,18 @@ class ReservaHospedagem
         ReservaHospedagem.belongsTo(Transacao, {
             foreignKey: 'idTransacao',
             as: 'Transacao',
+        });
+        ReservaHospedagem.belongsTo(Usuario, {
+            foreignKey: 'idUsuarioCheckin',
+            as: 'UsuarioCheckin',
+        });
+        ReservaHospedagem.belongsTo(Usuario, {
+            foreignKey: 'idUsuarioCheckout',
+            as: 'UsuarioCheckout',
+        });
+        ReservaHospedagem.belongsTo(Usuario, {
+            foreignKey: 'idUsuarioCriacao',
+            as: 'UsuarioCriacao',
         });
     }
 }

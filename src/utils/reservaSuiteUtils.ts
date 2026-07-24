@@ -1,4 +1,5 @@
 import { CustomError } from './customError';
+import { formatInTimeZone } from 'date-fns-tz';
 import {
     calcularExtrasOcupacao,
     calcularNoitesHotelaria as calcularNoitesHotelariaCore,
@@ -6,6 +7,17 @@ import {
 } from './reservaSuitePricing';
 
 export type IntervaloDateTime = { inicio: Date; fim: Date };
+
+/** Horário oficial de check-in da hospedagem (Cuiabá). */
+export const HORA_CHECKIN_HOSPEDAGEM = '16:00';
+/** Horário oficial de check-out da hospedagem (Cuiabá). */
+export const HORA_CHECKOUT_HOSPEDAGEM = '13:00';
+
+const TZ_HOSPEDAGEM = 'America/Cuiaba';
+const CHECKIN_MIN_MINUTOS = 16 * 60;
+const CHECKIN_MAX_MINUTOS = 19 * 60;
+const CHECKOUT_MIN_MINUTOS = 8 * 60;
+const CHECKOUT_MAX_MINUTOS = 13 * 60;
 
 export {
     VALOR_ADICIONAL_ADULTO_EXTRA,
@@ -20,7 +32,7 @@ export { inicioDoDia };
 
 /**
  * Noites = diferença em dias civis entre check-in e check-out (checkout exclusivo).
- * Ex.: 15/07 14:00 → 17/07 11:00 = 2 noites.
+ * Ex.: 15/07 16:00 → 17/07 13:00 = 2 noites.
  */
 export function calcularNoitesHotelaria(checkin: Date, checkout: Date): number {
     const noites = calcularNoitesHotelariaCore(checkin, checkout);
@@ -39,6 +51,55 @@ export function calcularNoitesHotelaria(checkin: Date, checkout: Date): number {
 /** Conflito de intervalos: inicioA < fimB && fimA > inicioB */
 export function intervalosConflitam(a: IntervaloDateTime, b: IntervaloDateTime): boolean {
     return a.inicio.getTime() < b.fim.getTime() && a.fim.getTime() > b.inicio.getTime();
+}
+
+function minutosNoFuso(d: Date): number {
+    const h = Number(formatInTimeZone(d, TZ_HOSPEDAGEM, 'H'));
+    const m = Number(formatInTimeZone(d, TZ_HOSPEDAGEM, 'm'));
+    return h * 60 + m;
+}
+
+/** Garante check-in entre 16:00 e 19:00 (fuso Cuiabá). */
+export function validarHorarioCheckinHospedagem(checkin: Date): void {
+    const minutos = minutosNoFuso(checkin);
+    if (minutos < CHECKIN_MIN_MINUTOS || minutos > CHECKIN_MAX_MINUTOS) {
+        throw new CustomError(
+            'O horário de check-in deve estar entre 16:00 e 19:00.',
+            400,
+            ''
+        );
+    }
+}
+
+/**
+ * Se o check-in for hoje (Cuiabá), o horário deve ser estritamente posterior ao agora.
+ */
+export function validarCheckinPosteriorAoAgoraSeHoje(checkin: Date): void {
+    const agora = new Date();
+    const hojeStr = formatInTimeZone(agora, TZ_HOSPEDAGEM, 'yyyy-MM-dd');
+    const checkinStr = formatInTimeZone(checkin, TZ_HOSPEDAGEM, 'yyyy-MM-dd');
+    if (hojeStr !== checkinStr) {
+        return;
+    }
+    if (checkin.getTime() <= agora.getTime()) {
+        throw new CustomError(
+            'O horário de check-in deve ser posterior ao horário atual.',
+            400,
+            ''
+        );
+    }
+}
+
+/** Garante check-out entre 08:00 e 13:00 (fuso Cuiabá). */
+export function validarHorarioCheckoutHospedagem(checkout: Date): void {
+    const minutos = minutosNoFuso(checkout);
+    if (minutos < CHECKOUT_MIN_MINUTOS || minutos > CHECKOUT_MAX_MINUTOS) {
+        throw new CustomError(
+            'O horário de check-out deve estar entre 08:00 e 13:00.',
+            400,
+            ''
+        );
+    }
 }
 
 export function parseDateTimeParam(value: unknown, fieldName: string): Date {

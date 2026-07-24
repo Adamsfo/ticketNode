@@ -23,12 +23,17 @@ const ReservaSuite_1 = require("../models/ReservaSuite");
 const ReservaHospedagem_1 = require("../models/ReservaHospedagem");
 const ReservaHospede_1 = require("../models/ReservaHospede");
 const Transacao_1 = require("../models/Transacao");
+const CupomPromocional_1 = require("../models/CupomPromocional");
+const PagamentoHospedagem_1 = require("../models/PagamentoHospedagem");
 const customError_1 = require("../utils/customError");
+const hospedagemDescontoRecepcao_1 = require("../utils/hospedagemDescontoRecepcao");
+const hospedagemPagamentoRecepcao_1 = require("../utils/hospedagemPagamentoRecepcao");
 const reservaSuiteUtils_1 = require("../utils/reservaSuiteUtils");
 const hospedagemConfirmacaoNotificacao_1 = require("./hospedagemConfirmacaoNotificacao");
 const STATUS_RESERVA_SUITE_OCUPA = [
     ReservaSuite_1.StatusReservaSuite.AguardandoPagamento,
     ReservaSuite_1.StatusReservaSuite.Confirmada,
+    ReservaSuite_1.StatusReservaSuite.Hospedada,
 ];
 const MINUTOS_EXPIRACAO_RESERVA = 15;
 const IDADE_MAXIMA_CRIANCA_HOSPEDAGEM = 12;
@@ -305,11 +310,22 @@ async function listarSuitesDisponiveis(params) {
     };
 }
 async function checkoutHospedagem(params) {
-    const { idEvento, idUsuario, checkin, checkout, suites } = params;
+    const { idEvento, idUsuario, checkin, checkout, suites, origem = 'online', observacoes, idUsuarioOperador, pagamento = null, } = params;
     if (!suites?.length) {
         throw new customError_1.CustomError('Informe ao menos uma suíte no checkout.', 400, '');
     }
     validarSuitesSemDuplicata(suites);
+    const isRecepcao = origem === 'recepcao';
+    if (!isRecepcao && pagamento) {
+        throw new customError_1.CustomError('Pagamento antecipado não permitido na reserva online.', 400, '');
+    }
+    // Reserva pública: janela oficial 16:00–19:00 / 08:00–13:00
+    // Recepção: qualquer horário; se hoje, check-in deve ser > agora
+    if (!isRecepcao) {
+        (0, reservaSuiteUtils_1.validarHorarioCheckinHospedagem)(checkin);
+        (0, reservaSuiteUtils_1.validarHorarioCheckoutHospedagem)(checkout);
+    }
+    (0, reservaSuiteUtils_1.validarCheckinPosteriorAoAgoraSeHoje)(checkin);
     const noites = (0, reservaSuiteUtils_1.calcularNoitesHotelaria)(checkin, checkout);
     const cotacoes = [];
     for (const item of suites) {
@@ -329,12 +345,75 @@ async function checkoutHospedagem(params) {
         }
         cotacoes.push({ item, cotacao });
     }
-    const totaisHospedagem = cotacoes.reduce((acc, { cotacao }) => ({
-        preco: (0, reservaSuiteUtils_1.roundMoney)(acc.preco + cotacao.totais.preco),
-        taxaServico: (0, reservaSuiteUtils_1.roundMoney)(acc.taxaServico + cotacao.totais.taxaServico),
-        valorTotal: (0, reservaSuiteUtils_1.roundMoney)(acc.valorTotal + cotacao.totais.valorTotal),
+    if (!isRecepcao) {
+        for (const { item } of cotacoes) {
+            if (item.desconto) {
+                throw new customError_1.CustomError('Desconto manual não permitido na reserva online.', 400, '');
+            }
+        }
+    }
+    const suitesComTotais = cotacoes.map(({ item, cotacao }) => {
+        const precoOriginal = (0, reservaSuiteUtils_1.roundMoney)(cotacao.totais.preco);
+        const taxaOriginal = (0, reservaSuiteUtils_1.roundMoney)(cotacao.totais.taxaServico);
+        const valorOriginalTotal = (0, reservaSuiteUtils_1.roundMoney)(cotacao.totais.valorTotal);
+        if (isRecepcao && item.desconto) {
+            (0, hospedagemDescontoRecepcao_1.validarDescontoRecepcao)(valorOriginalTotal, item.desconto);
+            const valorFinalDesconto = (0, hospedagemDescontoRecepcao_1.calcularValorFinalComDesconto)(valorOriginalTotal, item.desconto);
+            const repartido = (0, hospedagemDescontoRecepcao_1.aplicarDescontoProporcional)(precoOriginal, taxaOriginal, valorFinalDesconto);
+            return {
+                item,
+                cotacao,
+                preco: repartido.preco,
+                taxaServico: repartido.taxaServico,
+                valorTotal: repartido.valorTotal,
+                valorOriginal: valorOriginalTotal,
+                descontoTipo: item.desconto.tipo,
+                descontoValor: item.desconto.valor,
+                valorFinal: repartido.valorTotal,
+            };
+        }
+        return {
+            item,
+            cotacao,
+            preco: precoOriginal,
+            taxaServico: taxaOriginal,
+            valorTotal: valorOriginalTotal,
+            valorOriginal: null,
+            descontoTipo: null,
+            descontoValor: null,
+            valorFinal: null,
+        };
+    });
+    const totaisHospedagem = suitesComTotais.reduce((acc, suite) => ({
+        preco: (0, reservaSuiteUtils_1.roundMoney)(acc.preco + suite.preco),
+        taxaServico: (0, reservaSuiteUtils_1.roundMoney)(acc.taxaServico + suite.taxaServico),
+        valorTotal: (0, reservaSuiteUtils_1.roundMoney)(acc.valorTotal + suite.valorTotal),
     }), { preco: 0, taxaServico: 0, valorTotal: 0 });
-    return database_1.default.transaction(async (t) => {
+    if (isRecepcao) {
+        (0, hospedagemPagamentoRecepcao_1.validarPagamentoRecepcao)(totaisHospedagem.valorTotal, pagamento);
+    }
+    const valorPagoRecepcao = isRecepcao && pagamento ? (0, reservaSuiteUtils_1.roundMoney)(pagamento.valor) : 0;
+    const saldoPendenteRecepcao = isRecepcao
+        ? (0, hospedagemPagamentoRecepcao_1.calcularSaldoPendente)(totaisHospedagem.valorTotal, valorPagoRecepcao)
+        : null;
+    const quitada = isRecepcao &&
+        (0, hospedagemPagamentoRecepcao_1.reservaQuitada)(totaisHospedagem.valorTotal, valorPagoRecepcao);
+    const mapTipoPagamentoTransacao = (forma) => {
+        switch (forma) {
+            case 'PIX':
+                return Transacao_1.TipoPagamento.Pix;
+            case 'Dinheiro':
+                return Transacao_1.TipoPagamento.Dinheiro;
+            case 'CartaoCredito':
+                return Transacao_1.TipoPagamento.Credito;
+            case 'CartaoDebito':
+                return Transacao_1.TipoPagamento.Debito;
+            default:
+                return Transacao_1.TipoPagamento.Dinheiro;
+        }
+    };
+    const agora = new Date();
+    const resultado = await database_1.default.transaction(async (t) => {
         const hospedagem = await ReservaHospedagem_1.ReservaHospedagem.create({
             idEvento,
             idUsuario,
@@ -344,20 +423,48 @@ async function checkoutHospedagem(params) {
             preco: totaisHospedagem.preco,
             taxaServico: totaisHospedagem.taxaServico,
             valorTotal: totaisHospedagem.valorTotal,
-            status: ReservaHospedagem_1.StatusReservaHospedagem.AguardandoPagamento,
+            valorPago: isRecepcao ? valorPagoRecepcao : 0,
+            saldoPendente: isRecepcao
+                ? saldoPendenteRecepcao
+                : totaisHospedagem.valorTotal,
+            formaPagamentoRecepcao: isRecepcao && valorPagoRecepcao > 0
+                ? pagamento?.formaPagamento ?? null
+                : null,
+            observacaoPagamento: isRecepcao && pagamento?.observacao
+                ? pagamento.observacao
+                : null,
+            comprovantePagamento: isRecepcao && pagamento?.comprovante
+                ? pagamento.comprovante
+                : null,
+            origemReserva: isRecepcao ? 'ATENDENTE' : 'SITE',
+            idUsuarioCriacao: isRecepcao
+                ? idUsuarioOperador || null
+                : null,
+            status: isRecepcao
+                ? ReservaHospedagem_1.StatusReservaHospedagem.Confirmada
+                : ReservaHospedagem_1.StatusReservaHospedagem.AguardandoPagamento,
+            dataConfirmacao: isRecepcao ? agora : null,
+            observacoes: observacoes?.trim() || null,
             idTransacao: null,
         }, { transaction: t });
         const itens = [];
-        for (const { item, cotacao } of cotacoes) {
+        for (const suite of suitesComTotais) {
+            const { item, cotacao } = suite;
             const reservaItem = await ReservaSuite_1.ReservaSuite.create({
                 idReservaHospedagem: hospedagem.id,
                 idEventoSuite: item.idEventoSuite,
                 adultos: item.adultos,
                 criancas: item.criancas,
-                preco: cotacao.totais.preco,
-                taxaServico: cotacao.totais.taxaServico,
-                valorTotal: cotacao.totais.valorTotal,
-                status: ReservaSuite_1.StatusReservaSuite.AguardandoPagamento,
+                preco: suite.preco,
+                taxaServico: suite.taxaServico,
+                valorTotal: suite.valorTotal,
+                valorOriginal: suite.valorOriginal,
+                descontoTipo: suite.descontoTipo,
+                descontoValor: suite.descontoValor,
+                valorFinal: suite.valorFinal,
+                status: isRecepcao
+                    ? ReservaSuite_1.StatusReservaSuite.Confirmada
+                    : ReservaSuite_1.StatusReservaSuite.AguardandoPagamento,
             }, { transaction: t });
             for (const hospede of item.hospedes) {
                 await ReservaHospede_1.ReservaHospede.create({
@@ -369,33 +476,89 @@ async function checkoutHospedagem(params) {
             }
             itens.push(reservaItem);
         }
-        const dataTransacao = new Date();
+        const dataTransacao = agora;
         const transacao = await Transacao_1.Transacao.create({
             idUsuario,
             dataTransacao,
             preco: totaisHospedagem.preco,
             taxaServico: totaisHospedagem.taxaServico,
             valorTotal: totaisHospedagem.valorTotal,
-            status: 'Aguardando pagamento',
+            status: isRecepcao
+                ? quitada
+                    ? 'Pago'
+                    : 'Aguardando pagamento'
+                : 'Aguardando pagamento',
             aceiteCompra: true,
             idEvento,
+            ...(isRecepcao
+                ? {
+                    dataPagamento: valorPagoRecepcao > 0 ? agora : undefined,
+                    tipoPagamento: mapTipoPagamentoTransacao(pagamento?.formaPagamento),
+                    valorRecebido: valorPagoRecepcao,
+                }
+                : {}),
         }, { transaction: t });
-        for (const { item, cotacao } of cotacoes) {
+        for (const suite of suitesComTotais) {
+            const { item, cotacao } = suite;
+            const precoOriginalTransacao = (0, reservaSuiteUtils_1.roundMoney)(cotacao.totais.preco);
+            const valorDescontoTransacao = suite.valorOriginal != null
+                ? (0, reservaSuiteUtils_1.roundMoney)(suite.valorOriginal - suite.valorTotal)
+                : 0;
             await Transacao_1.EventoSuiteTransacao.create({
                 idTransacao: transacao.id,
                 idEventoSuite: item.idEventoSuite,
-                precoOriginal: (0, reservaSuiteUtils_1.roundMoney)(cotacao.totais.preco),
-                preco: cotacao.totais.preco,
-                taxaServico: cotacao.totais.taxaServico,
-                valorTotal: cotacao.totais.valorTotal,
-                taxaServicoOriginal: cotacao.totais.taxaServico,
+                precoOriginal: precoOriginalTransacao,
+                preco: suite.preco,
+                taxaServico: suite.taxaServico,
+                valorTotal: suite.valorTotal,
+                taxaServicoOriginal: (0, reservaSuiteUtils_1.roundMoney)(cotacao.totais.taxaServico),
+                ...(valorDescontoTransacao > 0
+                    ? {
+                        tipoDesconto: suite.descontoTipo === 'PERCENTUAL'
+                            ? CupomPromocional_1.TipoDesconto.Percentual
+                            : CupomPromocional_1.TipoDesconto.Fixo,
+                        valorDesconto: suite.descontoValor,
+                        precoDesconto: suite.preco,
+                    }
+                    : {}),
             }, { transaction: t });
+        }
+        if (isRecepcao && valorPagoRecepcao > 0 && pagamento) {
+            await PagamentoHospedagem_1.PagamentoHospedagem.create({
+                idReservaHospedagem: hospedagem.id,
+                valor: valorPagoRecepcao,
+                dataPagamento: agora,
+                formaPagamento: pagamento.formaPagamento,
+                comprovante: pagamento.comprovante ?? null,
+                observacao: pagamento.observacao ?? null,
+                idUsuario: idUsuarioOperador || idUsuario,
+            }, { transaction: t });
+        }
+        const linhasDescontoHistorico = suitesComTotais
+            .filter((s) => s.descontoTipo && s.descontoValor)
+            .map((s) => {
+            const nome = s.cotacao.suite.nome ?? `Suíte ${s.item.idEventoSuite}`;
+            return `${nome}: ${(0, hospedagemDescontoRecepcao_1.formatarDescontoHistorico)({
+                tipo: s.descontoTipo,
+                valor: s.descontoValor,
+            })}`;
+        });
+        let descricaoHistorico = isRecepcao
+            ? 'Reserva criada pela recepção.'
+            : 'Transação criada para hospedagem com múltiplas suítes (checkout pousada).';
+        if (isRecepcao && linhasDescontoHistorico.length > 0) {
+            descricaoHistorico += `\n\nDesconto aplicado:\n${linhasDescontoHistorico.join('\n')}`;
+        }
+        if (isRecepcao) {
+            descricaoHistorico += `\n\nValor total:\n${(0, hospedagemPagamentoRecepcao_1.formatarMoedaHistorico)(totaisHospedagem.valorTotal)}\n\nPagamento recebido:\n${(0, hospedagemPagamentoRecepcao_1.formatarMoedaHistorico)(valorPagoRecepcao)}\n\nSaldo pendente:\n${(0, hospedagemPagamentoRecepcao_1.formatarMoedaHistorico)(saldoPendenteRecepcao ?? 0)}`;
         }
         await Transacao_1.HistoricoTransacao.create({
             idTransacao: transacao.id,
-            idUsuario,
+            idUsuario: isRecepcao
+                ? idUsuarioOperador || idUsuario
+                : idUsuario,
             data: dataTransacao,
-            descricao: 'Transação criada para hospedagem com múltiplas suítes (checkout pousada).',
+            descricao: descricaoHistorico,
         }, { transaction: t });
         hospedagem.idTransacao = transacao.id;
         await hospedagem.save({ transaction: t });
@@ -406,6 +569,15 @@ async function checkoutHospedagem(params) {
             transacao,
         };
     });
+    if (isRecepcao && resultado.hospedagem.idTransacao) {
+        try {
+            await (0, hospedagemConfirmacaoNotificacao_1.notificarConfirmacaoHospedagem)(resultado.hospedagem.id, resultado.hospedagem.idTransacao);
+        }
+        catch (error) {
+            console.error(`Erro ao notificar reserva recepção ${resultado.hospedagem.id}:`, error);
+        }
+    }
+    return resultado;
 }
 function parseParamsDisponibilidade(query) {
     return {
@@ -433,7 +605,8 @@ function parseSuitesCheckout(body) {
         const adultos = (0, reservaSuiteUtils_1.parsePositiveInt)(s.adultos, `suites[${index}].adultos`, 1);
         const criancas = (0, reservaSuiteUtils_1.parsePositiveInt)(s.criancas ?? 0, `suites[${index}].criancas`, 0);
         const hospedes = parseHospedesSuite(s, index, adultos, criancas);
-        return { idEventoSuite, adultos, criancas, hospedes };
+        const desconto = (0, hospedagemDescontoRecepcao_1.parseDescontoRecepcao)(s?.desconto, index);
+        return { idEventoSuite, adultos, criancas, hospedes, desconto };
     });
 }
 function parseHospedesSuite(suite, index, adultos, criancas) {

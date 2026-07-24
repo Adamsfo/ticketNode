@@ -8,6 +8,8 @@ var StatusReservaSuite;
 (function (StatusReservaSuite) {
     StatusReservaSuite["AguardandoPagamento"] = "AguardandoPagamento";
     StatusReservaSuite["Confirmada"] = "Confirmada";
+    StatusReservaSuite["Hospedada"] = "Hospedada";
+    StatusReservaSuite["CheckOutRealizado"] = "CheckOutRealizado";
     StatusReservaSuite["Cancelada"] = "Cancelada";
     StatusReservaSuite["Expirada"] = "Expirada";
 })(StatusReservaSuite || (exports.StatusReservaSuite = StatusReservaSuite = {}));
@@ -63,6 +65,22 @@ class ReservaSuite extends sequelize_1.Model {
             valorTotal: {
                 type: sequelize_1.DataTypes.DECIMAL(14, 2),
                 allowNull: false,
+            },
+            valorOriginal: {
+                type: sequelize_1.DataTypes.DECIMAL(14, 2),
+                allowNull: true,
+            },
+            descontoTipo: {
+                type: sequelize_1.DataTypes.ENUM('PERCENTUAL', 'VALOR'),
+                allowNull: true,
+            },
+            descontoValor: {
+                type: sequelize_1.DataTypes.DECIMAL(14, 2),
+                allowNull: true,
+            },
+            valorFinal: {
+                type: sequelize_1.DataTypes.DECIMAL(14, 2),
+                allowNull: true,
             },
             status: {
                 type: sequelize_1.DataTypes.ENUM(...Object.values(StatusReservaSuite)),

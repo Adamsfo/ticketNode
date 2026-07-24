@@ -160,7 +160,7 @@ module.exports = {
                         headers: {
                             accept: "application/json",
                             "content-type": "application/json",
-                            Authorization: "d597037283078574746e95b4e78ddd52",
+                            Authorization: process.env.CHATPRO_AUTH_TOKEN || "",
                         },
                         body: JSON.stringify({
                             number: formatPhoneToE164(user?.telefone ?? ""),
@@ -170,7 +170,7 @@ module.exports = {
                     };
 
                     fetch(
-                        "https://v5.chatpro.com.br/chatpro-4p8b76i8oq/api/v1/send_message_file_from_url",
+                        process.env.CHATPRO_API_URL || "",
                         options
                     )
                         .then((res) => res.json())
@@ -553,7 +553,7 @@ module.exports = {
                     headers: {
                         accept: "application/json",
                         "content-type": "application/json",
-                        Authorization: "d597037283078574746e95b4e78ddd52",
+                        Authorization: process.env.CHATPRO_AUTH_TOKEN || "",
                     },
                     body: JSON.stringify({
                         number: formatPhoneToE164(user?.telefone ?? ""),
@@ -563,7 +563,7 @@ module.exports = {
                 };
 
                 fetch(
-                    "https://v5.chatpro.com.br/chatpro-4p8b76i8oq/api/v1/send_message_file_from_url",
+                    process.env.CHATPRO_API_URL || "",
                     options
                 )
                     .then((res) => res.json())

@@ -19,6 +19,7 @@ const EventoSuite_1 = require("../models/EventoSuite");
 const ReservaHospedagem_1 = require("../models/ReservaHospedagem");
 const ReservaSuite_1 = require("../models/ReservaSuite");
 const ReservaHospede_1 = require("../models/ReservaHospede");
+const PagamentoHospedagem_1 = require("../models/PagamentoHospedagem");
 const ConfigIniciais = require('./ConfigIniciais');
 const FuncaoSistema = require('./FuncaoSistema');
 const connection = new Sequelize(dbConfig);
@@ -47,6 +48,7 @@ const connection = new Sequelize(dbConfig);
         (0, ReservaHospedagem_1.ReservaHospedagemInit)(connection);
         (0, ReservaSuite_1.ReservaSuiteInit)(connection);
         (0, ReservaHospede_1.ReservaHospedeInit)(connection);
+        (0, PagamentoHospedagem_1.PagamentoHospedagemInit)(connection);
         (0, ClienteMetodoPagamento_1.UsuarioMetodoPagamentoInit)(connection);
         (0, Visitas_1.VisitasInit)(connection);
         // Sincronizando os modelos com o banco de dados        

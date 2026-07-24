@@ -15,15 +15,11 @@ import { ProdutorAcesso, TipoAcesso } from "../models/Produtor";
 import apiJango from "../api/apiJango";
 import { confirmarHospedagem } from "../services/reservaSuiteService";
 
-const ClienteID = "8085308516889383"
-const ClienteSecret = "OFA6rEsej17acU0oIQM87PMwG4x4h123"
+const ClienteID = process.env.MP_CLIENT_ID || ""
+const ClienteSecret = process.env.MP_CLIENT_SECRET || ""
 
-const TanzAcessToken = "APP_USR-8085308516889383-061214-28451d6dd008b6342b99c07fdbd960a4-2470516573"
-// const JangoAcessToken = "APP_USR-2517899600225439-032009-f1127f8e355bf2605cc6e80250129500-488781000"
-// const acessToken = "TEST-8085308516889383-061214-c136514f031f9c06faac9ce69be226ce-2470516573"
-
-// const MP_PUBLIC_KEY = "APP_USR-8ccbd791-ea60-4e70-a915-a89fd05f5c23"; // Chave pública do Mercado Pago
-// const MP_PUBLIC_KEY = "TEST-98f4cccd-2514-4062-a671-68df4b579410"; // Chave pública do Mercado Pago
+const TanzAcessToken = process.env.MP_TANZ_ACCESS_TOKEN || ""
+const SuperTefBearerToken = process.env.SUPERTEF_BEARER_TOKEN || ""
 
 // Função para gerar uma chave de idempotência única
 function generateUniqueIdempotencyKey(): string {
@@ -1094,7 +1090,7 @@ module.exports = {
                 url: 'https://api.supertef.com.br/api/pagamentos',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer 74b1f7466a552959ac2eb3f4fa9b4386bd65f2c5440dfd61c5e90af018b81ead`
+                    'Authorization': `Bearer ${SuperTefBearerToken}`
                 },
                 data: posData
             };
@@ -1143,7 +1139,7 @@ module.exports = {
                     url: `https://api.supertef.com.br/api/pagamentos/by-uniqueid/${payment_uniqueid}?payment_uniqueid`,
                     headers: {
                         'Content-Type': 'application/json',
-                        'Authorization': `Bearer 74b1f7466a552959ac2eb3f4fa9b4386bd65f2c5440dfd61c5e90af018b81ead`
+                        'Authorization': `Bearer ${SuperTefBearerToken}`
                     },
                 };
 
@@ -1195,8 +1191,20 @@ module.exports = {
                                 const caixa = await apiJango().getCaixa();
 
                                 if (caixa[0]) {
-                                    await apiJango().inseriCaixaItem(caixa[0].id_caixa, transacaoPagamento.valor ?? 0,
-                                        transacao.tipoPagamento === TipoPagamento.Debito ? 40 : transacao.tipoPagamento === TipoPagamento.Credito ? 39 : 42);
+                                    const identificadorCaixa =
+                                        transacaoPagamento.PagamentoCodigo ||
+                                        payment_uniqueid ||
+                                        transacaoPagamento.id;
+                                    await apiJango().inseriCaixaItem(
+                                        caixa[0].id_caixa,
+                                        transacaoPagamento.valor ?? 0,
+                                        transacao.tipoPagamento === TipoPagamento.Debito
+                                            ? 40
+                                            : transacao.tipoPagamento === TipoPagamento.Credito
+                                              ? 39
+                                              : 42,
+                                        identificadorCaixa
+                                    );
                                 }
                             }
 
@@ -1238,14 +1246,6 @@ module.exports = {
                 where: { id: transacao.idEvento },
             });
 
-            if (evento?.idProdutor === 1) {
-                const caixa = await apiJango().getCaixa();
-
-                if (caixa[0]) {
-                    await apiJango().inseriCaixaItem(caixa[0].id_caixa, transacao.valorTotal, 38);
-                }
-            }
-
             const usuario = await ProdutorAcesso.findOne({
                 where: { idUsuario: idUsuarioPDV, tipoAcesso: TipoAcesso.PDV },
             });
@@ -1255,13 +1255,26 @@ module.exports = {
             }
 
             // Salvar dados de pagamento
-            await TransacaoPagamento.create({
+            const transacaoPagamento = await TransacaoPagamento.create({
                 idTransacao: idTransacao,
                 PagamentoCodigo: '',
                 gatewayPagamento: 'Portaria',
                 valor: valorTotal,
                 statusPagamento: 'Pago',
             });
+
+            if (evento?.idProdutor === 1) {
+                const caixa = await apiJango().getCaixa();
+
+                if (caixa[0]) {
+                    await apiJango().inseriCaixaItem(
+                        caixa[0].id_caixa,
+                        Number(valorTotal ?? 0),
+                        38,
+                        transacaoPagamento.id
+                    );
+                }
+            }
 
             transacao.tipoPagamento = TipoPagamento.Dinheiro;
             transacao.valorTaxaProcessamento = 0;
@@ -1304,7 +1317,7 @@ module.exports = {
                     url: `https://api.supertef.com.br/api/pagamentos/cancelar/${payment_uniqueid}`,
                     headers: {
                         'Content-Type': 'application/json',
-                        'Authorization': `Bearer 74b1f7466a552959ac2eb3f4fa9b4386bd65f2c5440dfd61c5e90af018b81ead`
+                        'Authorization': `Bearer ${SuperTefBearerToken}`
                     },
                 };
 
@@ -1396,10 +1409,14 @@ module.exports = {
                 const caixa = await apiJango().getCaixa();
 
                 if (caixa[0]) {
-                    await apiJango().inseriCaixaItem(caixa[0].id_caixa, transacao.valorTotal,
+                    await apiJango().inseriCaixaItem(
+                        caixa[0].id_caixa,
+                        transacao.valorTotal,
                         transacao.tipoPagamento === TipoPagamento.Debito ? 40 :
                             transacao.tipoPagamento === TipoPagamento.Credito ? 39 :
-                                transacao.tipoPagamento === TipoPagamento.Dinheiro ? 38 : 42);
+                                transacao.tipoPagamento === TipoPagamento.Dinheiro ? 38 : 42,
+                        idTransacao
+                    );
                 }
             }
 
@@ -1509,6 +1526,260 @@ module.exports = {
                 status: 'fail',
                 message: 'Erro ao simular pagamento.',
             });
+        }
+    },
+
+    /**
+     * Exclusivo do fluxo Pagamento PDV.
+     * Reduz a quantidade de ingressos da própria transação (não cria nova),
+     * removendo apenas a diferença em IngressoTransacao e recalculando totais.
+     */
+    async ajustarQuantidadePdv(req: any, res: any, next: any) {
+        const transaction = await connection.transaction();
+
+        try {
+            const { idTransacao, idUsuarioPDV, itens } = req.body as {
+                idTransacao?: number;
+                idUsuarioPDV?: number;
+                itens?: Array<{
+                    idsIngressoTransacao: number[];
+                    quantidade: number;
+                }>;
+            };
+
+            if (!idTransacao || !idUsuarioPDV) {
+                throw new CustomError(
+                    'idTransacao e idUsuarioPDV são obrigatórios.',
+                    400,
+                    ''
+                );
+            }
+
+            if (!Array.isArray(itens) || itens.length === 0) {
+                throw new CustomError(
+                    'Informe os itens a ajustar.',
+                    400,
+                    ''
+                );
+            }
+
+            const usuarioPdv = await ProdutorAcesso.findOne({
+                where: { idUsuario: idUsuarioPDV, tipoAcesso: TipoAcesso.PDV },
+            });
+
+            if (!usuarioPdv) {
+                throw new CustomError(
+                    'Acesso PDV não encontrado para o usuário.',
+                    403,
+                    ''
+                );
+            }
+
+            const transacao = await Transacao.findOne({
+                where: { id: idTransacao },
+                transaction,
+            });
+
+            if (!transacao) {
+                throw new CustomError('Transação não encontrada.', 404, '');
+            }
+
+            if (transacao.status === 'Pago' || transacao.status === 'Cancelado') {
+                throw new CustomError(
+                    'Não é possível ajustar quantidade de uma transação finalizada.',
+                    400,
+                    ''
+                );
+            }
+
+            const idsRemovidos: number[] = [];
+            let totalRemovidos = 0;
+
+            for (const item of itens) {
+                const ids = Array.isArray(item.idsIngressoTransacao)
+                    ? item.idsIngressoTransacao.map(Number).filter((id) => Number.isFinite(id) && id > 0)
+                    : [];
+                const quantidade = Number(item.quantidade);
+
+                if (ids.length === 0) {
+                    throw new CustomError(
+                        'Cada item deve informar idsIngressoTransacao.',
+                        400,
+                        ''
+                    );
+                }
+
+                if (!Number.isFinite(quantidade) || quantidade < 1) {
+                    throw new CustomError(
+                        'A quantidade mínima por tipo de ingresso é 1.',
+                        400,
+                        ''
+                    );
+                }
+
+                if (quantidade > ids.length) {
+                    throw new CustomError(
+                        'Não é permitido aumentar a quantidade no pagamento PDV.',
+                        400,
+                        ''
+                    );
+                }
+
+                if (quantidade === ids.length) {
+                    continue;
+                }
+
+                const registrosGrupo = await IngressoTransacao.findAll({
+                    where: {
+                        idTransacao,
+                        id: ids,
+                    },
+                    transaction,
+                });
+
+                if (registrosGrupo.length !== ids.length) {
+                    throw new CustomError(
+                        'Itens da transação inválidos ou não pertencem a esta transação.',
+                        400,
+                        ''
+                    );
+                }
+
+                const idsParaRemover = ids.slice(quantidade);
+                const removidos = registrosGrupo.filter((reg) =>
+                    idsParaRemover.includes(reg.id)
+                );
+
+                for (const reg of removidos) {
+                    await HistoricoIngresso.create(
+                        {
+                            idIngresso: reg.idIngresso,
+                            data: new Date(),
+                            descricao:
+                                'Cancelado - quantidade reduzida no Pagamento PDV',
+                            idUsuario: idUsuarioPDV,
+                        },
+                        { transaction }
+                    );
+
+                    await Ingresso.update(
+                        { status: 'Cancelado' },
+                        { where: { id: reg.idIngresso }, transaction }
+                    );
+
+                    await reg.destroy({ transaction });
+                    idsRemovidos.push(reg.id);
+                    totalRemovidos += 1;
+                }
+            }
+
+            const ingressosRestantes = await IngressoTransacao.findAll({
+                where: { idTransacao },
+                transaction,
+            });
+
+            if (ingressosRestantes.length === 0) {
+                throw new CustomError(
+                    'A transação deve manter ao menos 1 ingresso.',
+                    400,
+                    ''
+                );
+            }
+
+            const preco = ingressosRestantes.reduce(
+                (acc, ingresso) => acc + Number(ingresso.preco || 0),
+                0
+            );
+            const taxaServico = ingressosRestantes.reduce(
+                (acc, ingresso) => acc + Number(ingresso.taxaServico || 0),
+                0
+            );
+            const taxaServicoDesconto = ingressosRestantes.reduce(
+                (acc, ingresso) =>
+                    acc + Number(ingresso.taxaServicoDesconto || 0),
+                0
+            );
+            const valorTotal = ingressosRestantes.reduce(
+                (acc, ingresso) => acc + Number(ingresso.valorTotal || 0),
+                0
+            );
+
+            await Transacao.update(
+                {
+                    preco,
+                    taxaServico,
+                    taxaServicoDesconto,
+                    valorTotal,
+                },
+                { where: { id: idTransacao }, transaction }
+            );
+
+            await HistoricoTransacao.create(
+                {
+                    idTransacao,
+                    data: new Date(),
+                    descricao:
+                        totalRemovidos > 0
+                            ? `Quantidade reduzida no Pagamento PDV (${totalRemovidos} ingresso(s) removido(s)). Totais atualizados.`
+                            : 'Ajuste de quantidade no Pagamento PDV sem remoções.',
+                    idUsuario: idUsuarioPDV,
+                },
+                { transaction }
+            );
+
+            await transaction.commit();
+
+            let transacaoAtualizada = await Transacao.findOne({
+                where: { id: idTransacao },
+            });
+
+            // Se o novo total ficou coberto pelo valor já recebido, quita a venda no PDV
+            // sem exigir novo pagamento (mesmo critério de pagamento parcial existente).
+            const valorRecebido = Number(transacaoAtualizada?.valorRecebido ?? 0);
+            let vendaQuitada = false;
+
+            if (
+                transacaoAtualizada &&
+                transacaoAtualizada.status !== 'Pago' &&
+                Math.round(valorRecebido * 100) >= Math.round(Number(valorTotal) * 100)
+            ) {
+                await transacaoPaga(
+                    idTransacao,
+                    'Venda quitada no Pagamento PDV após redução de quantidade',
+                    idUsuarioPDV,
+                    false
+                );
+                transacaoAtualizada = await Transacao.findOne({
+                    where: { id: idTransacao },
+                });
+                vendaQuitada = transacaoAtualizada?.status === 'Pago';
+            }
+
+            return res.status(200).json({
+                data: {
+                    transacao: transacaoAtualizada,
+                    idsIngressoTransacaoRemovidos: idsRemovidos,
+                    preco,
+                    taxaServico,
+                    taxaServicoDesconto,
+                    valorTotal,
+                    vendaQuitada,
+                },
+            });
+        } catch (error) {
+            try {
+                await transaction.rollback();
+            } catch {
+                // Transação já commitada ou inexistente
+            }
+            if (error instanceof CustomError) {
+                return res.status(error.statusCode).json({
+                    status: 'fail',
+                    message: error.message,
+                });
+            }
+            console.error('Erro ao ajustar quantidade PDV:', error);
+            next(error);
         }
     },
 }

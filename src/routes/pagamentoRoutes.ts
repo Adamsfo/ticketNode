@@ -19,6 +19,12 @@ router.get('/cancelapagamentopos', PagamentoController.cancelaPagamentoPos)
 router.post('/pagamentodinheiro', PagamentoController.pagamentoDinheiro)
 router.post('/webhookpagamentopos', PagamentoController.webHookPagamentoPos)
 router.post('/pagamentoposstone', PagamentoController.pagamentoPOSStone)
+// Exclusivo Pagamento PDV: reduzir quantidade antes de confirmar pagamento
+router.post(
+    '/pagamentopdv/ajustarquantidade',
+    authenticate,
+    PagamentoController.ajustarQuantidadePdv
+)
 
 // Gatilho DEV: apenas chama transacaoPaga (mesmo fluxo pós-pagamento real).
 // Em produção, o handler retorna 404.

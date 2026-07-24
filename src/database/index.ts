@@ -17,6 +17,7 @@ import { EventoSuiteInit } from '../models/EventoSuite';
 import { ReservaHospedagemInit } from '../models/ReservaHospedagem';
 import { ReservaSuiteInit } from '../models/ReservaSuite';
 import { ReservaHospedeInit } from '../models/ReservaHospede';
+import { PagamentoHospedagemInit } from '../models/PagamentoHospedagem';
 const ConfigIniciais = require('./ConfigIniciais')
 const FuncaoSistema = require('./FuncaoSistema')
 
@@ -49,6 +50,7 @@ const connection = new Sequelize(dbConfig);
     ReservaHospedagemInit(connection)
     ReservaSuiteInit(connection)
     ReservaHospedeInit(connection)
+    PagamentoHospedagemInit(connection)
     UsuarioMetodoPagamentoInit(connection)
     VisitasInit(connection)
 

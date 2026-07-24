@@ -1,14 +1,8 @@
 /* eslint-disable import/no-anonymous-default-export */
-// const BASEAPI = 'http://192.168.1.2:80/PDVServer.dll/datasnap/rest/TSM';
-// const BASEAPIFotos = 'http://192.168.1.2:80';
-
 import { query } from "../database/ConexaoJango";
 
-const BASEAPI = "http://160.20.20.102:8010/PDVServer.dll/datasnap/rest/TSM";
-const BASEAPIFotos = "http://160.20.20.102:8010";
-
-// 192.168.0.2
-// 160.20.20.102:8080
+const BASEAPI = process.env.JANGO_API_BASE || "";
+const BASEAPIFotos = process.env.JANGO_API_FOTOS_BASE || "";
 
 const apiFetchGet = async (endpoint: string, body: any = "") => {
   //`${BASEAPI+endpoint}/${qs.stringify(body)}`
@@ -132,10 +126,26 @@ const PdvApiJango = {
     }
   },
 
+  inseriCaixaItem: async (
+    id_caixa: string,
+    valor: number,
+    id_forma_pagamento: number,
+    identificadorUnico: string | number
+  ) => {
+    const descricao = `Ingressos ${identificadorUnico}`.replace(/'/g, "''");
 
-  inseriCaixaItem: async (id_caixa: string, valor: number, id_forma_pagamento: number) => {
-    const qry = `insert into caixa_item (DESCRICAO, ID_FORMA_PAGAMENTO, ID_CAIXA, ID_USUARIO, TIPO_LANCAMENTO, TIPO_VALOR, VALOR) values ('Venda de Ingresso', ${id_forma_pagamento}, ${id_caixa}, 3, 1, 'C', ${valor})`;
     try {
+      const existentes = await apiFetchGet(
+        "/select/" +
+          `select DESCRICAO from caixa_item where DESCRICAO = '${descricao}'`
+      );
+
+      if (Array.isArray(existentes) && existentes.length > 0) {
+        console.log("CaixaItem já existe, não reinsere:", descricao);
+        return null;
+      }
+
+      const qry = `insert into caixa_item (DESCRICAO, ID_FORMA_PAGAMENTO, ID_CAIXA, ID_USUARIO, TIPO_LANCAMENTO, TIPO_VALOR, VALOR) values ('${descricao}', ${id_forma_pagamento}, ${id_caixa}, 3, 1, 'C', ${valor})`;
       console.log("Inserindo item no caixa: ", qry);
       await apiFetchGet("/select/" + qry);
     } catch (error) {

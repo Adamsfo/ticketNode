@@ -1,27 +1,14 @@
 "use strict";
+require("dotenv").config();
 module.exports = {
-    dialect: "mysql",
-    host: "localhost",
-    // host: "192.168.18.11",
-    username: "admin",
-    password: "admin",
-    database: "ticketJango",
-    timezone: "+00:00",
+    dialect: process.env.DB_DIALECT || "mysql",
+    host: process.env.DB_HOST,
+    username: process.env.DB_USER,
+    password: process.env.DB_PASSWORD,
+    database: process.env.DB_NAME || "ticketJango",
+    timezone: process.env.DB_TIMEZONE || "+00:00",
     define: {
         timestamps: true,
         underscored: true,
     },
 };
-// module.exports = {
-//   dialect: "mysql",
-//   host: "jango-ingressos.czgc6wkgq9uj.sa-east-1.rds.amazonaws.com",
-//   // host: "192.168.18.11",
-//   username: "admin",
-//   password: "Adamsfo232",
-//   database: "ticketJango",
-//   timezone: "+00:00",
-//   define: {
-//     timestamps: true,
-//     underscored: true,
-//   },
-// };

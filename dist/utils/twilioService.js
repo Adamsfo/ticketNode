@@ -7,10 +7,10 @@ exports.sendCodeSMS = sendCodeSMS;
 exports.sendCodeWhatsApp = sendCodeWhatsApp;
 // src/services/twilioService.ts
 const twilio_1 = __importDefault(require("twilio"));
-const accountSid = 'ACec10ac6037607a00971afc63f3582bf4';
-const authToken = "b53c7b73c1af99613670b19a00b9f6a1";
-const fromSms = "+18644287609";
-const fromWhatsapp = 'whatsapp:' + "+18644287609";
+const accountSid = process.env.TWILIO_ACCOUNT_SID || "";
+const authToken = process.env.TWILIO_AUTH_TOKEN || "";
+const fromSms = process.env.TWILIO_FROM_SMS || "";
+const fromWhatsapp = "whatsapp:" + fromSms;
 const client = (0, twilio_1.default)(accountSid, authToken);
 async function sendCodeSMS(to, code) {
     return client.messages.create({
@@ -23,6 +23,6 @@ async function sendCodeWhatsApp(to, code) {
     return client.messages.create({
         body: `Seu código de verificação é: ${code}. Não compartilhe com ninguém.`,
         from: fromWhatsapp,
-        to: 'whatsapp:' + to,
+        to: "whatsapp:" + to,
     });
 }

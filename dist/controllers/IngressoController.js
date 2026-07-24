@@ -144,7 +144,7 @@ module.exports = {
                         headers: {
                             accept: "application/json",
                             "content-type": "application/json",
-                            Authorization: "d597037283078574746e95b4e78ddd52",
+                            Authorization: process.env.CHATPRO_AUTH_TOKEN || "",
                         },
                         body: JSON.stringify({
                             number: formatPhoneToE164(user?.telefone ?? ""),
@@ -152,7 +152,7 @@ module.exports = {
                             caption: `Olá ${user?.nomeCompleto}, \n\nVocé esta recebendo seu ingresso para ${evento?.nome}. \n\nPara acessá-lo ou mais informações, clique aqui ${url}`
                         }),
                     };
-                    fetch("https://v5.chatpro.com.br/chatpro-4p8b76i8oq/api/v1/send_message_file_from_url", options)
+                    fetch(process.env.CHATPRO_API_URL || "", options)
                         .then((res) => res.json())
                         .then((res) => console.log(res))
                         .catch((err) => console.log("Erro ao enviar mensagem via WhatsApp: " + err));
@@ -462,7 +462,7 @@ module.exports = {
                     headers: {
                         accept: "application/json",
                         "content-type": "application/json",
-                        Authorization: "d597037283078574746e95b4e78ddd52",
+                        Authorization: process.env.CHATPRO_AUTH_TOKEN || "",
                     },
                     body: JSON.stringify({
                         number: formatPhoneToE164(user?.telefone ?? ""),
@@ -470,7 +470,7 @@ module.exports = {
                         caption: `Olá ${user?.nomeCompleto}, \n\nVocé esta recebendo seu ingresso para ${evento?.nome}. \n\nPara acessá-lo ou mais informações, clique aqui ${url}`
                     }),
                 };
-                fetch("https://v5.chatpro.com.br/chatpro-4p8b76i8oq/api/v1/send_message_file_from_url", options)
+                fetch(process.env.CHATPRO_API_URL || "", options)
                     .then((res) => res.json())
                     .then((res) => console.log(res))
                     .catch((err) => console.log("Erro ao enviar mensagem via WhatsApp: " + err));

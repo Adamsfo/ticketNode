@@ -2,3 +2,11 @@ node_modules
 instaladores
 src/public/uploads
 dist/public/uploads
+dist
+
+# Secrets / ambiente
+.env
+.env.local
+.env.*.local
+*.pem
+*.key

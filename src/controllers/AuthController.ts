@@ -84,7 +84,7 @@ const enviaCodigoEmailLogin = async (email: string, codigo: string) => {
 };
 
 async function enviarCodigoAtivacaoChatPro(numeroCliente: string, codigo: string) {
-  // chatpro.auth('d597037283078574746e95b4e78ddd52');
+  // chatpro.auth(process.env.CHATPRO_AUTH_TOKEN || "");
   // chatpro.send_message({
   //   number: numeroCliente,
   //   message: `Seu código de verificação é: ${codigo}. Não compartilhe com ninguém.`

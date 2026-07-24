@@ -20,6 +20,7 @@ const pagamentoRoutes = require('./routes/pagamentoRoutes');
 const ingresssoRoutes = require('./routes/ingressoRoutes');
 const suiteRoutes = require('./routes/eventoSuiteRoutes');
 const reservaSuiteRoutes = require('./routes/reservaSuiteRoutes');
+const hospedagemAdminRoutes = require('./routes/hospedagemAdminRoutes');
 const transacaoRoutes = require('./routes/transacaoRoutes');
 const cupomPromocionalRoutes = require('./routes/cupomPromocialRoutes');
 const jangoRoutes = require('./routes/jangoRoutes');
@@ -60,28 +61,50 @@ server.use(cupomPromocionalRoutes);
 server.use(jangoRoutes);
 server.use(suiteRoutes);
 server.use(reservaSuiteRoutes);
+server.use(hospedagemAdminRoutes);
 // Tratamento de erros
 server.use(errorHandler);
 // Rota padrão
 server.get('/', (req, res) => {
     res.send('Hello World');
 });
-// Rota de upload
+// Rota de upload (imagens e comprovantes)
 server.post('/upload', (req, res) => {
     if (!req.body || !req.body.file) {
         return res.status(400).send('No files were uploaded.');
     }
-    // O campo "file" deve conter a string em base64
-    const base64Data = req.body.file;
+    const base64Data = String(req.body.file).replace(/^data:[^;]+;base64,/, '');
     const buffer = Buffer.from(base64Data, 'base64');
-    // Mover o arquivo para a pasta desejada
-    let filename = "LogoProdutor_" + Date.now() + ".png";
+    const prefixo = String(req.body.prefixo || req.body.Codigo || 'Upload')
+        .replace(/[^a-zA-Z0-9_-]/g, '')
+        .slice(0, 40) || 'Upload';
+    const mime = String(req.body.mimeType || '').toLowerCase();
+    const nomeOriginal = String(req.body.nomeOriginal || '');
+    let ext = 'png';
+    if (mime.includes('pdf') || nomeOriginal.toLowerCase().endsWith('.pdf')) {
+        ext = 'pdf';
+    }
+    else if (mime.includes('jpeg') ||
+        mime.includes('jpg') ||
+        nomeOriginal.toLowerCase().endsWith('.jpg') ||
+        nomeOriginal.toLowerCase().endsWith('.jpeg')) {
+        ext = 'jpg';
+    }
+    else if (mime.includes('heic') ||
+        nomeOriginal.toLowerCase().endsWith('.heic')) {
+        ext = 'heic';
+    }
+    else if (mime.includes('png') ||
+        nomeOriginal.toLowerCase().endsWith('.png')) {
+        ext = 'png';
+    }
+    const filename = `${prefixo}_${Date.now()}.${ext}`;
     const uploadPath = path.join(__dirname, '/public/uploads', filename);
     fs_1.default.writeFile(uploadPath, new Uint8Array(buffer), (err) => {
         if (err) {
             return res.status(500).send('Error saving file.');
         }
-        res.send({ filename: filename });
+        res.send({ filename });
     });
 });
 // Inicia o WebSocket
