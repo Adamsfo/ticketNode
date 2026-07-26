@@ -14,12 +14,193 @@ import { Evento } from "../models/Evento";
 import { ProdutorAcesso, TipoAcesso } from "../models/Produtor";
 import apiJango from "../api/apiJango";
 import { confirmarHospedagem } from "../services/reservaSuiteService";
+import { EventoIngresso } from "../models/EventoIngresso";
+import { Op } from "sequelize";
+import { formatInTimeZone } from "date-fns-tz";
 
 const ClienteID = process.env.MP_CLIENT_ID || ""
 const ClienteSecret = process.env.MP_CLIENT_SECRET || ""
 
 const TanzAcessToken = process.env.MP_TANZ_ACCESS_TOKEN || ""
 const SuperTefBearerToken = process.env.SUPERTEF_BEARER_TOKEN || ""
+
+/** Prefixo de histórico exclusivo Pagamento PDV — idempotência da abertura de conta Jango. */
+const MARCA_CONTA_JANGO_PDV = "Conta Jango PDV|trx=";
+
+/** Lock em memória: evita duas execuções simultâneas da mesma venda PDV. */
+const locksAbrirContaPdv = new Map<number, Promise<any>>();
+
+async function aguardarContaCriadaPdv(idCliente: number, tentativas = 5, intervaloMs = 1000) {
+    for (let i = 0; i < tentativas; i++) {
+        const contas = await apiJango().getConta(idCliente, true);
+        if (Array.isArray(contas) && contas.length > 0) return contas;
+        await new Promise((res) => setTimeout(res, intervaloMs));
+    }
+    throw new Error("Conta não foi criada após múltiplas tentativas.");
+}
+
+function historicoContaPdvFinalizado(descricao: string | null | undefined): boolean {
+    if (!descricao) return false;
+    return (
+        descricao.includes("|venda=") ||
+        descricao.includes("|reutilizada") ||
+        descricao.includes("|ok")
+    );
+}
+
+async function buscarHistoricoContaPdv(idTrx: number, marca: string, transaction?: any) {
+    return HistoricoTransacao.findOne({
+        where: {
+            idTransacao: idTrx,
+            descricao: { [Op.like]: `${marca}%` },
+        },
+        order: [["id", "DESC"]],
+        transaction,
+    });
+}
+
+async function obterIdPagamentoPdv(idTrx: number): Promise<number | string | null> {
+    const pagamento = await TransacaoPagamento.findOne({
+        where: { idTransacao: idTrx },
+        order: [["id", "DESC"]],
+    });
+    if (!pagamento) return null;
+    return pagamento.id ?? pagamento.PagamentoCodigo ?? null;
+}
+
+/**
+ * Claim atômico por idTransacao (SELECT FOR UPDATE na venda).
+ * Garante que só uma execução segue para abreConta, mesmo entre processos.
+ */
+async function reivindicarAberturaContaPdv(
+    idTrx: number,
+    idUser: number,
+    marca: string,
+    idPagamento: number | string | null
+): Promise<{
+    adquirido: boolean;
+    jaFinalizado: boolean;
+    historico: HistoricoTransacao | null;
+}> {
+    const dbTx = await connection.transaction();
+    try {
+        const transacao = await Transacao.findOne({
+            where: { id: idTrx },
+            lock: dbTx.LOCK.UPDATE,
+            transaction: dbTx,
+        });
+        if (!transacao) {
+            throw new CustomError("Transação não encontrada.", 404, "");
+        }
+
+        const existente = await buscarHistoricoContaPdv(idTrx, marca, dbTx);
+        if (existente) {
+            await dbTx.commit();
+            console.log("[PDV abrirConta] claim: histórico já existe", {
+                idTransacao: idTrx,
+                idPagamento,
+                descricao: existente.descricao,
+                finalizado: historicoContaPdvFinalizado(existente.descricao),
+            });
+            return {
+                adquirido: false,
+                jaFinalizado: historicoContaPdvFinalizado(existente.descricao),
+                historico: existente,
+            };
+        }
+
+        const criado = await HistoricoTransacao.create(
+            {
+                idTransacao: idTrx,
+                idUsuario: idUser,
+                data: new Date(),
+                descricao: `${marca}|claim|pag=${idPagamento ?? "n/a"}`,
+            },
+            { transaction: dbTx }
+        );
+        await dbTx.commit();
+        console.log("[PDV abrirConta] claim adquirido — seguirá criação/reuso", {
+            idTransacao: idTrx,
+            idPagamento,
+            historicoId: criado.id,
+        });
+        return { adquirido: true, jaFinalizado: false, historico: criado };
+    } catch (error) {
+        await dbTx.rollback();
+        throw error;
+    }
+}
+
+async function aguardarFinalizacaoHistoricoPdv(
+    idTrx: number,
+    marca: string,
+    tentativas = 15,
+    intervaloMs = 1000
+) {
+    for (let i = 0; i < tentativas; i++) {
+        const hist = await buscarHistoricoContaPdv(idTrx, marca);
+        if (hist && historicoContaPdvFinalizado(hist.descricao)) {
+            return hist;
+        }
+        await new Promise((res) => setTimeout(res, intervaloMs));
+    }
+    return buscarHistoricoContaPdv(idTrx, marca);
+}
+
+/** Retoma claim órfão sob lock; evita segundo abreConta enquanto outra execução está viva. */
+async function retomarClaimOrfaoPdv(
+    idTrx: number,
+    idUser: number,
+    marca: string,
+    idPagamento: number | string | null
+): Promise<{ adquirido: boolean; historico: HistoricoTransacao | null; jaFinalizado: boolean }> {
+    const dbTx = await connection.transaction();
+    try {
+        await Transacao.findOne({
+            where: { id: idTrx },
+            lock: dbTx.LOCK.UPDATE,
+            transaction: dbTx,
+        });
+        const existente = await buscarHistoricoContaPdv(idTrx, marca, dbTx);
+        if (!existente) {
+            const criado = await HistoricoTransacao.create(
+                {
+                    idTransacao: idTrx,
+                    idUsuario: idUser,
+                    data: new Date(),
+                    descricao: `${marca}|claim|retomado|pag=${idPagamento ?? "n/a"}`,
+                },
+                { transaction: dbTx }
+            );
+            await dbTx.commit();
+            return { adquirido: true, historico: criado, jaFinalizado: false };
+        }
+        if (historicoContaPdvFinalizado(existente.descricao)) {
+            await dbTx.commit();
+            return { adquirido: false, historico: existente, jaFinalizado: true };
+        }
+        // Ainda em claim: só retoma se o claim for antigo (> 20s)
+        const idadeMs = Date.now() - new Date(existente.data).getTime();
+        if (idadeMs < 20000) {
+            await dbTx.commit();
+            return { adquirido: false, historico: existente, jaFinalizado: false };
+        }
+        existente.descricao = `${marca}|claim|retomado|pag=${idPagamento ?? "n/a"}`;
+        existente.idUsuario = idUser;
+        existente.data = new Date();
+        await existente.save({ transaction: dbTx });
+        await dbTx.commit();
+        console.log("[PDV abrirConta] claim órfão retomado", {
+            idTransacao: idTrx,
+            idPagamento,
+            idadeMs,
+        });
+        return { adquirido: true, historico: existente, jaFinalizado: false };
+    } catch (error) {
+        await dbTx.rollback();
+        throw error;
+    }
+}
 
 // Função para gerar uma chave de idempotência única
 function generateUniqueIdempotencyKey(): string {
@@ -1779,6 +1960,349 @@ module.exports = {
                 });
             }
             console.error('Erro ao ajustar quantidade PDV:', error);
+            next(error);
+        }
+    },
+
+    /**
+     * Exclusivo Pagamento PDV: abre conta no Jango após pagamento (evento 1).
+     * Idempotente por idTransacao — nunca cria duas contas para a mesma venda.
+     */
+    async abrirContaPdv(req: any, res: any, next: any) {
+        const { idTransacao, idUsuarioPDV } = req.body as {
+            idTransacao?: number;
+            idUsuarioPDV?: number;
+        };
+
+        const idTrx = Number(idTransacao);
+        const idUser = Number(idUsuarioPDV);
+
+        if (!idTrx || !idUser) {
+            return res.status(400).json({
+                status: "fail",
+                message: "idTransacao e idUsuarioPDV são obrigatórios.",
+            });
+        }
+
+        // Lock síncrono antes de qualquer await — evita duas execuções no mesmo processo
+        let execucao = locksAbrirContaPdv.get(idTrx);
+        if (!execucao) {
+            execucao = (async () => {
+            const idPagamento = await obterIdPagamentoPdv(idTrx);
+            console.log("[PDV abrirConta] início", {
+                idTransacao: idTrx,
+                idPagamento,
+                idUsuarioPDV: idUser,
+            });
+
+            try {
+                const marca = `${MARCA_CONTA_JANGO_PDV}${idTrx}`;
+
+                const usuarioPdv = await ProdutorAcesso.findOne({
+                    where: { idUsuario: idUser, tipoAcesso: TipoAcesso.PDV },
+                });
+                if (!usuarioPdv) {
+                    throw new CustomError("Acesso PDV não encontrado para o usuário.", 403, "");
+                }
+
+                let claim = await reivindicarAberturaContaPdv(
+                    idTrx,
+                    idUser,
+                    marca,
+                    idPagamento
+                );
+
+                if (claim.jaFinalizado && claim.historico) {
+                    console.log("[PDV abrirConta] conta já registrada — reutilizando", {
+                        idTransacao: idTrx,
+                        idPagamento,
+                        historico: claim.historico.descricao,
+                        motivo: "reexecução / histórico finalizado",
+                    });
+                    return {
+                        reutilizada: true,
+                        idTransacao: idTrx,
+                        idPagamento,
+                        descricao: claim.historico.descricao,
+                        message: "Conta Jango já aberta para esta venda PDV.",
+                    };
+                }
+
+                // Outra execução já possui o claim — aguarda; só retoma se órfão
+                if (!claim.adquirido) {
+                    console.log("[PDV abrirConta] claim de outra execução — aguardando", {
+                        idTransacao: idTrx,
+                        idPagamento,
+                        motivo: "execução concorrente / timeout / reenvio",
+                    });
+                    const histFinal = await aguardarFinalizacaoHistoricoPdv(idTrx, marca);
+                    if (histFinal && historicoContaPdvFinalizado(histFinal.descricao)) {
+                        return {
+                            reutilizada: true,
+                            idTransacao: idTrx,
+                            idPagamento,
+                            descricao: histFinal.descricao,
+                            message: "Conta Jango já aberta para esta venda PDV.",
+                        };
+                    }
+
+                    const retomada = await retomarClaimOrfaoPdv(
+                        idTrx,
+                        idUser,
+                        marca,
+                        idPagamento
+                    );
+                    if (retomada.jaFinalizado && retomada.historico) {
+                        return {
+                            reutilizada: true,
+                            idTransacao: idTrx,
+                            idPagamento,
+                            descricao: retomada.historico.descricao,
+                            message: "Conta Jango já aberta para esta venda PDV.",
+                        };
+                    }
+                    if (!retomada.adquirido) {
+                        throw new CustomError(
+                            "Abertura de conta já em andamento para esta venda. Aguarde e tente novamente.",
+                            409,
+                            ""
+                        );
+                    }
+                    claim.historico = retomada.historico;
+                    claim.adquirido = true;
+                }
+
+                const itens = await IngressoTransacao.findAll({
+                    where: { idTransacao: idTrx },
+                });
+                if (itens.length === 0) {
+                    throw new CustomError("Nenhum ingresso vinculado à transação.", 400, "");
+                }
+
+                const idsIngressos = itens.map((i) => i.idIngresso);
+                const ingressosExistentes = await Ingresso.findAll({
+                    where: { id: idsIngressos },
+                });
+
+                const todosUtilizados =
+                    ingressosExistentes.length === idsIngressos.length &&
+                    ingressosExistentes.every((ing) => ing.status === "Utilizado");
+
+                if (todosUtilizados) {
+                    const desc = `${marca}|reutilizada|ingressos-ja-utilizados|pag=${idPagamento ?? "n/a"}`;
+                    if (claim.historico) {
+                        claim.historico.descricao = desc;
+                        await claim.historico.save();
+                    } else {
+                        await HistoricoTransacao.create({
+                            idTransacao: idTrx,
+                            idUsuario: idUser,
+                            data: new Date(),
+                            descricao: desc,
+                        });
+                    }
+                    console.log("[PDV abrirConta] ingressos já utilizados — sem nova conta", {
+                        idTransacao: idTrx,
+                        idPagamento,
+                    });
+                    return {
+                        reutilizada: true,
+                        idTransacao: idTrx,
+                        idPagamento,
+                        message: "Ingressos já utilizados; conta não recriada.",
+                    };
+                }
+
+                const pendentes = ingressosExistentes.filter(
+                    (ing) => ing.status === "Confirmado"
+                );
+                if (pendentes.length === 0) {
+                    throw new CustomError(
+                        "Nenhum ingresso Confirmado disponível para abrir conta.",
+                        400,
+                        ""
+                    );
+                }
+
+                const userValidador = await Usuario.findByPk(idUser);
+                if (!userValidador) {
+                    throw new CustomError("Usuário PDV não encontrado.", 404, "");
+                }
+
+                const userIngresso = await Usuario.findByPk(pendentes[0].idUsuario);
+                if (!userIngresso) {
+                    throw new CustomError("Usuário do ingresso não encontrado.", 404, "");
+                }
+
+                if (!userIngresso.id_cliente || Number(userIngresso.id_cliente) === 0) {
+                    if (!userIngresso.cpf) {
+                        throw new CustomError(
+                            "CPF do usuário do ingresso não encontrado.",
+                            400,
+                            ""
+                        );
+                    }
+                    const dadosJango = await apiJango().getCliente(userIngresso.cpf.toString());
+                    let clienteJango = dadosJango[0];
+                    if (!clienteJango) {
+                        await apiJango().atualizarCliente({
+                            CPF_CNPJ: (userIngresso.cpf ?? "").replace(/\D/g, ""),
+                            NOME: userIngresso.nomeCompleto,
+                            TELEFONE_CELULAR: (userIngresso.telefone ?? "").replace(/\D/g, ""),
+                            EMAIL: userIngresso.email,
+                        });
+                        await new Promise((resolve) => setTimeout(resolve, 1000));
+                        const dadosNovos = await apiJango().getCliente(
+                            (userIngresso.cpf ?? "").replace(/\D/g, "")
+                        );
+                        clienteJango = dadosNovos[0];
+                    }
+                    if (clienteJango?.error) {
+                        throw new CustomError(clienteJango.error, 400, "");
+                    }
+                    if (!clienteJango?.id_cliente || Number(clienteJango.id_cliente) === 0) {
+                        throw new CustomError("Cliente Jango retornou ID inválido.", 400, "");
+                    }
+                    userIngresso.id_cliente = clienteJango.id_cliente;
+                    await userIngresso.save();
+                    await userIngresso.reload();
+                }
+
+                if (!userIngresso.id_cliente || Number(userIngresso.id_cliente) === 0) {
+                    throw new CustomError(
+                        "Usuário não possui um id_cliente válido no Jango.",
+                        400,
+                        ""
+                    );
+                }
+
+                let contaJango = await apiJango().getConta(userIngresso.id_cliente, true);
+                let contaCriadaAgora = false;
+
+                // Só abre conta se NÃO houver conta aberta E esta execução adquiriu o claim
+                // (ou retomou claim órfão). Nunca chama abreConta se já existe conta.
+                if (!Array.isArray(contaJango) || contaJango.length === 0) {
+                    console.log("[PDV abrirConta] tentativa de criação de conta", {
+                        idTransacao: idTrx,
+                        idPagamento,
+                        id_cliente: userIngresso.id_cliente,
+                    });
+                    await apiJango().abreConta(userIngresso.id_cliente);
+                    contaJango = await aguardarContaCriadaPdv(userIngresso.id_cliente);
+                    contaCriadaAgora = true;
+                } else {
+                    console.log("[PDV abrirConta] reutilizando conta já aberta", {
+                        idTransacao: idTrx,
+                        idPagamento,
+                        id_venda: contaJango[0]?.id_venda,
+                        motivo: "cliente já tinha conta aberta / execução anterior",
+                    });
+                }
+
+                contaJango = await apiJango().getConta(userIngresso.id_cliente, true);
+                if (!Array.isArray(contaJango) || contaJango.length === 0) {
+                    throw new CustomError("Não foi possível obter a conta Jango.", 500, "");
+                }
+
+                const idVendaJango = contaJango[0].id_venda;
+
+                for (const ingresso of pendentes) {
+                    const eventoIngresso = await EventoIngresso.findByPk(
+                        ingresso.idEventoIngresso
+                    );
+                    await apiJango().inseriIngresso(
+                        ingresso.id,
+                        eventoIngresso?.nome ?? "",
+                        userIngresso.id_cliente,
+                        Number(idVendaJango)
+                    );
+                    await HistoricoIngresso.create({
+                        idIngresso: ingresso.id,
+                        idUsuario: idUser,
+                        data: new Date(),
+                        descricao: "Ingresso Inserido no Sistema do Jango (Pagamento PDV)",
+                    });
+                }
+
+                const dataUtilizado = new Date();
+                for (const ingresso of pendentes) {
+                    ingresso.status = "Utilizado";
+                    ingresso.dataUtilizado = dataUtilizado;
+                    await ingresso.save();
+                    await HistoricoIngresso.create({
+                        idIngresso: ingresso.id,
+                        idUsuario: idUser,
+                        data: dataUtilizado,
+                        descricao:
+                            "Ingresso Utilizado " +
+                            formatInTimeZone(
+                                dataUtilizado,
+                                "America/Cuiaba",
+                                "dd/MM/yyyy HH:mm"
+                            ) +
+                            " validado por " +
+                            userValidador.nomeCompleto +
+                            " (Pagamento PDV)",
+                    });
+                }
+
+                const descricaoHistorico = `${marca}|venda=${idVendaJango}|${
+                    contaCriadaAgora ? "criada" : "reutilizada"
+                }|pag=${idPagamento ?? "n/a"}|ok`;
+
+                if (claim.historico) {
+                    claim.historico.descricao = descricaoHistorico;
+                    await claim.historico.save();
+                } else {
+                    await HistoricoTransacao.create({
+                        idTransacao: idTrx,
+                        idUsuario: idUser,
+                        data: new Date(),
+                        descricao: descricaoHistorico,
+                    });
+                }
+
+                console.log("[PDV abrirConta] sucesso", {
+                    idTransacao: idTrx,
+                    idPagamento,
+                    id_venda: idVendaJango,
+                    contaCriadaAgora,
+                    reutilizada: !contaCriadaAgora,
+                    ingressos: pendentes.length,
+                });
+
+                return {
+                    reutilizada: !contaCriadaAgora,
+                    idTransacao: idTrx,
+                    idPagamento,
+                    idVendaJango,
+                    message: contaCriadaAgora
+                        ? "Conta aberta e ingressos utilizados com sucesso!"
+                        : "Conta reutilizada e ingressos utilizados com sucesso!",
+                };
+            } finally {
+                locksAbrirContaPdv.delete(idTrx);
+            }
+            })();
+            locksAbrirContaPdv.set(idTrx, execucao);
+        } else {
+            console.log("[PDV abrirConta] aguardando execução em andamento", {
+                idTransacao: idTrx,
+                motivo: "lock em memória / execução simultânea",
+            });
+        }
+
+        try {
+            const resultado = await execucao;
+            return res.status(200).json({ data: resultado });
+        } catch (error) {
+            if (error instanceof CustomError) {
+                return res.status(error.statusCode).json({
+                    status: "fail",
+                    message: error.message,
+                });
+            }
+            console.error("[PDV abrirConta] erro:", error);
             next(error);
         }
     },

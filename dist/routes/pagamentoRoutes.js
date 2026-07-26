@@ -25,6 +25,8 @@ router.post('/webhookpagamentopos', PagamentoController.webHookPagamentoPos);
 router.post('/pagamentoposstone', PagamentoController.pagamentoPOSStone);
 // Exclusivo Pagamento PDV: reduzir quantidade antes de confirmar pagamento
 router.post('/pagamentopdv/ajustarquantidade', authenticate, PagamentoController.ajustarQuantidadePdv);
+// Exclusivo Pagamento PDV: abrir conta Jango (idempotente por idTransacao)
+router.post('/pagamentopdv/abrirconta', authenticate, PagamentoController.abrirContaPdv);
 // Gatilho DEV: apenas chama transacaoPaga (mesmo fluxo pós-pagamento real).
 // Em produção, o handler retorna 404.
 router.post('/pagamento/dev/aprovar', authenticate, PagamentoController.aprovarPagamentoDev);
