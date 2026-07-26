@@ -3,6 +3,7 @@ instaladores
 src/public/uploads
 dist/public/uploads
 dist
+.env.*
 
 # Secrets / ambiente
 .env
