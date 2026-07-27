@@ -41,6 +41,16 @@ router.post(
     authenticate,
     HospedagemAdminController.reenviarLinkPagamento
 );
+router.get(
+    '/hospedagem/reservas/:id/suites-disponiveis-troca',
+    authenticate,
+    HospedagemAdminController.listarSuitesDisponiveisTroca
+);
+router.post(
+    '/hospedagem/reservas/:id/trocar-suite',
+    authenticate,
+    HospedagemAdminController.trocarSuite
+);
 
 // Alias legado (mesma lógica)
 router.get(
@@ -77,6 +87,16 @@ router.post(
     '/hospedagem-admin/reservas/:id/reenviar-link',
     authenticate,
     HospedagemAdminController.reenviarLinkPagamento
+);
+router.get(
+    '/hospedagem-admin/reservas/:id/suites-disponiveis-troca',
+    authenticate,
+    HospedagemAdminController.listarSuitesDisponiveisTroca
+);
+router.post(
+    '/hospedagem-admin/reservas/:id/trocar-suite',
+    authenticate,
+    HospedagemAdminController.trocarSuite
 );
 router.get(
     '/hospedagem-admin/suites',

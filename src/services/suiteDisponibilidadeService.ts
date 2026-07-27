@@ -66,6 +66,11 @@ export type ReservaDisponibilidadeInput = {
     dataHoraCheckoutRealizado?: Date | string | null;
     /** Se > 0, bloqueia podeCheckin (matriz §7). */
     saldoPendente?: number | null;
+    /** Metadados de exibição (card / sheet) — não afetam regras. */
+    responsavelNome?: string | null;
+    origemReserva?: string | null;
+    idUsuarioCriacao?: number | null;
+    nomeUsuarioCriacao?: string | null;
 };
 
 export type SuiteDisponibilidadeInput = {
@@ -106,6 +111,11 @@ export type SuiteDisponibilidadeResultado = {
     botaoPrincipal: BotaoPrincipalDisponibilidade;
     reservaAtual: ReservaDisponibilidadeInput | null;
     proximaReserva: ReservaDisponibilidadeInput | null;
+    /**
+     * Outra reserva com check-in na data civil D (ex.: CO hoje + nova entrada).
+     * Usada para resumir “Próxima reserva” no card — não altera disponibilidade.
+     */
+    reservaEntradaNaData: ReservaDisponibilidadeInput | null;
     /** Relação dia↔reservaAtual (útil para testes / UI futura). */
     relacaoReservaAtual: RelacaoDiaReserva | null;
 };
@@ -420,7 +430,7 @@ function montarMensagens(
                 mensagem: `Sai às ${horaCo}`,
                 mensagemSecundaria: disponivelAposCheckout
                     ? 'Disponível após o check-out'
-                    : 'Nova reserva indisponível: já há entrada nesta data',
+                    : null,
             };
         case 'HOSPEDADA': {
             const real = reserva.raw.dataHoraCheckinReal
@@ -494,6 +504,14 @@ export function calcularDisponibilidadeSuite(
             (a, b) => a.checkin.getTime() - b.checkin.getTime()
         )[0];
 
+    /** Entrada no mesmo dia D (diferente da reserva em destaque no badge). */
+    const reservaEntrada = ocupantes
+        .filter((r) =>
+            reservaTemCheckinNaDataCivil(r.checkin, dataSelecionada)
+        )
+        .filter((r) => !reservaAtual || r.id !== reservaAtual.id)
+        .sort((a, b) => a.checkin.getTime() - b.checkin.getTime())[0];
+
     const checkoutHoje = badge === 'CHECKOUT_HOJE';
     const checkinHoje = badge === 'CHECKIN_HOJE';
     const hospedada = badge === 'HOSPEDADA';
@@ -548,6 +566,20 @@ export function calcularDisponibilidadeSuite(
         disponivelAposCheckout,
         consultaHistorica
     );
+
+    // Fallback textual se há bloqueio por entrada no dia sem metadados da outra reserva.
+    if (
+        checkoutHoje &&
+        !disponivelAposCheckout &&
+        !reservaEntrada &&
+        !mensagens.mensagemSecundaria
+    ) {
+        mensagens = {
+            ...mensagens,
+            mensagemSecundaria:
+                'Nova reserva indisponível: já há entrada nesta data',
+        };
+    }
 
     if (badge === 'RESERVADA' && reservaAtual) {
         const rel = resolverRelacaoDiaReserva(reservaAtual, dataSelecionada);
@@ -608,8 +640,64 @@ export function calcularDisponibilidadeSuite(
         ),
         reservaAtual: reservaAtual?.raw ?? null,
         proximaReserva: proxima?.raw ?? null,
+        reservaEntradaNaData: reservaEntrada?.raw ?? null,
         relacaoReservaAtual,
     };
+}
+
+/**
+ * Ações §7 para uma reserva em foco (ex.: modal aberto por reservaId).
+ * Mesmas regras de `podeCheckin` / `podeCheckout` do card, aplicadas à reserva
+ * escolhida — não altera o badge da suíte no dia.
+ */
+export function calcularAcoesOperacionaisDaReserva(params: {
+    reserva: Pick<
+        ReservaDisponibilidadeInput,
+        | 'status'
+        | 'checkin'
+        | 'checkout'
+        | 'saldoPendente'
+        | 'dataHoraCheckinReal'
+        | 'dataHoraCheckoutRealizado'
+    >;
+    dataSelecionada: string;
+    hoje: string;
+}): { podeCheckin: boolean; podeCheckout: boolean } {
+    const r = normalizarReserva({
+        id: 0,
+        status: params.reserva.status,
+        checkin: params.reserva.checkin,
+        checkout: params.reserva.checkout,
+        dataHoraCheckinReal: params.reserva.dataHoraCheckinReal ?? null,
+        dataHoraCheckoutRealizado:
+            params.reserva.dataHoraCheckoutRealizado ?? null,
+        saldoPendente: params.reserva.saldoPendente ?? 0,
+    });
+
+    if (params.dataSelecionada !== params.hoje) {
+        return { podeCheckin: false, podeCheckout: false };
+    }
+
+    const dataCi = dataCivil(r.checkin);
+    const dataCo = dataCivil(r.checkout);
+    const confirmadaSemEntradaNoCheckout =
+        r.status === 'Confirmada' && dataCo === params.dataSelecionada;
+
+    const podeCheckin = Boolean(
+        r.status === 'Confirmada' &&
+            dataCi <= params.dataSelecionada &&
+            !confirmadaSemEntradaNoCheckout &&
+            r.saldoPendente <= 0.009
+    );
+
+    const cobreDia = reservaCobreDiaCivil(r, params.dataSelecionada);
+    const podeCheckout = Boolean(
+        r.status === 'Hospedada' &&
+            cobreDia &&
+            !r.dataHoraCheckoutRealizado
+    );
+
+    return { podeCheckin, podeCheckout };
 }
 
 /**

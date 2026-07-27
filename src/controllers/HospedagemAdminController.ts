@@ -2,12 +2,14 @@ import { CustomError } from '../utils/customError';
 import {
     listarReservasAdmin,
     listarSituacaoSuites,
+    listarSuitesDisponiveisParaTroca,
     obterReservaAdminDetalhe,
     obterSituacaoSuite,
     realizarCheckinAdmin,
     realizarCheckoutAdmin,
     criarReservaRecepcaoAdmin,
     reenviarLinkPagamentoReservaAdmin,
+    trocarSuiteReservaAdmin,
 } from '../services/hospedagemAdminService';
 import { parseSuitesCheckout } from '../services/reservaSuiteService';
 import { parseDateTimeParam } from '../utils/reservaSuiteUtils';
@@ -236,6 +238,74 @@ module.exports = {
             return res.status(200).json({
                 success: true,
                 message: 'Link de pagamento reenviado ao cliente.',
+                data,
+            });
+        } catch (error) {
+            next(error);
+        }
+    },
+
+    async listarSuitesDisponiveisTroca(req: any, res: any, next: any) {
+        try {
+            const idUsuario = Number(req.user?.id);
+            const idReserva = Number(req.params.id);
+            if (!idUsuario) {
+                throw new CustomError('Usuário não autenticado.', 401, '');
+            }
+            if (!idReserva) {
+                throw new CustomError('id da reserva é obrigatório.', 400, '');
+            }
+
+            const idReservaSuite = req.query?.idReservaSuite
+                ? Number(req.query.idReservaSuite)
+                : undefined;
+
+            const data = await listarSuitesDisponiveisParaTroca({
+                idReservaHospedagem: idReserva,
+                idUsuario,
+                idReservaSuite:
+                    idReservaSuite && idReservaSuite > 0
+                        ? idReservaSuite
+                        : undefined,
+            });
+            return res.status(200).json({ data });
+        } catch (error) {
+            next(error);
+        }
+    },
+
+    async trocarSuite(req: any, res: any, next: any) {
+        try {
+            const idUsuario = Number(req.user?.id);
+            const idReserva = Number(req.params.id);
+            if (!idUsuario) {
+                throw new CustomError('Usuário não autenticado.', 401, '');
+            }
+            if (!idReserva) {
+                throw new CustomError('id da reserva é obrigatório.', 400, '');
+            }
+
+            const idReservaSuite = Number(req.body?.idReservaSuite);
+            const idEventoSuiteDestino = Number(req.body?.idEventoSuiteDestino);
+            if (!idReservaSuite || !idEventoSuiteDestino) {
+                throw new CustomError(
+                    'idReservaSuite e idEventoSuiteDestino são obrigatórios.',
+                    400,
+                    ''
+                );
+            }
+
+            const data = await trocarSuiteReservaAdmin({
+                idReservaHospedagem: idReserva,
+                idUsuario,
+                idReservaSuite,
+                idEventoSuiteDestino,
+                motivo: req.body?.motivo ? String(req.body.motivo) : null,
+            });
+
+            return res.status(200).json({
+                success: true,
+                message: 'Suíte alterada com sucesso.',
                 data,
             });
         } catch (error) {

@@ -226,6 +226,35 @@ describe('SuiteDisponibilidadeService — regressão matriz §8', () => {
         assert.equal(r.apareceEmSuitesLivres, false);
         assert.equal(r.podeReservar, false);
         assert.equal(r.reservaAtual?.id, 10);
+        assert.equal(r.reservaEntradaNaData?.id, 11);
+        assert.equal(r.mensagemSecundaria, null);
+    });
+
+    it('R-07b: CO + entrada — metadados da próxima reserva no retorno', () => {
+        const r = calcularDisponibilidadeSuite({
+            idEventoSuite: 1,
+            dataSelecionada: '2026-07-29',
+            hoje: '2026-07-29',
+            reservas: [
+                reserva({
+                    id: 10,
+                    status: 'Hospedada',
+                    checkin: cuiaba('2026-07-28', '16:00'),
+                    checkout: cuiaba('2026-07-29', '13:00'),
+                    responsavelNome: 'Hóspede Atual',
+                }),
+                reserva({
+                    id: 11,
+                    status: 'Confirmada',
+                    checkin: cuiaba('2026-07-29', '16:00'),
+                    checkout: cuiaba('2026-07-30', '13:00'),
+                    responsavelNome: 'Lilian',
+                    origemReserva: 'BOOKING',
+                }),
+            ],
+        });
+        assert.equal(r.reservaEntradaNaData?.responsavelNome, 'Lilian');
+        assert.equal(r.reservaEntradaNaData?.origemReserva, 'BOOKING');
     });
 
     it('R-08: reserva futura no dia D (sem overlap) → Livre + proximaReserva', () => {
