@@ -11,6 +11,16 @@ export enum StatusReservaHospedagem {
     Expirada = 'Expirada',
 }
 
+/** Valores conhecidos de origem_reserva / origemReserva (produção + legado). */
+export type OrigemReservaHospedagem =
+    | 'CLIENTE'
+    | 'ATENDENTE'
+    | 'SITE' // legado em alguns ambientes
+    | 'LINK_CLIENTE'
+    | 'BOOKING'
+    | 'AIRBNB'
+    | 'EXPEDIA';
+
 interface ReservaHospedagemAttributes {
     id: number;
     idEvento: number;
@@ -26,11 +36,20 @@ interface ReservaHospedagemAttributes {
     formaPagamentoRecepcao?: string | null;
     observacaoPagamento?: string | null;
     comprovantePagamento?: string | null;
-    /** SITE = cliente (site/app); ATENDENTE = Nova Reserva (recepção) */
-    origemReserva?: 'SITE' | 'ATENDENTE';
+    /**
+     * Origem da reserva (VARCHAR no banco — não usar ENUM).
+     * Valores já existentes em produção: CLIENTE | ATENDENTE.
+     * Aceita futuras origens (SITE legado, LINK_CLIENTE, BOOKING, AIRBNB, etc.).
+     */
+    origemReserva?: OrigemReservaHospedagem | string;
     idUsuarioCriacao?: number | null;
     status: StatusReservaHospedagem;
     idTransacao?: number | null;
+    /** Token opaco para link público /reserva/TOKEN (não previsível). */
+    tokenPagamento?: string | null;
+    /** Quando preenchido, a reserva AguardandoPagamento pode expirar após esta data. */
+    expiraEm?: Date | null;
+    linkPagamentoEnviadoEm?: Date | null;
     dataConfirmacao?: Date | null;
     dataHoraCheckinReal?: Date | null;
     idUsuarioCheckin?: number | null;
@@ -57,7 +76,10 @@ interface ReservaHospedagemCreationAttributes
         | 'observacaoPagamento'
         | 'comprovantePagamento'
         | 'origemReserva'
-        | 'idUsuarioCriacao'
+    | 'idUsuarioCriacao'
+        | 'tokenPagamento'
+        | 'expiraEm'
+        | 'linkPagamentoEnviadoEm'
     > {}
 
 class ReservaHospedagem
@@ -78,10 +100,13 @@ class ReservaHospedagem
     public formaPagamentoRecepcao?: string | null;
     public observacaoPagamento?: string | null;
     public comprovantePagamento?: string | null;
-    public origemReserva?: 'SITE' | 'ATENDENTE';
+    public origemReserva?: OrigemReservaHospedagem | string;
     public idUsuarioCriacao?: number | null;
     public status!: StatusReservaHospedagem;
     public idTransacao?: number | null;
+    public tokenPagamento?: string | null;
+    public expiraEm?: Date | null;
+    public linkPagamentoEnviadoEm?: Date | null;
     public dataConfirmacao?: Date | null;
     public dataHoraCheckinReal?: Date | null;
     public idUsuarioCheckin?: number | null;
@@ -153,9 +178,11 @@ class ReservaHospedagem
                 allowNull: true,
             },
             origemReserva: {
-                type: DataTypes.ENUM('SITE', 'ATENDENTE'),
+                // VARCHAR no banco (produção já tem CLIENTE/ATENDENTE).
+                // Evita ENUM para não exigir ALTER ao incluir novas origens.
+                type: DataTypes.STRING(30),
                 allowNull: false,
-                defaultValue: 'SITE',
+                defaultValue: 'CLIENTE',
             },
             idUsuarioCriacao: {
                 type: DataTypes.INTEGER,
@@ -171,6 +198,19 @@ class ReservaHospedagem
                 type: DataTypes.INTEGER,
                 allowNull: true,
                 references: { model: Transacao, key: 'id' },
+            },
+            tokenPagamento: {
+                type: DataTypes.STRING(64),
+                allowNull: true,
+                unique: true,
+            },
+            expiraEm: {
+                type: DataTypes.DATE,
+                allowNull: true,
+            },
+            linkPagamentoEnviadoEm: {
+                type: DataTypes.DATE,
+                allowNull: true,
             },
             dataConfirmacao: {
                 type: DataTypes.DATE,

@@ -1,3 +1,4 @@
+import { randomBytes } from 'crypto';
 import { Op, Transaction } from 'sequelize';
 import connection from '../database';
 import { Evento } from '../models/Evento';
@@ -8,9 +9,20 @@ import {
     StatusReservaHospedagem,
 } from '../models/ReservaHospedagem';
 import { ReservaHospede, TipoReservaHospede } from '../models/ReservaHospede';
-import { Transacao, EventoSuiteTransacao, HistoricoTransacao, TipoPagamento } from '../models/Transacao';
+import {
+    Transacao,
+    EventoSuiteTransacao,
+    HistoricoTransacao,
+    TipoPagamento,
+    OrigemTransacao,
+} from '../models/Transacao';
 import { TipoDesconto } from '../models/CupomPromocional';
-import { PagamentoHospedagem } from '../models/PagamentoHospedagem';
+import {
+    FormaPagamentoRecepcaoValor,
+    PagamentoHospedagem,
+    type FormaPagamentoRecepcao,
+} from '../models/PagamentoHospedagem';
+import { Usuario } from '../models/Usuario';
 import { CustomError } from '../utils/customError';
 import {
     aplicarDescontoProporcional,
@@ -23,6 +35,7 @@ import {
 import {
     calcularSaldoPendente,
     formatarMoedaHistorico,
+    isFormaPagamentoRecepcao,
     PagamentoRecepcaoInput,
     reservaQuitada,
     validarPagamentoRecepcao,
@@ -31,17 +44,27 @@ import {
     calcularExtrasPousada,
     calcularNoitesHotelaria,
     calcularTotaisSuitePousada,
-    intervalosConflitam,
+    periodosHospedagemConflitam,
     parseDateTimeParam,
     parsePositiveInt,
     roundMoney,
     toNumber,
     validarHorarioCheckinHospedagem,
     validarHorarioCheckoutHospedagem,
+    validarCheckinNaoEmDataPassada,
     validarCheckinPosteriorAoAgoraSeHoje,
     type IntervaloDateTime,
 } from '../utils/reservaSuiteUtils';
-import { notificarConfirmacaoHospedagem } from './hospedagemConfirmacaoNotificacao';
+import {
+    calcularDisponibilidadePeriodo,
+    type ReservaDisponibilidadeInput,
+    type StatusReservaDisponibilidade,
+} from './suiteDisponibilidadeService';
+import {
+    montarUrlPublicaReserva,
+    notificarConfirmacaoHospedagem,
+    notificarLinkPagamentoHospedagem,
+} from './hospedagemConfirmacaoNotificacao';
 
 const STATUS_RESERVA_SUITE_OCUPA = [
     StatusReservaSuite.AguardandoPagamento,
@@ -49,7 +72,59 @@ const STATUS_RESERVA_SUITE_OCUPA = [
     StatusReservaSuite.Hospedada,
 ];
 
+/** Expiração legada do checkout online (CLIENTE/SITE) quando expiraEm está nulo. */
 const MINUTOS_EXPIRACAO_RESERVA = 15;
+
+/** Link externo /reserva/:token (recepção → enviar para cliente). */
+const MINUTOS_EXPIRACAO_LINK_PAGAMENTO = 18;
+
+/** Origens de reserva feitas pelo cliente (online) — compatível com produção (CLIENTE) e legado (SITE). */
+const ORIGENS_RESERVA_CLIENTE_ONLINE = ['CLIENTE', 'SITE'] as const;
+
+function minutosParaLimite(minutos: number): Date {
+    return new Date(Date.now() - minutos * 60 * 1000);
+}
+
+function calcularExpiraEmLinkPagamento(desde: Date = new Date()): Date {
+    return new Date(desde.getTime() + MINUTOS_EXPIRACAO_LINK_PAGAMENTO * 60 * 1000);
+}
+
+async function marcarReservaComoExpirada(
+    hospedagem: ReservaHospedagem & { ReservaSuite?: ReservaSuite[] },
+    descricaoHistorico: string
+): Promise<void> {
+    await connection.transaction(async (t: Transaction) => {
+        await hospedagem.update(
+            { status: StatusReservaHospedagem.Expirada },
+            { transaction: t }
+        );
+
+        const suites = hospedagem.ReservaSuite ?? [];
+        for (const suite of suites) {
+            await suite.update(
+                { status: StatusReservaSuite.Expirada },
+                { transaction: t }
+            );
+        }
+
+        if (hospedagem.idTransacao) {
+            await HistoricoTransacao.create(
+                {
+                    idTransacao: hospedagem.idTransacao,
+                    idUsuario: hospedagem.idUsuario,
+                    data: new Date(),
+                    descricao: descricaoHistorico,
+                },
+                { transaction: t }
+            );
+        }
+    });
+}
+
+/** Gera token opaco para link /reserva/TOKEN. */
+export function gerarTokenPagamentoReserva(): string {
+    return randomBytes(32).toString('hex');
+}
 const IDADE_MAXIMA_CRIANCA_HOSPEDAGEM = 12;
 
 /** Idade em anos civis completos (considera dia, mês e ano). */
@@ -142,17 +217,37 @@ async function listarReservasSuiteConflitantes(
             return false;
         }
 
-        return intervalosConflitam(intervalo, intervaloHospedagem(hospedagem));
+        return periodosHospedagemConflitam(
+            intervalo,
+            intervaloHospedagem(hospedagem)
+        );
     });
 }
 
 export async function cancelarReservasExpiradas(): Promise<number> {
-    const limite = new Date(Date.now() - MINUTOS_EXPIRACAO_RESERVA * 60 * 1000);
+    const agora = new Date();
+    const limiteLegacy = minutosParaLimite(MINUTOS_EXPIRACAO_RESERVA);
+    const limiteLink = minutosParaLimite(MINUTOS_EXPIRACAO_LINK_PAGAMENTO);
 
+    // 1) expiraEm preenchido → usa a data
+    // 2) nulo + CLIENTE/SITE → legado 15 min
+    // 3) nulo + link externo (tokenPagamento) → 18 min a partir de createdAt
     const hospedagens = await ReservaHospedagem.findAll({
         where: {
             status: StatusReservaHospedagem.AguardandoPagamento,
-            createdAt: { [Op.lt]: limite },
+            [Op.or]: [
+                { expiraEm: { [Op.lt]: agora } },
+                {
+                    expiraEm: null,
+                    origemReserva: { [Op.in]: [...ORIGENS_RESERVA_CLIENTE_ONLINE] },
+                    createdAt: { [Op.lt]: limiteLegacy },
+                },
+                {
+                    expiraEm: null,
+                    tokenPagamento: { [Op.ne]: null },
+                    createdAt: { [Op.lt]: limiteLink },
+                },
+            ],
         } as Record<string, unknown>,
         include: [
             {
@@ -165,41 +260,66 @@ export async function cancelarReservasExpiradas(): Promise<number> {
     let quantidade = 0;
 
     for (const hospedagem of hospedagens) {
-        await connection.transaction(async (t: Transaction) => {
-            await hospedagem.update(
-                { status: StatusReservaHospedagem.Expirada },
-                { transaction: t }
-            );
-
-            const suites = (hospedagem as ReservaHospedagem & {
-                ReservaSuite?: ReservaSuite[];
-            }).ReservaSuite ?? [];
-
-            for (const suite of suites) {
-                await suite.update(
-                    { status: StatusReservaSuite.Expirada },
-                    { transaction: t }
-                );
-            }
-
-            if (hospedagem.idTransacao) {
-                await HistoricoTransacao.create(
-                    {
-                        idTransacao: hospedagem.idTransacao,
-                        idUsuario: hospedagem.idUsuario,
-                        data: new Date(),
-                        descricao:
-                            'Reserva de hospedagem expirada por falta de pagamento (15 minutos).',
-                    },
-                    { transaction: t }
-                );
-            }
-        });
-
+        const temLink = Boolean(hospedagem.tokenPagamento);
+        const minutos = temLink
+            ? MINUTOS_EXPIRACAO_LINK_PAGAMENTO
+            : MINUTOS_EXPIRACAO_RESERVA;
+        await marcarReservaComoExpirada(
+            hospedagem as ReservaHospedagem & { ReservaSuite?: ReservaSuite[] },
+            `Reserva de hospedagem expirada por falta de pagamento (${minutos} minutos).`
+        );
         quantidade += 1;
     }
 
     return quantidade;
+}
+
+/**
+ * Bloqueia início de pagamento (PIX/MP) se a Transacao for de reserva
+ * via link externo já expirada. Ingressos (sem ReservaHospedagem) → no-op.
+ */
+export async function assertTransacaoHospedagemPagaivel(
+    idTransacao: number
+): Promise<void> {
+    const id = Number(idTransacao);
+    if (!(id > 0)) return;
+
+    await cancelarReservasExpiradas();
+
+    const hospedagem = await ReservaHospedagem.findOne({
+        where: { idTransacao: id },
+        include: [{ model: ReservaSuite, as: 'ReservaSuite' }],
+    });
+    if (!hospedagem) return;
+
+    // Só o link externo (/reserva/:token) entra nesta regra de 18 min.
+    if (!hospedagem.tokenPagamento) return;
+
+    if (hospedagem.status === StatusReservaHospedagem.Expirada) {
+        throw new CustomError('Reserva expirada.', 400, '');
+    }
+
+    if (hospedagem.status !== StatusReservaHospedagem.AguardandoPagamento) {
+        throw new CustomError('Reserva expirada.', 400, '');
+    }
+
+    const createdAt = new Date(
+        (hospedagem as ReservaHospedagem & { createdAt?: Date }).createdAt ||
+            hospedagem.expiraEm ||
+            0
+    );
+    const limite =
+        hospedagem.expiraEm != null
+            ? new Date(hospedagem.expiraEm)
+            : calcularExpiraEmLinkPagamento(createdAt);
+
+    if (Date.now() >= limite.getTime()) {
+        await marcarReservaComoExpirada(
+            hospedagem as ReservaHospedagem & { ReservaSuite?: ReservaSuite[] },
+            `Reserva de hospedagem expirada por falta de pagamento (${MINUTOS_EXPIRACAO_LINK_PAGAMENTO} minutos).`
+        );
+        throw new CustomError('Reserva expirada.', 400, '');
+    }
 }
 
 export async function cancelarReservaHospedagem(
@@ -250,6 +370,42 @@ export async function cancelarReservaHospedagem(
     });
 }
 
+/** Mapeia tipo/gateway da Transacao para a forma usada no financeiro da recepção. */
+function mapearFormaPagamentoHospedagemExterno(
+    tipoPagamento?: string | null,
+    gatewayPagamento?: string | null
+): FormaPagamentoRecepcao {
+    const tipo = String(tipoPagamento || '').toLowerCase();
+    if (tipo.includes('pix')) return FormaPagamentoRecepcaoValor.PIX;
+    if (tipo.includes('débito') || tipo.includes('debito')) {
+        return FormaPagamentoRecepcaoValor.CartaoDebito;
+    }
+    if (tipo.includes('crédito') || tipo.includes('credito')) {
+        return FormaPagamentoRecepcaoValor.CartaoCredito;
+    }
+    if (tipo.includes('dinheiro')) return FormaPagamentoRecepcaoValor.Dinheiro;
+
+    const gateway = String(gatewayPagamento || '').toLowerCase();
+    if (gateway.includes('mercado') || gateway.includes('mp')) {
+        return FormaPagamentoRecepcaoValor.PIX;
+    }
+    return FormaPagamentoRecepcaoValor.Outro;
+}
+
+function resolverFormaPagamentoRecepcao(
+    forma: string | null | undefined
+): FormaPagamentoRecepcao {
+    if (isFormaPagamentoRecepcao(forma)) {
+        return forma;
+    }
+    return FormaPagamentoRecepcaoValor.Outro;
+}
+
+/**
+ * Confirma hospedagem após pagamento aprovado (webhook/PIX/cartão).
+ * Para reservas da recepção (ATENDENTE / link ao cliente), quita o financeiro
+ * nos mesmos campos do pagamento interno — sem alterar fluxo de ingressos.
+ */
 export async function confirmarHospedagem(idTransacao: number): Promise<void> {
     const hospedagem = await ReservaHospedagem.findOne({
         where: { idTransacao },
@@ -260,21 +416,91 @@ export async function confirmarHospedagem(idTransacao: number): Promise<void> {
         return;
     }
 
-    if (hospedagem.status === StatusReservaHospedagem.Confirmada) {
+    const valorTotal = roundMoney(toNumber(hospedagem.valorTotal));
+    const valorPagoAtual = roundMoney(toNumber(hospedagem.valorPago ?? 0));
+    const saldoAtual =
+        hospedagem.saldoPendente != null
+            ? roundMoney(toNumber(hospedagem.saldoPendente))
+            : calcularSaldoPendente(valorTotal, valorPagoAtual);
+    const jaQuitada = reservaQuitada(valorTotal, valorPagoAtual) && saldoAtual <= 0.009;
+
+    if (
+        hospedagem.status === StatusReservaHospedagem.Confirmada &&
+        jaQuitada
+    ) {
         return;
     }
 
-    if (hospedagem.status !== StatusReservaHospedagem.AguardandoPagamento) {
+    if (
+        hospedagem.status !== StatusReservaHospedagem.AguardandoPagamento &&
+        hospedagem.status !== StatusReservaHospedagem.Confirmada
+    ) {
         return;
     }
 
-    const dataConfirmacao = new Date();
+    // Financeiro da recepção/link: mesmos campos do pagamento administrativo.
+    // Reservas CLIENTE/SITE online mantêm só a confirmação de status (fluxo existente).
+    const sincronizarFinanceiroRecepcao =
+        hospedagem.origemReserva === 'ATENDENTE' ||
+        Boolean(hospedagem.tokenPagamento);
+
+    const transacao = await Transacao.findByPk(idTransacao);
+    const dataConfirmacao = hospedagem.dataConfirmacao ?? new Date();
+
+    let valorPago = valorPagoAtual;
+    let saldoPendente = saldoAtual;
+    let formaPagamentoRecepcao: FormaPagamentoRecepcao | null = isFormaPagamentoRecepcao(
+        hospedagem.formaPagamentoRecepcao
+    )
+        ? hospedagem.formaPagamentoRecepcao
+        : null;
+    let comprovantePagamento = hospedagem.comprovantePagamento ?? null;
+    let observacaoPagamento = hospedagem.observacaoPagamento ?? null;
+
+    if (sincronizarFinanceiroRecepcao) {
+        valorPago = roundMoney(toNumber(transacao?.valorRecebido ?? 0));
+        if (valorPago <= 0) {
+            valorPago = roundMoney(
+                toNumber(transacao?.valorTotal ?? valorTotal)
+            );
+        }
+        if (valorPago > valorTotal) {
+            valorPago = valorTotal;
+        }
+        saldoPendente = calcularSaldoPendente(valorTotal, valorPago);
+        formaPagamentoRecepcao = mapearFormaPagamentoHospedagemExterno(
+            transacao?.tipoPagamento,
+            transacao?.gatewayPagamento
+        );
+        if (!observacaoPagamento) {
+            observacaoPagamento =
+                'Pagamento confirmado pelo cliente (gateway).';
+        }
+        // comprovante: gateway normalmente não envia arquivo; preserva se já houver
+        comprovantePagamento = hospedagem.comprovantePagamento ?? null;
+    }
+
+    const formaPagamentoRegistro = resolverFormaPagamentoRecepcao(
+        formaPagamentoRecepcao
+    );
+
+    const precisavaConfirmarStatus =
+        hospedagem.status === StatusReservaHospedagem.AguardandoPagamento;
 
     await connection.transaction(async (t: Transaction) => {
         await hospedagem.update(
             {
                 status: StatusReservaHospedagem.Confirmada,
                 dataConfirmacao,
+                ...(sincronizarFinanceiroRecepcao
+                    ? {
+                          valorPago,
+                          saldoPendente,
+                          formaPagamentoRecepcao,
+                          comprovantePagamento,
+                          observacaoPagamento,
+                      }
+                    : {}),
             },
             { transaction: t }
         );
@@ -284,10 +510,33 @@ export async function confirmarHospedagem(idTransacao: number): Promise<void> {
         }).ReservaSuite ?? [];
 
         for (const suite of suites) {
-            await suite.update(
-                { status: StatusReservaSuite.Confirmada },
-                { transaction: t }
-            );
+            if (suite.status !== StatusReservaSuite.Confirmada) {
+                await suite.update(
+                    { status: StatusReservaSuite.Confirmada },
+                    { transaction: t }
+                );
+            }
+        }
+
+        if (sincronizarFinanceiroRecepcao && valorPago > 0) {
+            const qtdPagamentos = await PagamentoHospedagem.count({
+                where: { idReservaHospedagem: hospedagem.id },
+                transaction: t,
+            });
+            if (qtdPagamentos === 0) {
+                await PagamentoHospedagem.create(
+                    {
+                        idReservaHospedagem: hospedagem.id,
+                        valor: valorPago,
+                        dataPagamento: transacao?.dataPagamento ?? dataConfirmacao,
+                        formaPagamento: formaPagamentoRegistro,
+                        comprovante: comprovantePagamento,
+                        observacao: observacaoPagamento,
+                        idUsuario: hospedagem.idUsuario,
+                    },
+                    { transaction: t }
+                );
+            }
         }
 
         await HistoricoTransacao.create(
@@ -295,21 +544,36 @@ export async function confirmarHospedagem(idTransacao: number): Promise<void> {
                 idTransacao,
                 idUsuario: hospedagem.idUsuario,
                 data: new Date(),
-                descricao: 'Hospedagem confirmada após pagamento.',
+                descricao: sincronizarFinanceiroRecepcao
+                    ? `Hospedagem confirmada após pagamento. Valor pago: ${formatarMoedaHistorico(
+                          valorPago
+                      )}. Saldo pendente: ${formatarMoedaHistorico(
+                          saldoPendente
+                      )}.`
+                    : 'Hospedagem confirmada após pagamento.',
             },
             { transaction: t }
         );
     });
 
-    console.log('Hospedagem confirmada');
+    console.log('Hospedagem confirmada', {
+        idReserva: hospedagem.id,
+        idTransacao,
+        sincronizarFinanceiroRecepcao,
+        valorPago,
+        saldoPendente,
+    });
 
-    try {
-        await notificarConfirmacaoHospedagem(hospedagem.id, idTransacao);
-    } catch (error) {
-        console.error(
-            `Erro ao notificar confirmação da hospedagem ${hospedagem.id}:`,
-            error
-        );
+    // Notifica só na primeira confirmação de status (evita reenvio em reparo financeiro)
+    if (precisavaConfirmarStatus) {
+        try {
+            await notificarConfirmacaoHospedagem(hospedagem.id, idTransacao);
+        } catch (error) {
+            console.error(
+                `Erro ao notificar confirmação da hospedagem ${hospedagem.id}:`,
+                error
+            );
+        }
     }
 }
 
@@ -329,6 +593,66 @@ export async function suiteTemConflito(
         options
     );
     return conflitos.length > 0;
+}
+
+/**
+ * Carrega ocupantes da suíte no formato do SuiteDisponibilidadeService.
+ */
+async function carregarReservasParaDisponibilidade(
+    idEventoSuite: number,
+    options?: {
+        excludeReservaHospedagemId?: number;
+        excludeReservaSuiteIds?: number[];
+    }
+): Promise<ReservaDisponibilidadeInput[]> {
+    const excludeSuiteIds = new Set(options?.excludeReservaSuiteIds ?? []);
+    const ocupantes = await ReservaSuite.findAll({
+        where: {
+            idEventoSuite,
+            status: { [Op.in]: STATUS_RESERVA_SUITE_OCUPA },
+        },
+        include: [
+            {
+                model: ReservaHospedagem,
+                as: 'ReservaHospedagem',
+                required: true,
+            },
+        ],
+    });
+
+    const out: ReservaDisponibilidadeInput[] = [];
+    for (const reserva of ocupantes) {
+        if (excludeSuiteIds.has(reserva.id)) continue;
+        if (
+            options?.excludeReservaHospedagemId &&
+            reserva.idReservaHospedagem === options.excludeReservaHospedagemId
+        ) {
+            continue;
+        }
+        const hospedagem = (reserva as ReservaSuite & {
+            ReservaHospedagem?: ReservaHospedagem;
+        }).ReservaHospedagem;
+        if (!hospedagem) continue;
+        out.push({
+            id: hospedagem.id,
+            status: hospedagem.status as StatusReservaDisponibilidade,
+            checkin: hospedagem.checkin,
+            checkout: hospedagem.checkout,
+            dataHoraCheckinReal:
+                (hospedagem as ReservaHospedagem & {
+                    dataHoraCheckinReal?: Date | null;
+                }).dataHoraCheckinReal ?? null,
+            dataHoraCheckoutRealizado:
+                (hospedagem as ReservaHospedagem & {
+                    dataHoraCheckoutRealizado?: Date | null;
+                }).dataHoraCheckoutRealizado ?? null,
+            saldoPendente: toNumber(
+                (hospedagem as ReservaHospedagem & { saldoPendente?: number })
+                    .saldoPendente ?? 0
+            ),
+        });
+    }
+    return out;
 }
 
 function validarSuitesSemDuplicata(suites: SuiteCheckoutItem[]): void {
@@ -450,8 +774,15 @@ export async function listarSuitesDisponiveis(params: {
     const disponiveis = [];
 
     for (const suite of suites) {
-        const conflito = await suiteTemConflito(suite.id, checkin, checkout);
-        if (conflito) {
+        // Parte 4: decisão exclusiva do SuiteDisponibilidadeService (matriz §4).
+        const reservas = await carregarReservasParaDisponibilidade(suite.id);
+        const disp = calcularDisponibilidadePeriodo({
+            idEventoSuite: suite.id,
+            checkin,
+            checkout,
+            reservas,
+        });
+        if (!disp.podeReservar) {
             continue;
         }
 
@@ -464,6 +795,7 @@ export async function listarSuitesDisponiveis(params: {
         disponiveis.push({
             ...suite.get({ plain: true }),
             noites,
+            podeReservar: true,
             cotacao: {
                 preco: totaisBase.precoTotal,
                 taxaServico: totaisBase.taxaServicoTotal,
@@ -489,6 +821,11 @@ export async function checkoutHospedagem(params: {
     suites: SuiteCheckoutItem[];
     /** online = aguarda pagamento; recepcao = Confirmada imediatamente */
     origem?: 'online' | 'recepcao';
+    /**
+     * Recepção: cria AguardandoPagamento + token/link para o cliente pagar
+     * na infraestrutura de pagamentos existente (não altera fluxo de ingressos).
+     */
+    enviarParaCliente?: boolean;
     observacoes?: string | null;
     idUsuarioOperador?: number;
     /** Exclusivo recepção — pagamento antecipado (cria PagamentoHospedagem) */
@@ -501,6 +838,7 @@ export async function checkoutHospedagem(params: {
         checkout,
         suites,
         origem = 'online',
+        enviarParaCliente = false,
         observacoes,
         idUsuarioOperador,
         pagamento = null,
@@ -513,10 +851,21 @@ export async function checkoutHospedagem(params: {
     validarSuitesSemDuplicata(suites);
 
     const isRecepcao = origem === 'recepcao';
+    const isLinkCliente = isRecepcao && !!enviarParaCliente;
+    /** Confirma na hora (recepção tradicional). Link ao cliente NÃO confirma. */
+    const confirmaImediatamente = isRecepcao && !isLinkCliente;
 
     if (!isRecepcao && pagamento) {
         throw new CustomError(
             'Pagamento antecipado não permitido na reserva online.',
+            400,
+            ''
+        );
+    }
+
+    if (isLinkCliente && pagamento) {
+        throw new CustomError(
+            'Pagamento antecipado não permitido ao enviar a reserva para o cliente finalizar.',
             400,
             ''
         );
@@ -528,6 +877,7 @@ export async function checkoutHospedagem(params: {
         validarHorarioCheckinHospedagem(checkin);
         validarHorarioCheckoutHospedagem(checkout);
     }
+    validarCheckinNaoEmDataPassada(checkin);
     validarCheckinPosteriorAoAgoraSeHoje(checkin);
 
     const noites = calcularNoitesHotelaria(checkin, checkout);
@@ -642,18 +992,22 @@ export async function checkoutHospedagem(params: {
         { preco: 0, taxaServico: 0, valorTotal: 0 }
     );
 
-    if (isRecepcao) {
+    if (confirmaImediatamente) {
         validarPagamentoRecepcao(totaisHospedagem.valorTotal, pagamento);
     }
 
     const valorPagoRecepcao =
-        isRecepcao && pagamento ? roundMoney(pagamento.valor) : 0;
-    const saldoPendenteRecepcao = isRecepcao
+        confirmaImediatamente && pagamento ? roundMoney(pagamento.valor) : 0;
+    const saldoPendenteRecepcao = confirmaImediatamente
         ? calcularSaldoPendente(totaisHospedagem.valorTotal, valorPagoRecepcao)
-        : null;
+        : isLinkCliente
+          ? totaisHospedagem.valorTotal
+          : null;
     const quitada =
-        isRecepcao &&
+        confirmaImediatamente &&
         reservaQuitada(totaisHospedagem.valorTotal, valorPagoRecepcao);
+
+    const tokenPagamento = isLinkCliente ? gerarTokenPagamentoReserva() : null;
 
     const mapTipoPagamentoTransacao = (
         forma?: string | null
@@ -685,32 +1039,39 @@ export async function checkoutHospedagem(params: {
                 preco: totaisHospedagem.preco,
                 taxaServico: totaisHospedagem.taxaServico,
                 valorTotal: totaisHospedagem.valorTotal,
-                valorPago: isRecepcao ? valorPagoRecepcao : 0,
-                saldoPendente: isRecepcao
+                valorPago: confirmaImediatamente ? valorPagoRecepcao : 0,
+                saldoPendente: confirmaImediatamente
                     ? saldoPendenteRecepcao
                     : totaisHospedagem.valorTotal,
                 formaPagamentoRecepcao:
-                    isRecepcao && valorPagoRecepcao > 0
+                    confirmaImediatamente && valorPagoRecepcao > 0
                         ? pagamento?.formaPagamento ?? null
                         : null,
                 observacaoPagamento:
-                    isRecepcao && pagamento?.observacao
+                    confirmaImediatamente && pagamento?.observacao
                         ? pagamento.observacao
                         : null,
                 comprovantePagamento:
-                    isRecepcao && pagamento?.comprovante
+                    confirmaImediatamente && pagamento?.comprovante
                         ? pagamento.comprovante
                         : null,
-                origemReserva: isRecepcao ? 'ATENDENTE' : 'SITE',
+                // Produção usa CLIENTE (online) e ATENDENTE (recepção). SITE = legado.
+                origemReserva: isRecepcao ? 'ATENDENTE' : 'CLIENTE',
                 idUsuarioCriacao: isRecepcao
                     ? idUsuarioOperador || null
                     : null,
-                status: isRecepcao
+                status: confirmaImediatamente
                     ? StatusReservaHospedagem.Confirmada
                     : StatusReservaHospedagem.AguardandoPagamento,
-                dataConfirmacao: isRecepcao ? agora : null,
+                dataConfirmacao: confirmaImediatamente ? agora : null,
                 observacoes: observacoes?.trim() || null,
                 idTransacao: null,
+                tokenPagamento,
+                // Link externo: expira 18 min após a criação (createdAt / agora).
+                expiraEm: isLinkCliente
+                    ? calcularExpiraEmLinkPagamento(agora)
+                    : null,
+                linkPagamentoEnviadoEm: null,
             },
             { transaction: t }
         );
@@ -732,7 +1093,7 @@ export async function checkoutHospedagem(params: {
                     descontoTipo: suite.descontoTipo,
                     descontoValor: suite.descontoValor,
                     valorFinal: suite.valorFinal,
-                    status: isRecepcao
+                    status: confirmaImediatamente
                         ? StatusReservaSuite.Confirmada
                         : StatusReservaSuite.AguardandoPagamento,
                 },
@@ -762,14 +1123,15 @@ export async function checkoutHospedagem(params: {
                 preco: totaisHospedagem.preco,
                 taxaServico: totaisHospedagem.taxaServico,
                 valorTotal: totaisHospedagem.valorTotal,
-                status: isRecepcao
+                status: confirmaImediatamente
                     ? quitada
                         ? 'Pago'
                         : 'Aguardando pagamento'
                     : 'Aguardando pagamento',
                 aceiteCompra: true,
                 idEvento,
-                ...(isRecepcao
+                origemTransacao: OrigemTransacao.HOSPEDAGEM,
+                ...(confirmaImediatamente
                     ? {
                           dataPagamento:
                               valorPagoRecepcao > 0 ? agora : undefined,
@@ -815,7 +1177,7 @@ export async function checkoutHospedagem(params: {
             );
         }
 
-        if (isRecepcao && valorPagoRecepcao > 0 && pagamento) {
+        if (confirmaImediatamente && valorPagoRecepcao > 0 && pagamento) {
             await PagamentoHospedagem.create(
                 {
                     idReservaHospedagem: hospedagem.id,
@@ -841,21 +1203,29 @@ export async function checkoutHospedagem(params: {
                 })}`;
             });
 
-        let descricaoHistorico = isRecepcao
-            ? 'Reserva criada pela recepção.'
-            : 'Transação criada para hospedagem com múltiplas suítes (checkout pousada).';
+        let descricaoHistorico = isLinkCliente
+            ? 'Reserva criada pela recepção — aguardando pagamento do cliente (link).'
+            : isRecepcao
+              ? 'Reserva criada pela recepção.'
+              : 'Transação criada para hospedagem com múltiplas suítes (checkout pousada).';
 
         if (isRecepcao && linhasDescontoHistorico.length > 0) {
             descricaoHistorico += `\n\nDesconto aplicado:\n${linhasDescontoHistorico.join('\n')}`;
         }
 
-        if (isRecepcao) {
+        if (confirmaImediatamente) {
             descricaoHistorico += `\n\nValor total:\n${formatarMoedaHistorico(
                 totaisHospedagem.valorTotal
             )}\n\nPagamento recebido:\n${formatarMoedaHistorico(
                 valorPagoRecepcao
             )}\n\nSaldo pendente:\n${formatarMoedaHistorico(
                 saldoPendenteRecepcao ?? 0
+            )}`;
+        }
+
+        if (isLinkCliente && tokenPagamento) {
+            descricaoHistorico += `\n\nLink de pagamento gerado:\n${montarUrlPublicaReserva(
+                tokenPagamento
             )}`;
         }
 
@@ -882,7 +1252,7 @@ export async function checkoutHospedagem(params: {
         };
     });
 
-    if (isRecepcao && resultado.hospedagem.idTransacao) {
+    if (confirmaImediatamente && resultado.hospedagem.idTransacao) {
         try {
             await notificarConfirmacaoHospedagem(
                 resultado.hospedagem.id,
@@ -891,6 +1261,17 @@ export async function checkoutHospedagem(params: {
         } catch (error) {
             console.error(
                 `Erro ao notificar reserva recepção ${resultado.hospedagem.id}:`,
+                error
+            );
+        }
+    }
+
+    if (isLinkCliente && resultado.hospedagem.idTransacao) {
+        try {
+            await notificarLinkPagamentoHospedagem(resultado.hospedagem.id);
+        } catch (error) {
+            console.error(
+                `Erro ao enviar link de pagamento da reserva ${resultado.hospedagem.id}:`,
                 error
             );
         }
@@ -1231,5 +1612,172 @@ export async function obterReservaConfirmadaPorTransacao(
                     : null,
             })),
         })),
+    };
+}
+
+/** Consulta pública da reserva pelo token do link (sem autenticação). */
+export async function obterReservaPublicaPorToken(token: string) {
+    const tokenLimpo = String(token || '').trim();
+    if (!tokenLimpo || tokenLimpo.length < 16) {
+        throw new CustomError('Token inválido.', 400, '');
+    }
+
+    // Expira imediatamente se já passou o prazo (antes de montar a tela).
+    await cancelarReservasExpiradas();
+
+    const hospedagem = await ReservaHospedagem.findOne({
+        where: { tokenPagamento: tokenLimpo },
+        include: [
+            {
+                model: Usuario,
+                as: 'Usuario',
+                attributes: ['id', 'nomeCompleto', 'sobreNome', 'email', 'telefone'],
+                required: false,
+            },
+            {
+                model: Evento,
+                as: 'Evento',
+                attributes: ['id', 'nome', 'imagem'],
+                required: false,
+            },
+            {
+                model: Transacao,
+                as: 'Transacao',
+                attributes: [
+                    'id',
+                    'status',
+                    'preco',
+                    'taxaServico',
+                    'valorTotal',
+                    'valorRecebido',
+                ],
+                required: false,
+            },
+            {
+                model: ReservaSuite,
+                as: 'ReservaSuite',
+                include: [
+                    {
+                        model: EventoSuite,
+                        as: 'EventoSuite',
+                        attributes: ['nome'],
+                    },
+                ],
+            },
+        ],
+    });
+
+    if (!hospedagem) {
+        throw new CustomError('Reserva não encontrada.', 404, '');
+    }
+
+    // Garantia pontual: link vencido por createdAt/expiraEm mesmo se o job ainda não rodou.
+    if (
+        hospedagem.status === StatusReservaHospedagem.AguardandoPagamento &&
+        hospedagem.tokenPagamento
+    ) {
+        const createdAt = new Date(
+            (hospedagem as ReservaHospedagem & { createdAt?: Date }).createdAt ||
+                Date.now()
+        );
+        const limite =
+            hospedagem.expiraEm != null
+                ? new Date(hospedagem.expiraEm)
+                : calcularExpiraEmLinkPagamento(createdAt);
+        if (Date.now() >= limite.getTime()) {
+            await marcarReservaComoExpirada(
+                hospedagem as ReservaHospedagem & {
+                    ReservaSuite?: ReservaSuite[];
+                },
+                `Reserva de hospedagem expirada por falta de pagamento (${MINUTOS_EXPIRACAO_LINK_PAGAMENTO} minutos).`
+            );
+            hospedagem.status = StatusReservaHospedagem.Expirada;
+        }
+    }
+
+    const usuario = (hospedagem as ReservaHospedagem & { Usuario?: Usuario })
+        .Usuario;
+    const evento = (hospedagem as ReservaHospedagem & { Evento?: Evento })
+        .Evento;
+    const transacao = (hospedagem as ReservaHospedagem & {
+        Transacao?: Transacao;
+    }).Transacao;
+    const suites = (hospedagem as ReservaHospedagem & {
+        ReservaSuite?: Array<ReservaSuite & { EventoSuite?: EventoSuite }>;
+    }).ReservaSuite ?? [];
+
+    const totalAdultos = suites.reduce((s, i) => s + (i.adultos || 0), 0);
+    const totalCriancas = suites.reduce((s, i) => s + (i.criancas || 0), 0);
+    const nomeCliente = [usuario?.nomeCompleto, (usuario as any)?.sobreNome]
+        .map((p) => String(p || '').trim())
+        .filter(Boolean)
+        .join(' ')
+        .trim();
+
+    const expirada =
+        hospedagem.status === StatusReservaHospedagem.Expirada;
+    const podePagar =
+        !expirada &&
+        hospedagem.status === StatusReservaHospedagem.AguardandoPagamento &&
+        !!hospedagem.idTransacao &&
+        transacao?.status !== 'Pago';
+
+    return {
+        origemPagamento: 'HOSPEDAGEM' as const,
+        idReserva: hospedagem.id,
+        status: hospedagem.status,
+        expirada,
+        mensagemExpiracao: expirada
+            ? 'Esta reserva expirou por falta de pagamento.\n\nA suíte já foi liberada para novas reservas.\n\nCaso ainda tenha interesse, faça uma nova reserva.'
+            : null,
+        podePagar,
+        expiraEm: hospedagem.expiraEm ?? null,
+        cliente: {
+            nome: nomeCliente || usuario?.nomeCompleto || 'Cliente',
+        },
+        evento: {
+            id: evento?.id ?? hospedagem.idEvento,
+            nome: evento?.nome ?? 'Pousada',
+            imagem: evento?.imagem ?? null,
+        },
+        periodo: {
+            checkin: hospedagem.checkin,
+            checkout: hospedagem.checkout,
+            noites: hospedagem.noites,
+        },
+        hospedes: {
+            adultos: totalAdultos,
+            criancas: totalCriancas,
+        },
+        suites: suites.map((suite) => ({
+            nome: suite.EventoSuite?.nome ?? `Suíte ${suite.idEventoSuite}`,
+            adultos: suite.adultos,
+            criancas: suite.criancas,
+            preco: toNumber(suite.preco),
+            taxaServico: toNumber(suite.taxaServico),
+            valorTotal: toNumber(suite.valorTotal),
+        })),
+        valores: {
+            preco: toNumber(hospedagem.preco),
+            taxaServico: toNumber(hospedagem.taxaServico),
+            valorTotal: toNumber(hospedagem.valorTotal),
+        },
+        pagamento: {
+            idTransacao: hospedagem.idTransacao,
+            idEvento: hospedagem.idEvento,
+            tipoCompra: 'hospedagem',
+            statusTransacao: transacao?.status ?? null,
+            registroTransacao: transacao
+                ? {
+                      id: transacao.id,
+                      status: transacao.status,
+                      preco: toNumber(transacao.preco),
+                      taxaServico: toNumber(transacao.taxaServico),
+                      valorTotal: toNumber(transacao.valorTotal),
+                      valorRecebido: toNumber(transacao.valorRecebido ?? 0),
+                      idEvento: hospedagem.idEvento,
+                  }
+                : null,
+        },
     };
 }

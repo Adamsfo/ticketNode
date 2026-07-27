@@ -1,4 +1,7 @@
 -- Origem da reserva (cliente online vs atendente/recepção)
+-- Histórico: em produção a coluna foi criada como ENUM('CLIENTE','ATENDENTE').
+-- Para novos ambientes, preferir VARCHAR via alter-hospedagem-origem-varchar.sql
+-- (não remover CLIENTE; não converter para ENUM SITE/ATENDENTE).
 -- Executar após alter-hospedagem-pagamento-recepcao.sql
 
 ALTER TABLE ReservaHospedagem

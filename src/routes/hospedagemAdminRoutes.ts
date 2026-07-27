@@ -30,6 +30,17 @@ router.post(
     authenticate,
     HospedagemAdminController.criarReservaRecepcao
 );
+// Enviar reserva para o cliente finalizar (novo — não altera /recepcao)
+router.post(
+    '/hospedagem/reservas/recepcao/enviar-cliente',
+    authenticate,
+    HospedagemAdminController.enviarReservaParaCliente
+);
+router.post(
+    '/hospedagem/reservas/:id/reenviar-link',
+    authenticate,
+    HospedagemAdminController.reenviarLinkPagamento
+);
 
 // Alias legado (mesma lógica)
 router.get(
@@ -56,6 +67,16 @@ router.post(
     '/hospedagem-admin/reservas/recepcao',
     authenticate,
     HospedagemAdminController.criarReservaRecepcao
+);
+router.post(
+    '/hospedagem-admin/reservas/recepcao/enviar-cliente',
+    authenticate,
+    HospedagemAdminController.enviarReservaParaCliente
+);
+router.post(
+    '/hospedagem-admin/reservas/:id/reenviar-link',
+    authenticate,
+    HospedagemAdminController.reenviarLinkPagamento
 );
 router.get(
     '/hospedagem-admin/suites',

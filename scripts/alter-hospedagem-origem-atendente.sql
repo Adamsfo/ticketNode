@@ -1,32 +1,26 @@
--- Origem SITE/ATENDENTE + idUsuarioCriacao
--- Execute após scripts de pagamento. Ajuste se alguma coluna já existir.
+-- DEPRECATED / SUPERSEDED
+-- Este script antigo convertia CLIENTE → SITE e forçava ENUM('SITE','ATENDENTE'),
+-- o que é INCOMPATÍVEL com dados de produção (CLIENTE | ATENDENTE).
+--
+-- NÃO execute as etapas destrutivas abaixo em produção.
+-- Use em vez disso: alter-hospedagem-origem-varchar.sql
+--
+-- (Mantido apenas como histórico / referência.)
 
--- Se a coluna origemReserva ainda não existir:
+-- --- NÃO EXECUTAR EM PRODUÇÃO ---
 -- ALTER TABLE ReservaHospedagem
---   ADD COLUMN origemReserva ENUM('SITE', 'ATENDENTE') NOT NULL DEFAULT 'SITE'
---   AFTER comprovantePagamento;
+--   MODIFY COLUMN origemReserva VARCHAR(20) NOT NULL DEFAULT 'SITE';
+--
+-- UPDATE ReservaHospedagem
+-- SET origemReserva = 'SITE'
+-- WHERE origemReserva IS NULL
+--    OR origemReserva = ''
+--    OR origemReserva = 'CLIENTE';
+--
+-- ALTER TABLE ReservaHospedagem
+--   MODIFY COLUMN origemReserva ENUM('SITE', 'ATENDENTE') NOT NULL DEFAULT 'SITE';
+-- --- FIM NÃO EXECUTAR ---
 
--- Se origemReserva já existir como CLIENTE/ATENDENTE:
-ALTER TABLE ReservaHospedagem
-  MODIFY COLUMN origemReserva VARCHAR(20) NOT NULL DEFAULT 'SITE';
-
-UPDATE ReservaHospedagem
-SET origemReserva = 'SITE'
-WHERE origemReserva IS NULL
-   OR origemReserva = ''
-   OR origemReserva = 'CLIENTE';
-
-UPDATE ReservaHospedagem rh
-SET rh.origemReserva = 'ATENDENTE'
-WHERE rh.formaPagamentoRecepcao IS NOT NULL
-   OR rh.comprovantePagamento IS NOT NULL
-   OR EXISTS (
-     SELECT 1 FROM PagamentoHospedagem p
-     WHERE p.idReservaHospedagem = rh.id
-   );
-
-ALTER TABLE ReservaHospedagem
-  MODIFY COLUMN origemReserva ENUM('SITE', 'ATENDENTE') NOT NULL DEFAULT 'SITE';
-
-ALTER TABLE ReservaHospedagem
-  ADD COLUMN idUsuarioCriacao INT NULL AFTER origemReserva;
+-- Adição de idUsuarioCriacao (segura se a coluna ainda não existir):
+-- ALTER TABLE ReservaHospedagem
+--   ADD COLUMN idUsuarioCriacao INT NULL AFTER origemReserva;

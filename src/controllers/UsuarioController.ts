@@ -2,6 +2,7 @@ import { FuncaoSistema, FuncaoUsuario, FuncaoUsuarioAcesso, Usuario, UsuarioEmpr
 import { getRegistros } from "../utils/getRegistros"
 import { CustomError } from '../utils/customError'
 import { Empresa } from '../models/Empresa'
+import { buildUsuarioSearchConditions } from '../utils/usuarioSearch'
 
 module.exports = {
   async getUsuario(req: any, res: any, next: any) {
@@ -12,13 +13,13 @@ module.exports = {
         as: 'funcaoUsuario',
         attributes: ['funcaoUsuario'],
       }
-    ], true)
+    ], true, buildUsuarioSearchConditions)
     console.log(result)
     res.status(200).json(result ?? { data: [], meta: { totalItems: 0, totalPages: 0, currentPage: 0, pageSize: 0 } })
   },
 
   async getUsuarioEmailTelefone(req: any, res: any, next: any) {
-    const result = await getRegistros(Usuario, req, res, next, [], true)
+    const result = await getRegistros(Usuario, req, res, next, [], true, buildUsuarioSearchConditions)
     console.log(result)
     const { data, meta } = result ?? { data: [], meta: { totalItems: 0, totalPages: 0, currentPage: 0, pageSize: 0 } };
     const dataFiltrada = data.map((registro: any) => ({

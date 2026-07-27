@@ -19,4 +19,7 @@ router.get(
     ReservaSuiteController.reservaConfirmada
 );
 
+// Público: consulta da reserva pelo token do link (sem auth)
+router.get('/reserva/:token', ReservaSuiteController.reservaPublicaPorToken);
+
 module.exports = router;

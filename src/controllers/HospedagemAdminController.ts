@@ -7,6 +7,7 @@ import {
     realizarCheckinAdmin,
     realizarCheckoutAdmin,
     criarReservaRecepcaoAdmin,
+    reenviarLinkPagamentoReservaAdmin,
 } from '../services/hospedagemAdminService';
 import { parseSuitesCheckout } from '../services/reservaSuiteService';
 import { parseDateTimeParam } from '../utils/reservaSuiteUtils';
@@ -53,7 +54,14 @@ module.exports = {
                 throw new CustomError('id da reserva é obrigatório.', 400, '');
             }
 
-            const data = await obterReservaAdminDetalhe(idReserva, idUsuario);
+            const dataSelecionada = req.query?.data
+                ? String(req.query.data)
+                : undefined;
+            const data = await obterReservaAdminDetalhe(
+                idReserva,
+                idUsuario,
+                dataSelecionada
+            );
             return res.status(200).json({ data });
         } catch (error) {
             next(error);
@@ -148,6 +156,86 @@ module.exports = {
             return res.status(201).json({
                 success: true,
                 message: 'Reserva criada pela recepção.',
+                data,
+            });
+        } catch (error) {
+            next(error);
+        }
+    },
+
+    /**
+     * Nova rota: cria reserva AguardandoPagamento + envia link ao cliente.
+     * Não altera POST /hospedagem/reservas/recepcao (Salvar Reserva).
+     */
+    async enviarReservaParaCliente(req: any, res: any, next: any) {
+        try {
+            const idUsuarioOperador = Number(req.user?.id);
+            if (!idUsuarioOperador) {
+                throw new CustomError('Usuário não autenticado.', 401, '');
+            }
+
+            const idEvento = Number(req.body?.idEvento);
+            const idUsuarioCliente = Number(req.body?.idUsuario);
+            if (!idEvento || !idUsuarioCliente) {
+                throw new CustomError(
+                    'idEvento e idUsuario (cliente) são obrigatórios.',
+                    400,
+                    ''
+                );
+            }
+            if (!req.body?.checkin || !req.body?.checkout) {
+                throw new CustomError(
+                    'checkin e checkout são obrigatórios.',
+                    400,
+                    ''
+                );
+            }
+
+            const suites = parseSuitesCheckout(req.body);
+            const data = await criarReservaRecepcaoAdmin({
+                idUsuarioOperador,
+                idEvento,
+                idUsuarioCliente,
+                checkin: parseDateTimeParam(req.body.checkin, 'checkin'),
+                checkout: parseDateTimeParam(req.body.checkout, 'checkout'),
+                suites,
+                observacoes: req.body.observacoes
+                    ? String(req.body.observacoes)
+                    : null,
+                enviarParaCliente: true,
+                pagamento: null,
+            });
+
+            return res.status(201).json({
+                success: true,
+                message:
+                    'Reserva criada e link de pagamento enviado ao cliente.',
+                data,
+            });
+        } catch (error) {
+            next(error);
+        }
+    },
+
+    async reenviarLinkPagamento(req: any, res: any, next: any) {
+        try {
+            const idUsuarioOperador = Number(req.user?.id);
+            const idReserva = Number(req.params.id);
+            if (!idUsuarioOperador) {
+                throw new CustomError('Usuário não autenticado.', 401, '');
+            }
+            if (!idReserva) {
+                throw new CustomError('ID da reserva é obrigatório.', 400, '');
+            }
+
+            const data = await reenviarLinkPagamentoReservaAdmin(
+                idReserva,
+                idUsuarioOperador
+            );
+
+            return res.status(200).json({
+                success: true,
+                message: 'Link de pagamento reenviado ao cliente.',
                 data,
             });
         } catch (error) {

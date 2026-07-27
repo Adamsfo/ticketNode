@@ -12,6 +12,12 @@ enum TipoPagamento {
     Dinheiro = "Dinheiro"
 }
 
+/** Origem modular da Transacao — padrão INGRESSOS não afeta o fluxo existente. */
+enum OrigemTransacao {
+    INGRESSOS = 'INGRESSOS',
+    HOSPEDAGEM = 'HOSPEDAGEM',
+}
+
 // Transacao
 interface TransacaoAttributes {
     id: number;
@@ -30,9 +36,11 @@ interface TransacaoAttributes {
     idEvento?: number; // Opcional, usado para transações de eventos
     gatewayPagamento?: string; // Gateway de pagamento utilizado
     tipoPagamento?: TipoPagamento; // Tipo de pagamento utilizado (ex: Cartão de Crédito, Pix, etc.)
+    /** INGRESSOS (padrão) | HOSPEDAGEM — separa módulos sem misturar consultas. */
+    origemTransacao?: OrigemTransacao;
 }
 
-interface TransacaoCreationAttributes extends Optional<TransacaoAttributes, 'id'> { }
+interface TransacaoCreationAttributes extends Optional<TransacaoAttributes, 'id' | 'origemTransacao'> { }
 
 class Transacao extends Model<TransacaoAttributes, TransacaoCreationAttributes> implements TransacaoAttributes {
     public id!: number;
@@ -51,6 +59,7 @@ class Transacao extends Model<TransacaoAttributes, TransacaoCreationAttributes> 
     public idEvento?: number;
     public gatewayPagamento?: string; // Gateway de pagamento utilizado
     public tipoPagamento?: TipoPagamento; // Tipo de pagamento utilizado (ex: Cartão de Crédito, Pix, etc.)
+    public origemTransacao?: OrigemTransacao;
 
     static initialize(sequelize: Sequelize) {
         Transacao.init({
@@ -130,7 +139,14 @@ class Transacao extends Model<TransacaoAttributes, TransacaoCreationAttributes> 
                 type: DataTypes.ENUM(...Object.values(TipoPagamento)),
                 allowNull: true,
                 // defaultValue: TipoPagamento.Debito // Valor padrão
-            }
+            },
+            origemTransacao: {
+                type: DataTypes.ENUM(...Object.values(OrigemTransacao)),
+                allowNull: false,
+                defaultValue: OrigemTransacao.INGRESSOS,
+                // Coluna física origem_transacao (pedido de produto); API Sequelize: origemTransacao.
+                field: 'origem_transacao',
+            },
         }, {
             sequelize,
             modelName: "Transacao",
@@ -565,5 +581,6 @@ export {
     HistoricoTransacao,
     TransacaoPagamento,
     TipoPagamento,
+    OrigemTransacao,
     EventoSuiteTransacao
 };

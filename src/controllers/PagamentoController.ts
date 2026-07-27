@@ -13,7 +13,10 @@ import { Empresa } from "../models/Empresa";
 import { Evento } from "../models/Evento";
 import { ProdutorAcesso, TipoAcesso } from "../models/Produtor";
 import apiJango from "../api/apiJango";
-import { confirmarHospedagem } from "../services/reservaSuiteService";
+import {
+    assertTransacaoHospedagemPagaivel,
+    confirmarHospedagem,
+} from "../services/reservaSuiteService";
 import { EventoIngresso } from "../models/EventoIngresso";
 import { Op } from "sequelize";
 import { formatInTimeZone } from "date-fns-tz";
@@ -417,9 +420,33 @@ async function geraTokenSplit() {
     }
 }
 
+/** Hospedagem link externo: bloqueia pagamento se expirada. Ingressos → no-op. */
+async function rejeitarSeReservaHospedagemExpirada(
+    idTransacao: number,
+    res: any
+): Promise<boolean> {
+    try {
+        await assertTransacaoHospedagemPagaivel(Number(idTransacao));
+        return false;
+    } catch (error) {
+        if (
+            error instanceof CustomError &&
+            String(error.message) === 'Reserva expirada.'
+        ) {
+            res.status(400).json({ error: 'Reserva expirada.' });
+            return true;
+        }
+        throw error;
+    }
+}
+
 module.exports = {
     async pagamento(req: any, res: any, next: any) {
         const { token, issuer_id, payment_method_id, transaction_amount, installments, payer, idTransacao, salvarCartao, deviceId, items } = req.body
+
+        if (await rejeitarSeReservaHospedagemExpirada(idTransacao, res)) {
+            return;
+        }
 
         const users = await Usuario.findAll({
             where: { email: payer.email },
@@ -579,6 +606,10 @@ module.exports = {
     async pagamentoCardSalvo(req: any, res: any, next: any) {
         const { token, payment_method_id, transaction_amount, installments, payer, items, cvv, deviceId, idTransacao } = req.body
 
+        if (await rejeitarSeReservaHospedagemExpirada(idTransacao, res)) {
+            return;
+        }
+
         const users = await Usuario.findAll({
             where: { email: payer.email },
         });
@@ -721,6 +752,10 @@ module.exports = {
     async pagamentoPix(req: any, res: any) {
         try {
             const { valorTotal, descricao, email, idTransacao, deviceId } = req.body;
+
+            if (await rejeitarSeReservaHospedagemExpirada(idTransacao, res)) {
+                return;
+            }
 
             let empresa = await Empresa.findOne({
                 where: { id: 1 },
@@ -997,6 +1032,10 @@ module.exports = {
 
     async createPreferencePayment(req: any, res: any, next: any) {
         const { transaction_amount, items, payer, idTransacao } = req.body;
+
+        if (await rejeitarSeReservaHospedagemExpirada(idTransacao, res)) {
+            return;
+        }
 
         let empresa = await Empresa.findOne({
             where: { id: 1 },

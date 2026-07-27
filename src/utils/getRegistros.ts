@@ -8,9 +8,40 @@ interface IncludeOptions {
   returnRegisters?: boolean;
 }
 
+/** Monta o array de condições do Op.or da pesquisa (search na query string). */
+export type SearchConditionBuilder = (search: string) => any[];
+
 // Função para converter de camelCase/UpperCamelCase para snake_case
 function convertToSnakeCase(str: string): string {
   return str.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
+}
+
+function buildDefaultSearchOr(
+  model: ModelStatic<any>,
+  search: string,
+  includeOptions?: IncludeOptions[]
+): any[] {
+  return [
+    // Condições para os campos das associações
+    ...(includeOptions?.map(option => {
+      if (option.as) {
+        return option.attributes?.map(attr => ({
+          [`$${option.as}.${convertToSnakeCase(attr)}$`]: { [Op.like]: `%${search}%` }
+        }));
+      }
+      return null;
+    }).flat().filter(Boolean) || []),
+
+    // Condições para os campos da tabela principal
+    ...Object.keys(model.rawAttributes)
+      .filter(field => {
+        const dbField = convertToSnakeCase(field);
+        return dbField !== 'created_at' && dbField !== 'updated_at';
+      })
+      .map(field => ({
+        [field]: { [Op.like]: `%${search}%` }
+      }))
+  ];
 }
 
 // Tipagem genérica para a função `getRegistros`
@@ -20,7 +51,8 @@ export async function getRegistros<T extends Model>(
   res: any,
   next: any,
   includeOptions?: IncludeOptions[],
-  returnRegisters: boolean = false
+  returnRegisters: boolean = false,
+  buildSearchConditions?: SearchConditionBuilder
 ) {
   try {
     // Pegando os parâmetros de paginação, pesquisa, filtros e ordenação da query string
@@ -35,31 +67,14 @@ export async function getRegistros<T extends Model>(
     const offset = (page - 1) * pageSize;
     const limit = pageSize;
 
+    const searchOr = search
+      ? (buildSearchConditions
+          ? buildSearchConditions(String(search))
+          : buildDefaultSearchOr(model, String(search), includeOptions))
+      : [];
 
-    const searchCondition: any = search
-      ? {
-        [Op.or]: [
-          // Condições para os campos das associações
-          ...(includeOptions?.map(option => {
-            if (option.as) {
-              return option.attributes?.map(attr => ({
-                [`$${option.as}.${convertToSnakeCase(attr)}$`]: { [Op.like]: `%${search}%` }
-              }));
-            }
-            return null;
-          }).flat().filter(Boolean) || []),
-
-          // Condições para os campos da tabela principal
-          ...Object.keys(model.rawAttributes)
-            .filter(field => {
-              const dbField = convertToSnakeCase(field);
-              return dbField !== 'created_at' && dbField !== 'updated_at';
-            })
-            .map(field => ({
-              [field]: { [Op.like]: `%${search}%` }
-            }))
-        ]
-      }
+    const searchCondition: any = searchOr.length > 0
+      ? { [Op.or]: searchOr }
       : {};
 
     const filterConditions: { [key: string]: any } = {};

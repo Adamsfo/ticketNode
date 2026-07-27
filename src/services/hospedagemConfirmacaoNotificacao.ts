@@ -6,8 +6,11 @@ import { EventoSuite } from '../models/EventoSuite';
 import { Usuario } from '../models/Usuario';
 import { HistoricoTransacao } from '../models/Transacao';
 import { enviarEmailCliente } from '../utils/resend';
+import { montarUrlPublicaReserva } from '../utils/siteUrl';
 import { enviarMensagemTextoZApi } from '../utils/zApiWhatsApp';
 import { toNumber } from '../utils/reservaSuiteUtils';
+
+export { montarUrlPublicaReserva };
 
 export type SuiteConfirmacaoNotificacao = {
     nome: string;
@@ -246,4 +249,107 @@ export async function notificarConfirmacaoHospedagem(
     } catch (error) {
         await registrarFalhaEnvioConfirmacao(conteudo, 'WhatsApp', error);
     }
+}
+
+export type HospedagemLinkPagamentoConteudo = HospedagemConfirmacaoConteudo & {
+    linkPagamento: string;
+};
+
+export function montarMensagemWhatsAppLinkPagamentoHospedagem(
+    conteudo: HospedagemLinkPagamentoConteudo
+): string {
+    return `Olá, ${conteudo.nomeCliente}.
+
+Sua reserva foi criada com sucesso.
+
+Para concluir sua reserva e efetuar o pagamento, acesse:
+
+${conteudo.linkPagamento}`;
+}
+
+export function montarHtmlEmailLinkPagamentoHospedagem(
+    conteudo: HospedagemLinkPagamentoConteudo
+): string {
+    return `
+    <div style="font-family: Arial, sans-serif; color: #333; line-height: 1.5;">
+      <h2>Finalize sua reserva</h2>
+      <p>Olá, <strong>${conteudo.nomeCliente}</strong>!</p>
+      <p>Sua reserva foi criada com sucesso.</p>
+      <p><strong>Número da reserva:</strong> ${conteudo.idReserva}</p>
+      <p><strong>Pousada:</strong> ${conteudo.nomeEvento}</p>
+      <p><strong>Check-in:</strong> ${conteudo.checkin}</p>
+      <p><strong>Check-out:</strong> ${conteudo.checkout}</p>
+      <p><strong>Valor total:</strong> ${conteudo.valorTotal}</p>
+      <p>Para concluir sua reserva e efetuar o pagamento, acesse:</p>
+      <p><a href="${conteudo.linkPagamento}" style="color:#0b5fff;">${conteudo.linkPagamento}</a></p>
+      <br/>
+      <small>Jango Ingressos © ${new Date().getFullYear()}</small>
+    </div>
+  `;
+}
+
+/**
+ * Envia link de pagamento reutilizando Z-API e Resend já existentes.
+ * Não altera o fluxo de confirmação pós-pagamento.
+ */
+export async function notificarLinkPagamentoHospedagem(
+    idReservaHospedagem: number
+): Promise<{ linkPagamento: string }> {
+    const hospedagem = await ReservaHospedagem.findByPk(idReservaHospedagem);
+    if (!hospedagem?.tokenPagamento || !hospedagem.idTransacao) {
+        throw new Error('Reserva sem token/transação para envio do link.');
+    }
+
+    const base = await carregarConteudoConfirmacaoHospedagem(
+        idReservaHospedagem,
+        hospedagem.idTransacao
+    );
+    if (!base) {
+        throw new Error('Conteúdo da reserva não encontrado para envio do link.');
+    }
+
+    const linkPagamento = montarUrlPublicaReserva(hospedagem.tokenPagamento);
+    const conteudo: HospedagemLinkPagamentoConteudo = {
+        ...base,
+        linkPagamento,
+    };
+
+    try {
+        if (conteudo.email) {
+            await enviarEmailCliente(
+                conteudo.email,
+                `Finalize sua reserva - ${conteudo.nomeEvento}`,
+                montarHtmlEmailLinkPagamentoHospedagem(conteudo)
+            );
+        }
+    } catch (error) {
+        await registrarFalhaEnvioConfirmacao(conteudo, 'e-mail', error);
+    }
+
+    try {
+        if (conteudo.telefone) {
+            await enviarMensagemTextoZApi(
+                conteudo.telefone,
+                montarMensagemWhatsAppLinkPagamentoHospedagem(conteudo)
+            );
+        }
+    } catch (error) {
+        await registrarFalhaEnvioConfirmacao(conteudo, 'WhatsApp', error);
+    }
+
+    hospedagem.linkPagamentoEnviadoEm = new Date();
+    await hospedagem.save();
+
+    try {
+        await HistoricoTransacao.create({
+            idTransacao: conteudo.idTransacao,
+            idUsuario: conteudo.idUsuario,
+            data: new Date(),
+            descricao: `Link de pagamento enviado ao cliente: ${linkPagamento}`,
+        });
+    } catch (error) {
+        console.error('Erro ao registrar envio do link no histórico:', error);
+    }
+
+    return { linkPagamento };
 }

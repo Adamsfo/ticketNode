@@ -16,6 +16,8 @@ const ingresssoRoutes = require('./routes/ingressoRoutes');
 const suiteRoutes = require('./routes/eventoSuiteRoutes');
 const reservaSuiteRoutes = require('./routes/reservaSuiteRoutes');
 const hospedagemAdminRoutes = require('./routes/hospedagemAdminRoutes');
+const hospedagemReceberSaldoRoutes = require('./routes/hospedagemReceberSaldoRoutes');
+const hospedagemPagamentoRoutes = require('./routes/hospedagemPagamentoRoutes');
 const transacaoRoutes = require('./routes/transacaoRoutes');
 const cupomPromocionalRoutes = require('./routes/cupomPromocialRoutes');
 const jangoRoutes = require('./routes/jangoRoutes');
@@ -63,6 +65,8 @@ server.use(jangoRoutes)
 server.use(suiteRoutes)
 server.use(reservaSuiteRoutes)
 server.use(hospedagemAdminRoutes)
+server.use(hospedagemReceberSaldoRoutes)
+server.use(hospedagemPagamentoRoutes)
 
 // Tratamento de erros
 server.use(errorHandler);

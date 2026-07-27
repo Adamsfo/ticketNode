@@ -7,6 +7,7 @@ import { EventoSuite } from '../models/EventoSuite';
 import {
     ReservaHospedagem,
     StatusReservaHospedagem,
+    type OrigemReservaHospedagem,
 } from '../models/ReservaHospedagem';
 import { ReservaSuite, StatusReservaSuite } from '../models/ReservaSuite';
 import { ReservaHospede } from '../models/ReservaHospede';
@@ -20,13 +21,24 @@ import {
 import { CustomError } from '../utils/customError';
 import { toNumber } from '../utils/reservaSuiteUtils';
 import {
+    calcularDisponibilidadeSuite,
+    classificarReservaNoDia,
+    type BadgeSuiteDisponibilidade,
+    type ReservaDisponibilidadeInput,
+    type StatusReservaDisponibilidade,
+} from './suiteDisponibilidadeService';
+import {
     calcularSaldoPendente,
     labelFormaPagamentoRecepcao,
 } from '../utils/hospedagemPagamentoRecepcao';
+import {
+    montarUrlPublicaReserva,
+    notificarLinkPagamentoHospedagem,
+} from './hospedagemConfirmacaoNotificacao';
 
 function resolverOrigemReserva(
     reserva: ReservaHospedagem & {
-        origemReserva?: 'SITE' | 'ATENDENTE' | 'CLIENTE' | null;
+        origemReserva?: OrigemReservaHospedagem | string | null;
         idUsuarioCriacao?: number | null;
         formaPagamentoRecepcao?: string | null;
         comprovantePagamento?: string | null;
@@ -34,7 +46,8 @@ function resolverOrigemReserva(
         valorPago?: number;
     },
     temPagamentoHospedagem = false
-): 'SITE' | 'ATENDENTE' {
+): 'CLIENTE' | 'ATENDENTE' {
+    // Produção: CLIENTE | ATENDENTE. SITE = legado (tratado como CLIENTE na UI).
     if (reserva.origemReserva === 'ATENDENTE') {
         return 'ATENDENTE';
     }
@@ -48,10 +61,7 @@ function resolverOrigemReserva(
     ) {
         return 'ATENDENTE';
     }
-    if (reserva.origemReserva === 'SITE' || reserva.origemReserva === 'CLIENTE') {
-        return 'SITE';
-    }
-    return 'SITE';
+    return 'CLIENTE';
 }
 
 /** Consolida valor pago / saldo (colunas denormalizadas ou soma de PagamentoHospedagem). */
@@ -70,15 +80,21 @@ function resolverFinanceiroReserva(
     const valorPagoColuna = toNumber(rh.valorPago ?? 0);
     const valorPago =
         valorPagoColuna > 0 ? valorPagoColuna : toNumber(somaPagamentos);
+    const saldoCalculado = calcularSaldoPendente(valorTotal, valorPago);
 
     const saldoColuna =
         rh.saldoPendente != null && rh.saldoPendente !== undefined
             ? toNumber(rh.saldoPendente)
             : null;
-    const saldoPendente =
-        saldoColuna != null && !(valorPagoColuna <= 0 && somaPagamentos > 0)
-            ? saldoColuna
-            : calcularSaldoPendente(valorTotal, valorPago);
+
+    // Usa a coluna denormalizada só se estiver coerente com valor_total - valor_pago.
+    // Evita exibir R$ 0,00 quando saldo_pendente ficou desatualizado no banco.
+    const colunaConfiavel =
+        saldoColuna != null &&
+        !(valorPagoColuna <= 0 && somaPagamentos > 0) &&
+        Math.abs(saldoColuna - saldoCalculado) <= 0.009;
+
+    const saldoPendente = colunaConfiavel ? saldoColuna! : saldoCalculado;
 
     return { valorPago, saldoPendente };
 }
@@ -157,13 +173,6 @@ export function statusExibicaoReserva(
         }
     }
     return status;
-}
-
-function statusOcupaOperacional(status: string): boolean {
-    return (
-        status === StatusReservaHospedagem.Confirmada ||
-        status === StatusReservaHospedagem.Hospedada
-    );
 }
 
 async function resolverEscopoProdutor(idUsuario: number): Promise<{
@@ -283,9 +292,9 @@ function montarWhereFiltro(
         case 'online':
             return {
                 [Op.or]: [
+                    { origemReserva: 'CLIENTE' },
                     { origemReserva: 'SITE' },
-                    { origemReserva: 'CLIENTE' as any },
-                    { origemReserva: { [Op.is]: null } as any },
+                    { origemReserva: { [Op.is]: null } },
                 ],
             };
         case 'atendente':
@@ -344,7 +353,7 @@ function mapearResumoLista(reserva: ReservaComIncludes) {
     );
     const origemReserva = resolverOrigemReserva(
         reserva as ReservaHospedagem & {
-            origemReserva?: 'SITE' | 'ATENDENTE' | 'CLIENTE' | null;
+            origemReserva?: OrigemReservaHospedagem | string | null;
             idUsuarioCriacao?: number | null;
             formaPagamentoRecepcao?: string | null;
             comprovantePagamento?: string | null;
@@ -544,7 +553,8 @@ export async function listarReservasAdmin(params: {
 
 export async function obterReservaAdminDetalhe(
     idReserva: number,
-    idUsuario: number
+    idUsuario: number,
+    dataSelecionada?: string
 ) {
     const escopo = await resolverEscopoProdutor(idUsuario);
 
@@ -602,6 +612,9 @@ export async function obterReservaAdminDetalhe(
                         as: 'ReservaHospede',
                         attributes: ['id', 'nome', 'tipo', 'dataNascimento'],
                         required: false,
+                        // Ordem de cadastro (mesma da etapa de hóspedes).
+                        separate: true,
+                        order: [['id', 'ASC']],
                     },
                 ],
             },
@@ -749,7 +762,7 @@ export async function obterReservaAdminDetalhe(
     const saldoPendente = financeiro.saldoPendente;
     const origemReserva = resolverOrigemReserva(
         reserva as ReservaHospedagem & {
-            origemReserva?: 'SITE' | 'ATENDENTE' | 'CLIENTE' | null;
+            origemReserva?: OrigemReservaHospedagem | string | null;
             idUsuarioCriacao?: number | null;
             formaPagamentoRecepcao?: string | null;
             comprovantePagamento?: string | null;
@@ -758,6 +771,18 @@ export async function obterReservaAdminDetalhe(
         },
         pagamentos.length > 0 || valorPago > 0
     );
+
+    const idEventoSuiteOperacao = suites[0]?.idEventoSuite ?? null;
+    const dataOp =
+        dataSelecionada && /^\d{4}-\d{2}-\d{2}$/.test(dataSelecionada)
+            ? dataSelecionada
+            : formatInTimeZone(new Date(), TZ, 'yyyy-MM-dd');
+    const disponibilidade = idEventoSuiteOperacao
+        ? await montarDisponibilidadeOperacionalReserva(
+              idEventoSuiteOperacao,
+              dataOp
+          )
+        : null;
 
     return {
         id: reserva.id,
@@ -822,6 +847,12 @@ export async function obterReservaAdminDetalhe(
                 observacoes?: string | null;
             }).observacoes ?? null,
         idTransacao: reserva.idTransacao ?? null,
+        tokenPagamento: reserva.tokenPagamento ?? null,
+        linkPagamento: reserva.tokenPagamento
+            ? montarUrlPublicaReserva(reserva.tokenPagamento)
+            : null,
+        linkPagamentoEnviadoEm: reserva.linkPagamentoEnviadoEm ?? null,
+        expiraEm: reserva.expiraEm ?? null,
         responsavel: reserva.Usuario?.nomeCompleto ?? '—',
         nomeResponsavel: reserva.Usuario?.nomeCompleto ?? '—',
         telefone: reserva.Usuario?.telefone ?? null,
@@ -837,6 +868,8 @@ export async function obterReservaAdminDetalhe(
         pagamento: transacao,
         transacao,
         timeline,
+        /** Parte 7: estado operacional via SuiteDisponibilidadeService. */
+        disponibilidade,
     };
 }
 
@@ -935,53 +968,6 @@ function boundsMesCuiaba(mesStr: string): {
     };
 }
 
-function isSameDayCuiaba(a: Date | string, b: Date | string): boolean {
-    const da = toZonedTime(a instanceof Date ? a : new Date(a), TZ);
-    const db = toZonedTime(b instanceof Date ? b : new Date(b), TZ);
-    return (
-        da.getFullYear() === db.getFullYear() &&
-        da.getMonth() === db.getMonth() &&
-        da.getDate() === db.getDate()
-    );
-}
-
-function reservaSobrepoeDia(
-    checkin: Date,
-    checkout: Date,
-    diaInicio: Date,
-    diaFim: Date
-): boolean {
-    return checkin < diaFim && checkout > diaInicio;
-}
-
-function reservaRelevanteNoDia(
-    rh: ReservaHospedagem,
-    ref: RefDiaCuiaba
-): boolean {
-    const checkin = new Date(rh.checkin);
-    const checkout = new Date(rh.checkout);
-    if (checkout <= ref.inicio) return false;
-    if (rh.status === StatusReservaHospedagem.AguardandoPagamento) {
-        return reservaSobrepoeDia(checkin, checkout, ref.inicio, ref.fim);
-    }
-    if (statusOcupaOperacional(rh.status)) {
-        return reservaSobrepoeDia(checkin, checkout, ref.inicio, ref.fim);
-    }
-    return false;
-}
-
-function suiteOcupadaNaReferencia(
-    checkin: Date,
-    checkout: Date,
-    ref: RefDiaCuiaba
-): boolean {
-    if (ref.ehHoje) {
-        const agora = new Date();
-        return checkin <= agora && agora < checkout;
-    }
-    return reservaSobrepoeDia(checkin, checkout, ref.inicio, ref.fim);
-}
-
 function montarEventoAgenda(
     item: ReservaSuiteComHospedagem,
     suiteNome: string,
@@ -1022,7 +1008,16 @@ function montarCalendarioMes(
     idsSuites: number[]
 ) {
     const { diasNoMes } = boundsMesCuiaba(mesStr);
-    const [ano, mesNum] = mesStr.split('-').map(Number);
+    const hojeStr = formatInTimeZone(new Date(), TZ, 'yyyy-MM-dd');
+
+    const porSuite = new Map<number, ReservaSuiteComHospedagem[]>();
+    for (const item of reservasMes) {
+        if (!item.ReservaHospedagem) continue;
+        const lista = porSuite.get(item.idEventoSuite) ?? [];
+        lista.push(item);
+        porSuite.set(item.idEventoSuite, lista);
+    }
+
     const dias: Array<{
         data: string;
         indicadores: {
@@ -1034,70 +1029,81 @@ function montarCalendarioMes(
             manutencao: number;
         };
         eventosAgenda: EventoAgendaSuite[];
+        /** Parte 5: estado por suíte via SuiteDisponibilidadeService (Agenda / slots). */
+        disponibilidadePorSuite: Array<{
+            idEventoSuite: number;
+            badge: string;
+            podeReservar: boolean;
+            disponivelAposCheckout: boolean;
+            agendaOcupada: boolean;
+        }>;
     }> = [];
 
     for (let dia = 1; dia <= diasNoMes; dia += 1) {
         const dataStr = `${mesStr}-${String(dia).padStart(2, '0')}`;
-        const refLocal = new Date(ano, mesNum - 1, dia);
-        const diaInicio = fromZonedTime(startOfDay(refLocal), TZ);
-        const diaFim = fromZonedTime(endOfDay(refLocal), TZ);
 
         let checkin = 0;
         let checkout = 0;
         let ocupada = 0;
-        const suitesComReserva = new Set<number>();
+        let livre = 0;
         const eventosAgenda: EventoAgendaSuite[] = [];
+        const disponibilidadePorSuite: Array<{
+            idEventoSuite: number;
+            badge: string;
+            podeReservar: boolean;
+            disponivelAposCheckout: boolean;
+            agendaOcupada: boolean;
+        }> = [];
 
-        for (const item of reservasMes) {
-            const rh = item.ReservaHospedagem;
-            if (!rh || !statusOcupaOperacional(rh.status)) {
-                continue;
+        for (const idSuite of idsSuites) {
+            const reservasSuite = porSuite.get(idSuite) ?? [];
+            const disp = calcularDisponibilidadeSuite({
+                idEventoSuite: idSuite,
+                dataSelecionada: dataStr,
+                hoje: hojeStr,
+                reservas: reservasParaDisponibilidade(reservasSuite),
+            });
+
+            disponibilidadePorSuite.push({
+                idEventoSuite: idSuite,
+                badge: disp.badge,
+                podeReservar: disp.podeReservar,
+                disponivelAposCheckout: disp.disponivelAposCheckout,
+                agendaOcupada: disp.agendaOcupada,
+            });
+
+            switch (disp.badge) {
+                case 'CHECKIN_HOJE':
+                    checkin += 1;
+                    break;
+                case 'CHECKOUT_HOJE':
+                    checkout += 1;
+                    break;
+                case 'HOSPEDADA':
+                case 'RESERVADA':
+                case 'AGUARDANDO_PAGAMENTO':
+                    ocupada += 1;
+                    break;
+                case 'LIVRE':
+                default:
+                    livre += 1;
+                    break;
             }
 
-            const ci = new Date(rh.checkin);
-            const co = new Date(rh.checkout);
-            if (!reservaSobrepoeDia(ci, co, diaInicio, diaFim)) {
-                continue;
-            }
+            const suiteNome = nomesSuites.get(idSuite) ?? '';
+            for (const item of reservasSuite) {
+                const input = reservasParaDisponibilidade([item])[0];
+                if (!input) continue;
+                const classif = classificarReservaNoDia(input, dataStr);
+                if (!classif.agendaOcupada) continue;
 
-            suitesComReserva.add(item.idEventoSuite);
-            const suiteNome = nomesSuites.get(item.idEventoSuite) ?? '';
-            const checkinNoDia = isSameDayCuiaba(ci, diaInicio);
-            const checkoutNoDia = isSameDayCuiaba(co, diaInicio);
-            const hospedada =
-                rh.status === StatusReservaHospedagem.Hospedada;
+                let tipo: EventoAgendaSuite['tipo'] = 'reserva';
+                if (classif.badge === 'CHECKIN_HOJE') tipo = 'checkin';
+                else if (classif.badge === 'CHECKOUT_HOJE') tipo = 'checkout';
 
-            // Check-in (laranja): Confirmada sem check-in real neste dia
-            if (
-                checkinNoDia &&
-                rh.status === StatusReservaHospedagem.Confirmada
-            ) {
-                checkin += 1;
-                eventosAgenda.push(
-                    montarEventoAgenda(item, suiteNome, 'checkin')
-                );
-            }
-            // Check-out (laranja): Hospedada saindo no dia
-            if (checkoutNoDia && hospedada) {
-                checkout += 1;
-                eventosAgenda.push(
-                    montarEventoAgenda(item, suiteNome, 'checkout')
-                );
-            }
-            // Hospedada (azul): já check-in, permanência
-            if (hospedada && !checkoutNoDia) {
-                ocupada += 1;
-                if (!checkinNoDia) {
-                    eventosAgenda.push(
-                        montarEventoAgenda(item, suiteNome, 'reserva')
-                    );
-                }
+                eventosAgenda.push(montarEventoAgenda(item, suiteNome, tipo));
             }
         }
-
-        const livre = idsSuites.filter(
-            (id) => !suitesComReserva.has(id)
-        ).length;
 
         dias.push({
             data: dataStr,
@@ -1110,6 +1116,7 @@ function montarCalendarioMes(
                 manutencao: 0,
             },
             eventosAgenda,
+            disponibilidadePorSuite,
         });
     }
 
@@ -1156,163 +1163,134 @@ function montarMetaSuitesOperacionais(params: {
     };
 }
 
-function escolherReservaRelevante(
-    itens: ReservaSuiteComHospedagem[],
-    ref: RefDiaCuiaba
-): ReservaSuiteComHospedagem | null {
-    if (!itens.length) return null;
-
-    const agora = new Date();
-    const scored = itens
-        .map((item) => {
-            const rh = item.ReservaHospedagem;
-            if (!rh || !reservaRelevanteNoDia(rh, ref)) {
-                return { item, score: -1 };
-            }
-
-            const checkin = new Date(rh.checkin);
-            const checkout = new Date(rh.checkout);
-            let score = 0;
-
-            if (rh.status === StatusReservaHospedagem.AguardandoPagamento) {
-                score = 40;
-            } else if (rh.status === StatusReservaHospedagem.Hospedada) {
-                if (isSameDayCuiaba(checkout, ref.inicio)) score = 95;
-                else if (suiteOcupadaNaReferencia(checkin, checkout, ref)) {
-                    score = 85;
-                }
-            } else if (rh.status === StatusReservaHospedagem.Confirmada) {
-                if (isSameDayCuiaba(checkin, ref.inicio)) score = 90;
-                else if (suiteOcupadaNaReferencia(checkin, checkout, ref)) {
-                    score = 60;
-                } else if (checkin > (ref.ehHoje ? agora : ref.fim)) {
-                    score = 20;
-                }
-            }
-            return { item, score };
-        })
-        .filter((x) => x.score > 0)
-        .sort((a, b) => b.score - a.score);
-
-    return scored[0]?.item ?? null;
-}
-
-function classificarStatusOperacional(
-    item: ReservaSuiteComHospedagem | null,
-    ref: RefDiaCuiaba
+function badgeParaStatusOperacional(
+    badge: BadgeSuiteDisponibilidade
 ): StatusOperacionalSuite {
-    if (!item?.ReservaHospedagem) {
-        return 'Livre';
-    }
-
-    const rh = item.ReservaHospedagem;
-    const checkin = new Date(rh.checkin);
-    const checkout = new Date(rh.checkout);
-
-    if (rh.status === StatusReservaHospedagem.AguardandoPagamento) {
-        return 'AguardandoPagamento';
-    }
-
-    // Já fez check-in → nunca mais "Check-in Hoje"
-    if (rh.status === StatusReservaHospedagem.Hospedada) {
-        if (isSameDayCuiaba(checkout, ref.inicio)) {
-            return 'CheckOutHoje';
-        }
-        if (suiteOcupadaNaReferencia(checkin, checkout, ref)) {
-            return 'Hospedada';
-        }
-        return 'Livre';
-    }
-
-    // Confirmada (ainda sem check-in)
-    if (rh.status === StatusReservaHospedagem.Confirmada) {
-        if (isSameDayCuiaba(checkin, ref.inicio)) {
+    switch (badge) {
+        case 'LIVRE':
+            return 'Livre';
+        case 'CHECKIN_HOJE':
             return 'CheckInHoje';
-        }
-        if (suiteOcupadaNaReferencia(checkin, checkout, ref)) {
-            // Reserva ativa sem check-in em outro dia: não rotular Check-in Hoje
+        case 'CHECKOUT_HOJE':
+            return 'CheckOutHoje';
+        case 'HOSPEDADA':
+            return 'Hospedada';
+        case 'RESERVADA':
             return 'Ocupada';
-        }
+        case 'AGUARDANDO_PAGAMENTO':
+            return 'AguardandoPagamento';
+        default:
+            return 'Livre';
     }
-
-    return 'Livre';
 }
 
-/** Flags operacionais não exclusivas — uma suíte pode entrar em várias abas. */
-function flagsOperacionaisSuite(
-    item: ReservaSuiteComHospedagem | null,
-    ref: RefDiaCuiaba
+function reservasParaDisponibilidade(
+    itens: ReservaSuiteComHospedagem[]
+): ReservaDisponibilidadeInput[] {
+    const out: ReservaDisponibilidadeInput[] = [];
+    for (const item of itens) {
+        const rh = item.ReservaHospedagem;
+        if (!rh) continue;
+        const financeiro = resolverFinanceiroReserva(
+            rh as ReservaHospedagem & {
+                valorPago?: number;
+                saldoPendente?: number | null;
+                Pagamentos?: Array<{ valor?: number }>;
+            }
+        );
+        out.push({
+            id: rh.id,
+            status: rh.status as StatusReservaDisponibilidade,
+            checkin: rh.checkin,
+            checkout: rh.checkout,
+            dataHoraCheckinReal:
+                (rh as ReservaHospedagem & { dataHoraCheckinReal?: Date | null })
+                    .dataHoraCheckinReal ?? null,
+            dataHoraCheckoutRealizado:
+                (rh as ReservaHospedagem & {
+                    dataHoraCheckoutRealizado?: Date | null;
+                }).dataHoraCheckoutRealizado ?? null,
+            saldoPendente: financeiro.saldoPendente,
+        });
+    }
+    return out;
+}
+
+/**
+ * Parte 7: disponibilidade da suíte no dia para o sheet Check-in/Check-out.
+ */
+async function montarDisponibilidadeOperacionalReserva(
+    idEventoSuite: number,
+    dataSelecionada: string
 ) {
-    const rh = item?.ReservaHospedagem;
+    const ocupantes = (await ReservaSuite.findAll({
+        where: {
+            idEventoSuite,
+            status: {
+                [Op.in]: [
+                    StatusReservaSuite.Confirmada,
+                    StatusReservaSuite.Hospedada,
+                    StatusReservaSuite.AguardandoPagamento,
+                ],
+            },
+        },
+        include: [
+            {
+                model: ReservaHospedagem,
+                as: 'ReservaHospedagem',
+                required: true,
+            },
+        ],
+    })) as ReservaSuiteComHospedagem[];
 
-    if (!rh) {
-        return {
-            ocupadaAgora: false,
-            hospedada: false,
-            checkinHoje: false,
-            checkoutHoje: false,
-            aguardandoPagamento: false,
-        };
-    }
-
-    if (rh.status === StatusReservaHospedagem.AguardandoPagamento) {
-        return {
-            ocupadaAgora: false,
-            hospedada: false,
-            checkinHoje: false,
-            checkoutHoje: false,
-            aguardandoPagamento: true,
-        };
-    }
-
-    const checkin = new Date(rh.checkin);
-    const checkout = new Date(rh.checkout);
-    const noPeriodo = suiteOcupadaNaReferencia(checkin, checkout, ref);
-
-    if (rh.status === StatusReservaHospedagem.Hospedada) {
-        const checkoutHoje = isSameDayCuiaba(checkout, ref.inicio);
-        return {
-            ocupadaAgora: noPeriodo,
-            hospedada: noPeriodo,
-            checkinHoje: false,
-            checkoutHoje,
-            aguardandoPagamento: false,
-        };
-    }
-
-    if (rh.status === StatusReservaHospedagem.Confirmada) {
-        return {
-            ocupadaAgora: false,
-            hospedada: false,
-            checkinHoje: isSameDayCuiaba(checkin, ref.inicio),
-            checkoutHoje: false,
-            aguardandoPagamento: false,
-        };
-    }
+    const hojeStr = formatInTimeZone(new Date(), TZ, 'yyyy-MM-dd');
+    const disp = calcularDisponibilidadeSuite({
+        idEventoSuite,
+        dataSelecionada,
+        hoje: hojeStr,
+        reservas: reservasParaDisponibilidade(ocupantes),
+    });
 
     return {
-        ocupadaAgora: false,
-        hospedada: false,
-        checkinHoje: false,
-        checkoutHoje: false,
-        aguardandoPagamento: false,
+        dataSelecionada,
+        idEventoSuite,
+        badge: disp.badge,
+        badgeLabel: disp.badgeLabel,
+        mensagem: disp.mensagem,
+        mensagemSecundaria: disp.mensagemSecundaria,
+        podeCheckin: disp.podeCheckin,
+        podeCheckout: disp.podeCheckout,
+        botaoPrincipal: disp.botaoPrincipal,
+        podeReservar: disp.podeReservar,
+        disponivelAposCheckout: disp.disponivelAposCheckout,
+        agendaOcupada: disp.agendaOcupada,
+        livre: disp.livre,
+        checkinHoje: disp.checkinHoje,
+        checkoutHoje: disp.checkoutHoje,
+        hospedada: disp.hospedada,
     };
 }
 
+/**
+ * Card Suítes (Parte 3): disponibilidade exclusivamente via SuiteDisponibilidadeService.
+ */
 function mapearCardSuiteOperacional(
     suite: EventoSuite & { Evento?: { id: number; nome: string } | null },
-    reservaSuite: ReservaSuiteComHospedagem | null,
+    reservasSuite: ReservaSuiteComHospedagem[],
     ref: RefDiaCuiaba
 ) {
-    const statusOperacional = classificarStatusOperacional(reservaSuite, ref);
-    const flags = flagsOperacionaisSuite(reservaSuite, ref);
-    const rh = reservaSuite?.ReservaHospedagem;
-    const disponivelAposCheckout = flags.checkoutHoje;
-    const horarioCheckinPadrao = '16:00';
-    const horarioCheckoutPadrao = '13:00';
-    const dataHoraCheckinReal =
-        (rh as ReservaHospedagem & { dataHoraCheckinReal?: Date | null })
-            ?.dataHoraCheckinReal ?? null;
+    const disp = calcularDisponibilidadeSuite({
+        idEventoSuite: suite.id,
+        dataSelecionada: ref.dataReferencia,
+        hoje: formatInTimeZone(new Date(), TZ, 'yyyy-MM-dd'),
+        reservas: reservasParaDisponibilidade(reservasSuite),
+    });
+
+    const reservaAtualId = disp.reservaAtual?.id ?? null;
+    const reservaSuite =
+        reservasSuite.find((r) => r.ReservaHospedagem?.id === reservaAtualId) ??
+        null;
+    const rh = reservaSuite?.ReservaHospedagem ?? null;
 
     const financeiro = rh
         ? resolverFinanceiroReserva(
@@ -1327,7 +1305,7 @@ function mapearCardSuiteOperacional(
     const origemReserva = rh
         ? resolverOrigemReserva(
               rh as ReservaHospedagem & {
-                  origemReserva?: 'SITE' | 'ATENDENTE' | 'CLIENTE' | null;
+                  origemReserva?: OrigemReservaHospedagem | string | null;
                   idUsuarioCriacao?: number | null;
                   formaPagamentoRecepcao?: string | null;
                   comprovantePagamento?: string | null;
@@ -1338,6 +1316,12 @@ function mapearCardSuiteOperacional(
           )
         : null;
 
+    const dataHoraCheckinReal =
+        (rh as ReservaHospedagem & { dataHoraCheckinReal?: Date | null })
+            ?.dataHoraCheckinReal ?? null;
+
+    const statusOperacional = badgeParaStatusOperacional(disp.badge);
+
     return {
         id: suite.id,
         idEventoSuite: suite.id,
@@ -1346,6 +1330,10 @@ function mapearCardSuiteOperacional(
         idEvento: suite.idEvento,
         eventoNome: suite.Evento?.nome ?? null,
         status: statusOperacional,
+        /** Badge oficial da matriz (fonte: SuiteDisponibilidadeService). */
+        badge: disp.badge,
+        badgeLabel: disp.badgeLabel,
+        botaoPrincipal: disp.botaoPrincipal,
         responsavel: rh?.Usuario?.nomeCompleto ?? null,
         telefone: rh?.Usuario?.telefone ?? null,
         checkin: rh?.checkin ?? null,
@@ -1381,44 +1369,20 @@ function mapearCardSuiteOperacional(
         idReservaHospedagem: rh?.id ?? null,
         numeroReserva: rh?.id ?? null,
         statusReserva: rh ? statusExibicaoReserva(rh.status, rh.checkout) : null,
-        ocupadaAgora: flags.ocupadaAgora,
-        hospedada: flags.hospedada,
-        checkinHoje: flags.checkinHoje,
-        checkoutHoje: flags.checkoutHoje,
-        aguardandoPagamento: flags.aguardandoPagamento,
-        disponivelHojeAposCheckout: disponivelAposCheckout,
-        mensagemDisponibilidade:
-            statusOperacional === 'CheckInHoje'
-                ? `Entrada prevista às ${horarioCheckinPadrao}`
-                : statusOperacional === 'Hospedada'
-                  ? dataHoraCheckinReal
-                      ? `Entrou às ${formatHoraCuiaba(dataHoraCheckinReal)}`
-                      : 'Hóspede no estabelecimento'
-                  : statusOperacional === 'CheckOutHoje'
-                    ? `Sai às ${horarioCheckoutPadrao}`
-                    : disponivelAposCheckout
-                      ? `Disponível para nova reserva após ${horarioCheckoutPadrao}`
-                      : statusOperacional === 'Livre'
-                        ? 'Disponível para reserva'
-                        : null,
-        mensagemDisponibilidadeSecundaria:
-            statusOperacional === 'Hospedada' && rh?.checkout
-                ? `Sai em ${formatDataCurtaCuiaba(rh.checkout)} às ${horarioCheckoutPadrao}`
-                : statusOperacional === 'CheckOutHoje'
-                  ? 'Disponível após o check-out'
-                  : disponivelAposCheckout
-                    ? ref.ehHoje
-                        ? 'Disponível hoje após check-out'
-                        : 'Disponível após check-out nesta data'
-                    : null,
+        ocupadaAgora: disp.agendaOcupada,
+        hospedada: disp.hospedada,
+        checkinHoje: disp.checkinHoje,
+        checkoutHoje: disp.checkoutHoje,
+        aguardandoPagamento: disp.badge === 'AGUARDANDO_PAGAMENTO',
+        disponivelHojeAposCheckout: disp.disponivelAposCheckout,
+        bloqueadaPorCheckinNaData: disp.possuiCheckinNaData,
+        mensagemDisponibilidade: disp.mensagem,
+        mensagemDisponibilidadeSecundaria: disp.mensagemSecundaria,
         acoesDisponiveis: {
-            verReserva: Boolean(rh?.id),
-            reservar:
-                statusOperacional === 'Livre' || disponivelAposCheckout,
-            checkin: statusOperacional === 'CheckInHoje',
-            checkout:
-                statusOperacional === 'CheckOutHoje' ||
-                statusOperacional === 'Hospedada',
+            verReserva: Boolean(rh?.id) || disp.botaoPrincipal === 'ver_reserva',
+            reservar: disp.podeReservar,
+            checkin: disp.podeCheckin,
+            checkout: disp.podeCheckout,
             limpeza: false,
             manutencao: false,
             bloqueio: false,
@@ -1513,10 +1477,11 @@ function filtrarCardsOperacionais<
 >(cards: T[], filtro: FiltroSuitesOperacional): T[] {
     switch (filtro) {
         case 'livres':
+            // Disponível para nova reserva: Livre ou checkout hoje sem
+            // check-in na mesma data (mesma regra da etapa Selecionar Suíte).
             return cards.filter(
                 (c) =>
                     c.status === 'Livre' ||
-                    c.checkoutHoje === true ||
                     c.disponivelHojeAposCheckout === true
             );
         case 'ocupadas':
@@ -1633,21 +1598,19 @@ export async function listarSituacaoSuites(params: {
         };
     }
 
+    // Todas as reservas do mês por suíte → SuiteDisponibilidadeService (cards).
+    // Calendário mensal continua com reservasMes + montarCalendarioMes (legado).
     const porSuite = new Map<number, ReservaSuiteComHospedagem[]>();
     for (const item of reservasMes) {
-        const rh = item.ReservaHospedagem;
-        if (!rh || !reservaRelevanteNoDia(rh, ref)) continue;
+        if (!item.ReservaHospedagem) continue;
         const lista = porSuite.get(item.idEventoSuite) ?? [];
         lista.push(item);
         porSuite.set(item.idEventoSuite, lista);
     }
 
     let cards = suites.map((suite) => {
-        const relevante = escolherReservaRelevante(
-            porSuite.get(suite.id) ?? [],
-            ref
-        );
-        return mapearCardSuiteOperacional(suite, relevante, ref);
+        const reservasSuite = porSuite.get(suite.id) ?? [];
+        return mapearCardSuiteOperacional(suite, reservasSuite, ref);
     });
 
     cards = filtrarCardsOperacionais(cards, filtro);
@@ -1733,6 +1696,21 @@ export async function realizarCheckinAdmin(
     if (reserva.status !== StatusReservaHospedagem.Confirmada) {
         throw new CustomError(
             'Somente reservas confirmadas podem realizar check-in.',
+            400,
+            ''
+        );
+    }
+
+    const financeiroCheckin = resolverFinanceiroReserva(
+        reserva as ReservaHospedagem & {
+            valorPago?: number;
+            saldoPendente?: number | null;
+            Pagamentos?: Array<{ valor?: number }>;
+        }
+    );
+    if (financeiroCheckin.saldoPendente > 0.009) {
+        throw new CustomError(
+            'Não é possível realizar o check-in enquanto houver saldo pendente. Receba o pagamento antes de prosseguir.',
             400,
             ''
         );
@@ -1894,6 +1872,8 @@ export async function criarReservaRecepcaoAdmin(params: {
     suites: import('./reservaSuiteService').SuiteCheckoutItem[];
     observacoes?: string | null;
     pagamento?: import('../utils/hospedagemPagamentoRecepcao').PagamentoRecepcaoInput | null;
+    /** Quando true: AguardandoPagamento + link para o cliente (não altera Salvar Reserva). */
+    enviarParaCliente?: boolean;
 }) {
     const escopo = await resolverEscopoProdutor(params.idUsuarioOperador);
 
@@ -1923,13 +1903,45 @@ export async function criarReservaRecepcaoAdmin(params: {
         checkout: params.checkout,
         suites: params.suites,
         origem: 'recepcao',
+        enviarParaCliente: !!params.enviarParaCliente,
         observacoes: params.observacoes,
         idUsuarioOperador: params.idUsuarioOperador,
-        pagamento: params.pagamento ?? null,
+        pagamento: params.enviarParaCliente ? null : params.pagamento ?? null,
     });
 
     return obterReservaAdminDetalhe(
         resultado.hospedagem.id,
         params.idUsuarioOperador
     );
+}
+
+/** Reenvia o link de pagamento (WhatsApp/e-mail) — só AguardandoPagamento com token. */
+export async function reenviarLinkPagamentoReservaAdmin(
+    idReserva: number,
+    idUsuarioOperador: number
+) {
+    await obterReservaAdminDetalhe(idReserva, idUsuarioOperador);
+
+    const reserva = await ReservaHospedagem.findByPk(idReserva);
+    if (!reserva) {
+        throw new CustomError('Reserva não encontrada.', 404, '');
+    }
+    if (reserva.status !== StatusReservaHospedagem.AguardandoPagamento) {
+        throw new CustomError(
+            'Somente reservas aguardando pagamento podem reenviar o link.',
+            400,
+            ''
+        );
+    }
+    if (!reserva.tokenPagamento) {
+        const { gerarTokenPagamentoReserva } = await import(
+            './reservaSuiteService'
+        );
+        reserva.tokenPagamento = gerarTokenPagamentoReserva();
+        await reserva.save();
+    }
+
+    const { linkPagamento } = await notificarLinkPagamentoHospedagem(reserva.id);
+    const detalhe = await obterReservaAdminDetalhe(idReserva, idUsuarioOperador);
+    return { ...detalhe, linkPagamento };
 }

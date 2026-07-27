@@ -48,9 +48,75 @@ export function calcularNoitesHotelaria(checkin: Date, checkout: Date): number {
     return noites;
 }
 
-/** Conflito de intervalos: inicioA < fimB && fimA > inicioB */
-export function intervalosConflitam(a: IntervaloDateTime, b: IntervaloDateTime): boolean {
-    return a.inicio.getTime() < b.fim.getTime() && a.fim.getTime() > b.inicio.getTime();
+/**
+ * Única regra de sobreposição de hospedagem (data + horário).
+ *
+ * Intervalos semiabertos [inicio, fim): o instante de check-out libera a suíte.
+ * Ex.: checkout existente 27/07 13:00 → novo check-in 13:00 ou depois = sem conflito;
+ *      novo check-in 12:59 = conflito.
+ *
+ * Usar em: lista de disponibilidade, validação de checkout e ocupação operacional
+ * (card/agenda) — não duplicar comparação só por data civil.
+ */
+export function intervalosConflitam(
+    a: IntervaloDateTime,
+    b: IntervaloDateTime
+): boolean {
+    return (
+        a.inicio.getTime() < b.fim.getTime() &&
+        a.fim.getTime() > b.inicio.getTime()
+    );
+}
+
+/** Alias semântico: disponibilidade de suíte no período solicitado. */
+export function periodosHospedagemConflitam(
+    periodoA: IntervaloDateTime,
+    periodoB: IntervaloDateTime
+): boolean {
+    return intervalosConflitam(periodoA, periodoB);
+}
+
+/**
+ * Disponibilidade para nova reserva na data civil (Cuiabá) — sem horário.
+ * Se já existe reserva com check-in na mesma data, a suíte fica indisponível.
+ * Usar em: cards Suítes + listarSuitesDisponiveis (mesma regra).
+ */
+export function reservaTemCheckinNaDataCivil(
+    checkinReserva: Date,
+    dataReferencia: Date | string
+): boolean {
+    const dataStr =
+        typeof dataReferencia === 'string' &&
+        /^\d{4}-\d{2}-\d{2}$/.test(dataReferencia)
+            ? dataReferencia
+            : formatInTimeZone(
+                  dataReferencia instanceof Date
+                      ? dataReferencia
+                      : new Date(dataReferencia),
+                  TZ_HOSPEDAGEM,
+                  'yyyy-MM-dd'
+              );
+    const checkinStr = formatInTimeZone(
+        checkinReserva instanceof Date
+            ? checkinReserva
+            : new Date(checkinReserva),
+        TZ_HOSPEDAGEM,
+        'yyyy-MM-dd'
+    );
+    return checkinStr === dataStr;
+}
+
+/** True se alguma reserva ocupante tem check-in na data civil informada. */
+export function suiteIndisponivelPorCheckinNaData(
+    checkinsOcupantes: Array<Date | string>,
+    dataReferencia: Date | string
+): boolean {
+    return checkinsOcupantes.some((checkin) =>
+        reservaTemCheckinNaDataCivil(
+            checkin instanceof Date ? checkin : new Date(checkin),
+            dataReferencia
+        )
+    );
 }
 
 function minutosNoFuso(d: Date): number {
@@ -84,6 +150,20 @@ export function validarCheckinPosteriorAoAgoraSeHoje(checkin: Date): void {
     if (checkin.getTime() <= agora.getTime()) {
         throw new CustomError(
             'O horário de check-in deve ser posterior ao horário atual.',
+            400,
+            ''
+        );
+    }
+}
+
+/** Impede criar reserva com check-in em dia anterior ao atual (fuso Cuiabá). */
+export function validarCheckinNaoEmDataPassada(checkin: Date): void {
+    const agora = new Date();
+    const hojeStr = formatInTimeZone(agora, TZ_HOSPEDAGEM, 'yyyy-MM-dd');
+    const checkinStr = formatInTimeZone(checkin, TZ_HOSPEDAGEM, 'yyyy-MM-dd');
+    if (checkinStr < hojeStr) {
+        throw new CustomError(
+            'Não é permitido criar reservas para datas passadas.',
             400,
             ''
         );

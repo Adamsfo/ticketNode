@@ -18,6 +18,8 @@ import {
 
     obterReservaConfirmadaPorTransacao,
 
+    obterReservaPublicaPorToken,
+
 } from '../services/reservaSuiteService';
 
 
@@ -217,6 +219,17 @@ module.exports = {
             }
 
             return res.status(200).json({ data: resultado });
+        } catch (error) {
+            next(error);
+        }
+    },
+
+    /** Página pública /reserva/TOKEN — não altera APIs autenticadas existentes. */
+    async reservaPublicaPorToken(req: any, res: any, next: any) {
+        try {
+            const token = String(req.params.token || '').trim();
+            const data = await obterReservaPublicaPorToken(token);
+            return res.status(200).json({ success: true, data });
         } catch (error) {
             next(error);
         }

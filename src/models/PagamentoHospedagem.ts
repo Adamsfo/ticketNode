@@ -2,13 +2,20 @@ import { DataTypes, Model, Optional, Sequelize } from 'sequelize';
 import { ReservaHospedagem } from './ReservaHospedagem';
 import { Usuario } from './Usuario';
 
+/** Valores válidos de forma de pagamento da recepção (evitar strings literais soltas). */
+export const FormaPagamentoRecepcaoValor = {
+    PIX: 'PIX',
+    Dinheiro: 'Dinheiro',
+    CartaoCredito: 'CartaoCredito',
+    CartaoDebito: 'CartaoDebito',
+    Transferencia: 'Transferencia',
+    /** Registro de pagamento já feito via link externo (MP, Stone, WhatsApp, etc.). */
+    LinkPagamento: 'LinkPagamento',
+    Outro: 'Outro',
+} as const;
+
 export type FormaPagamentoRecepcao =
-    | 'PIX'
-    | 'Dinheiro'
-    | 'CartaoCredito'
-    | 'CartaoDebito'
-    | 'Transferencia'
-    | 'Outro';
+    (typeof FormaPagamentoRecepcaoValor)[keyof typeof FormaPagamentoRecepcaoValor];
 
 interface PagamentoHospedagemAttributes {
     id: number;

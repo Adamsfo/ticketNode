@@ -1,15 +1,28 @@
 import { CustomError } from './customError';
 import { roundMoney } from './reservaSuitePricing';
-import type { FormaPagamentoRecepcao } from '../models/PagamentoHospedagem';
+import {
+    FormaPagamentoRecepcaoValor,
+    type FormaPagamentoRecepcao,
+} from '../models/PagamentoHospedagem';
 
 export const FORMAS_PAGAMENTO_RECEPCAO: FormaPagamentoRecepcao[] = [
-    'PIX',
-    'Dinheiro',
-    'CartaoCredito',
-    'CartaoDebito',
-    'Transferencia',
-    'Outro',
+    FormaPagamentoRecepcaoValor.PIX,
+    FormaPagamentoRecepcaoValor.Dinheiro,
+    FormaPagamentoRecepcaoValor.CartaoCredito,
+    FormaPagamentoRecepcaoValor.CartaoDebito,
+    FormaPagamentoRecepcaoValor.Transferencia,
+    FormaPagamentoRecepcaoValor.LinkPagamento,
+    FormaPagamentoRecepcaoValor.Outro,
 ];
+
+export function isFormaPagamentoRecepcao(
+    value: unknown
+): value is FormaPagamentoRecepcao {
+    return (
+        typeof value === 'string' &&
+        (FORMAS_PAGAMENTO_RECEPCAO as string[]).includes(value)
+    );
+}
 
 export const MSG_VALOR_PAGO_MAIOR =
     'O valor recebido não pode ser maior que o valor da reserva.';
@@ -25,17 +38,19 @@ export function labelFormaPagamentoRecepcao(
     forma: FormaPagamentoRecepcao | string | null | undefined
 ): string {
     switch (forma) {
-        case 'PIX':
+        case FormaPagamentoRecepcaoValor.PIX:
             return 'PIX';
-        case 'Dinheiro':
+        case FormaPagamentoRecepcaoValor.Dinheiro:
             return 'Dinheiro';
-        case 'CartaoCredito':
+        case FormaPagamentoRecepcaoValor.CartaoCredito:
             return 'Cartão Crédito';
-        case 'CartaoDebito':
+        case FormaPagamentoRecepcaoValor.CartaoDebito:
             return 'Cartão Débito';
-        case 'Transferencia':
+        case FormaPagamentoRecepcaoValor.Transferencia:
             return 'Transferência';
-        case 'Outro':
+        case FormaPagamentoRecepcaoValor.LinkPagamento:
+            return 'Link de Pagamento';
+        case FormaPagamentoRecepcaoValor.Outro:
             return 'Outro';
         default:
             return forma ? String(forma) : '—';
