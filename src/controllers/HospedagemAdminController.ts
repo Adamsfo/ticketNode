@@ -10,6 +10,7 @@ import {
     criarReservaRecepcaoAdmin,
     reenviarLinkPagamentoReservaAdmin,
     trocarSuiteReservaAdmin,
+    alterarPeriodoReservaAdmin,
 } from '../services/hospedagemAdminService';
 import { parseSuitesCheckout } from '../services/reservaSuiteService';
 import { parseDateTimeParam } from '../utils/reservaSuiteUtils';
@@ -306,6 +307,42 @@ module.exports = {
             return res.status(200).json({
                 success: true,
                 message: 'Suíte alterada com sucesso.',
+                data,
+            });
+        } catch (error) {
+            next(error);
+        }
+    },
+
+    async alterarPeriodo(req: any, res: any, next: any) {
+        try {
+            const idUsuario = Number(req.user?.id);
+            const idReserva = Number(req.params.id);
+            if (!idUsuario) {
+                throw new CustomError('Usuário não autenticado.', 401, '');
+            }
+            if (!idReserva) {
+                throw new CustomError('id da reserva é obrigatório.', 400, '');
+            }
+            if (!req.body?.checkin || !req.body?.checkout) {
+                throw new CustomError(
+                    'checkin e checkout são obrigatórios.',
+                    400,
+                    ''
+                );
+            }
+
+            const data = await alterarPeriodoReservaAdmin({
+                idReservaHospedagem: idReserva,
+                idUsuario,
+                checkin: parseDateTimeParam(req.body.checkin, 'checkin'),
+                checkout: parseDateTimeParam(req.body.checkout, 'checkout'),
+                motivo: req.body?.motivo ? String(req.body.motivo) : null,
+            });
+
+            return res.status(200).json({
+                success: true,
+                message: 'Período da reserva alterado com sucesso.',
                 data,
             });
         } catch (error) {

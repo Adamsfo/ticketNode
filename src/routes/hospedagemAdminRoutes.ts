@@ -51,6 +51,11 @@ router.post(
     authenticate,
     HospedagemAdminController.trocarSuite
 );
+router.post(
+    '/hospedagem/reservas/:id/alterar-periodo',
+    authenticate,
+    HospedagemAdminController.alterarPeriodo
+);
 
 // Alias legado (mesma lógica)
 router.get(
@@ -97,6 +102,11 @@ router.post(
     '/hospedagem-admin/reservas/:id/trocar-suite',
     authenticate,
     HospedagemAdminController.trocarSuite
+);
+router.post(
+    '/hospedagem-admin/reservas/:id/alterar-periodo',
+    authenticate,
+    HospedagemAdminController.alterarPeriodo
 );
 router.get(
     '/hospedagem-admin/suites',

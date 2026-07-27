@@ -22,6 +22,7 @@ import { CustomError } from '../utils/customError';
 import {
     calcularExtrasPousada,
     toNumber,
+    calcularNoitesHotelaria,
 } from '../utils/reservaSuiteUtils';
 import {
     calcularDisponibilidadeSuite,
@@ -44,6 +45,10 @@ import {
     ReservaSuiteMovimentacao,
     TipoMovimentacaoSuite,
 } from '../models/ReservaSuiteMovimentacao';
+import {
+    ReservaPeriodoMovimentacao,
+    TipoMovimentacaoPeriodo,
+} from '../models/ReservaPeriodoMovimentacao';
 
 function resolverOrigemReserva(
     reserva: ReservaHospedagem & {
@@ -774,6 +779,10 @@ export async function obterReservaAdminDetalhe(
         suiteOrigem?: string | null;
         suiteDestino?: string | null;
         motivo?: string | null;
+        checkinAnterior?: string | null;
+        checkoutAnterior?: string | null;
+        checkinNovo?: string | null;
+        checkoutNovo?: string | null;
     };
 
     const timeline: TimelineItem[] = [];
@@ -963,6 +972,65 @@ export async function obterReservaAdminDetalhe(
         });
     }
 
+    const movimentacoesPeriodoRows = await ReservaPeriodoMovimentacao.findAll({
+        where: { idReservaHospedagem: reserva.id },
+        order: [['dataHora', 'ASC']],
+        include: [
+            {
+                model: Usuario,
+                as: 'Usuario',
+                attributes: ['nomeCompleto'],
+                required: false,
+            },
+        ],
+    });
+
+    const movimentacoesPeriodo = movimentacoesPeriodoRows.map((mov) => {
+        const row = mov as ReservaPeriodoMovimentacao & {
+            Usuario?: { nomeCompleto?: string | null };
+        };
+        return {
+            id: row.id,
+            dataHora: row.dataHora,
+            motivo: row.motivo ?? null,
+            tipo: row.tipo,
+            checkinAnterior: row.checkinAnterior,
+            checkoutAnterior: row.checkoutAnterior,
+            checkinNovo: row.checkinNovo,
+            checkoutNovo: row.checkoutNovo,
+            usuario: row.Usuario?.nomeCompleto ?? null,
+            idUsuario: row.idUsuario,
+        };
+    });
+
+    for (const mov of movimentacoesPeriodo) {
+        timeline.push({
+            id: `periodo-${mov.id}`,
+            data: new Date(mov.dataHora),
+            titulo: 'Período alterado',
+            descricao: 'Período da reserva alterado',
+            usuario: mov.usuario,
+            tipo: 'alteracao_periodo',
+            motivo: mov.motivo,
+            checkinAnterior:
+                mov.checkinAnterior instanceof Date
+                    ? mov.checkinAnterior.toISOString()
+                    : String(mov.checkinAnterior),
+            checkoutAnterior:
+                mov.checkoutAnterior instanceof Date
+                    ? mov.checkoutAnterior.toISOString()
+                    : String(mov.checkoutAnterior),
+            checkinNovo:
+                mov.checkinNovo instanceof Date
+                    ? mov.checkinNovo.toISOString()
+                    : String(mov.checkinNovo),
+            checkoutNovo:
+                mov.checkoutNovo instanceof Date
+                    ? mov.checkoutNovo.toISOString()
+                    : String(mov.checkoutNovo),
+        });
+    }
+
     timeline.sort(
         (a, b) => new Date(a.data).getTime() - new Date(b.data).getTime()
     );
@@ -1127,6 +1195,7 @@ export async function obterReservaAdminDetalhe(
         suites,
         pagamentos,
         movimentacoesSuite,
+        movimentacoesPeriodo,
         pagamento: transacao,
         transacao,
         timeline,
@@ -2556,6 +2625,222 @@ export async function trocarSuiteReservaAdmin(params: {
         );
 
         await linha.update({ idEventoSuite: idDestino }, { transaction: t });
+    });
+
+    return obterReservaAdminDetalhe(reserva.id, params.idUsuario);
+}
+
+function statusPermiteAlterarPeriodo(status: string): boolean {
+    return (
+        status === StatusReservaHospedagem.Confirmada ||
+        status === StatusReservaHospedagem.Hospedada
+    );
+}
+
+/** Altera período da reserva com histórico (ReservaPeriodoMovimentacao). */
+export async function alterarPeriodoReservaAdmin(params: {
+    idReservaHospedagem: number;
+    idUsuario: number;
+    checkin: Date;
+    checkout: Date;
+    motivo?: string | null;
+}) {
+    const escopo = await resolverEscopoProdutor(params.idUsuario);
+
+    const reserva = (await ReservaHospedagem.findByPk(params.idReservaHospedagem, {
+        include: [
+            {
+                model: Evento,
+                as: 'Evento',
+                attributes: ['id', 'idProdutor'],
+                required: true,
+            },
+            {
+                model: ReservaSuite,
+                as: 'ReservaSuite',
+                required: false,
+                include: [
+                    {
+                        model: EventoSuite,
+                        as: 'EventoSuite',
+                        attributes: [
+                            'id',
+                            'nome',
+                            'status',
+                            'qtdeMinimaPessoas',
+                            'qtdeMaximaPessoas',
+                        ],
+                        required: false,
+                    },
+                ],
+            },
+        ],
+    })) as
+        | (ReservaHospedagem & {
+              Evento?: { id: number; idProdutor?: number } | null;
+              ReservaSuite?: Array<
+                  ReservaSuite & {
+                      EventoSuite?: {
+                          id: number;
+                          nome?: string;
+                          status?: string;
+                          qtdeMinimaPessoas?: number;
+                          qtdeMaximaPessoas?: number;
+                      } | null;
+                  }
+              >;
+          })
+        | null;
+
+    if (!reserva) {
+        throw new CustomError('Reserva de hospedagem não encontrada.', 404, '');
+    }
+
+    if (
+        !escopo.admGeral &&
+        !escopo.idsProdutor.includes(Number(reserva.Evento?.idProdutor))
+    ) {
+        throw new CustomError('Sem permissão para esta reserva.', 403, '');
+    }
+
+    if (!statusPermiteAlterarPeriodo(reserva.status)) {
+        throw new CustomError(
+            'Somente reservas Confirmada ou Hospedada podem alterar o período.',
+            400,
+            ''
+        );
+    }
+
+    const checkinNovo = params.checkin;
+    const checkoutNovo = params.checkout;
+    if (
+        !(checkinNovo instanceof Date) ||
+        Number.isNaN(checkinNovo.getTime()) ||
+        !(checkoutNovo instanceof Date) ||
+        Number.isNaN(checkoutNovo.getTime())
+    ) {
+        throw new CustomError('checkin e checkout inválidos.', 400, '');
+    }
+    if (checkoutNovo.getTime() <= checkinNovo.getTime()) {
+        throw new CustomError(
+            'O check-out deve ser posterior ao check-in.',
+            400,
+            ''
+        );
+    }
+
+    const checkinAnterior = new Date(reserva.checkin);
+    const checkoutAnterior = new Date(reserva.checkout);
+    if (
+        checkinAnterior.getTime() === checkinNovo.getTime() &&
+        checkoutAnterior.getTime() === checkoutNovo.getTime()
+    ) {
+        throw new CustomError('O período informado é o mesmo da reserva.', 400, '');
+    }
+
+    let noites: number;
+    try {
+        noites = calcularNoitesHotelaria(checkinNovo, checkoutNovo);
+    } catch (e) {
+        throw e;
+    }
+
+    const linhas = reserva.ReservaSuite ?? [];
+    if (!linhas.length) {
+        throw new CustomError('Reserva sem suíte vinculada.', 400, '');
+    }
+
+    const hojeStr = formatInTimeZone(new Date(), TZ, 'yyyy-MM-dd');
+    const dataCiNovo = formatInTimeZone(checkinNovo, TZ, 'yyyy-MM-dd');
+    const jaHospedada =
+        reserva.status === StatusReservaHospedagem.Hospedada ||
+        Boolean(
+            (reserva as ReservaHospedagem & { dataHoraCheckinReal?: Date | null })
+                .dataHoraCheckinReal
+        );
+
+    for (const linha of linhas) {
+        const suite = linha.EventoSuite;
+        if (!suite || suite.status !== 'Ativo') {
+            throw new CustomError(
+                `Suíte ${suite?.nome ?? linha.idEventoSuite} não está disponível.`,
+                400,
+                ''
+            );
+        }
+
+        try {
+            calcularExtrasPousada(
+                Number(linha.adultos || 0),
+                Number(linha.criancas || 0),
+                suite.qtdeMinimaPessoas,
+                suite.qtdeMaximaPessoas
+            );
+        } catch (e) {
+            throw e;
+        }
+
+        const ocupantes = await carregarOcupantesSuiteParaPeriodo(suite.id);
+        const ocupantesSemSelf = ocupantes.filter(
+            (r) => Number(r.id) !== Number(reserva.id)
+        );
+
+        const disp = calcularDisponibilidadePeriodo({
+            idEventoSuite: suite.id,
+            checkin: checkinNovo,
+            checkout: checkoutNovo,
+            reservas: ocupantesSemSelf,
+            hoje: hojeStr,
+        });
+
+        if (disp.conflitoPeriodo) {
+            throw new CustomError(
+                `Suíte indisponível no período: ${suite.nome}.`,
+                409,
+                ''
+            );
+        }
+
+        // Mesma regra da Nova Reserva no dia do CI, quando o CI ainda é futuro/hoje.
+        // Estadia já iniciada (CI no passado): valida só conflito (prorrogação/antecipação).
+        if (dataCiNovo >= hojeStr || !jaHospedada) {
+            if (!disp.disponibilidadeNoDiaCheckin.podeReservar) {
+                throw new CustomError(
+                    `Suíte indisponível no período: ${suite.nome}.`,
+                    409,
+                    ''
+                );
+            }
+        }
+    }
+
+    const motivo = params.motivo?.trim() || null;
+    const agora = new Date();
+
+    await connection.transaction(async (t: Transaction) => {
+        await ReservaPeriodoMovimentacao.create(
+            {
+                idReservaHospedagem: reserva.id,
+                idUsuario: params.idUsuario,
+                dataHora: agora,
+                checkinAnterior,
+                checkoutAnterior,
+                checkinNovo,
+                checkoutNovo,
+                motivo,
+                tipo: TipoMovimentacaoPeriodo.ALTERACAO,
+            },
+            { transaction: t }
+        );
+
+        await reserva.update(
+            {
+                checkin: checkinNovo,
+                checkout: checkoutNovo,
+                noites,
+            },
+            { transaction: t }
+        );
     });
 
     return obterReservaAdminDetalhe(reserva.id, params.idUsuario);
