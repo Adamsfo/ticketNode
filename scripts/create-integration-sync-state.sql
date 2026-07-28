@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS integration_sync_state (
   sync_status VARCHAR(32) NOT NULL DEFAULT 'NEW',
   payload_hash VARCHAR(64) NULL,
   retry_count INT NOT NULL DEFAULT 0,
+  sync_version INT NOT NULL DEFAULT 0,
   last_validation_at DATETIME NULL,
   last_sync_at DATETIME NULL,
   last_error TEXT NULL,

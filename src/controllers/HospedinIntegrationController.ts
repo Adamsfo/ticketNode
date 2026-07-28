@@ -71,8 +71,10 @@ module.exports = {
             const fetchDetails =
                 req.body?.fetchDetails === true ||
                 req.query?.fetchDetails === 'true';
+            const mode = req.body?.mode ?? req.query?.mode;
             const result = await hospedinSyncService.importReservations({
                 fetchDetails,
+                mode,
             });
             return res.status(200).json(result);
         } catch (error: any) {
@@ -83,7 +85,7 @@ module.exports = {
     /**
      * Valida staging apenas — não sincroniza com o Jango.
      * Atualiza IntegrationSyncState. Não chama Executor.
-     * Body: { reservationId } | { validateAll: true }
+     * Body: { reservationId } | { validateAll: true, mode?: 'incremental'|'full' }
      */
     async validateReservations(req: any, res: any, next: any) {
         try {
@@ -92,8 +94,11 @@ module.exports = {
                 req.query?.validateAll === 'true';
 
             if (validateAll) {
+                const mode = req.body?.mode ?? req.query?.mode;
                 const result =
-                    await hospedinReservationValidationService.validateAll();
+                    await hospedinReservationValidationService.validateAll({
+                        mode,
+                    });
                 return res.status(200).json(result);
             }
 
@@ -480,8 +485,10 @@ module.exports = {
     },
 
     /**
-     * Executa sync CREATE para estados READY (Orchestrator → Executor).
-     * Body opcional: { reservationId } | { limit }
+     * Executa sync CREATE | UPDATE | CANCEL (Orchestrator → Executor).
+     * Body: { reservationId } | { limit, mode?: 'incremental'|'full' }
+     * UNCHANGED / ORIGIN_CONFLICT retornam resposta controlada (sem caminho paralelo).
+     * reservationId explícito ignora o filtro de janela (alvo pontual).
      */
     async syncReservations(req: any, res: any, next: any) {
         try {
@@ -502,8 +509,10 @@ module.exports = {
             }
 
             const limit = Number(req.body?.limit ?? req.query?.limit ?? 50);
+            const mode = req.body?.mode ?? req.query?.mode;
             const result = await reservationSyncRunner.processReady({
                 limit: Number.isFinite(limit) ? limit : 50,
+                mode,
             });
             return res.status(200).json(result);
         } catch (error: any) {

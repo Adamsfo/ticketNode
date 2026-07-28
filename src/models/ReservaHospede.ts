@@ -11,12 +11,17 @@ interface ReservaHospedeAttributes {
     nome: string;
     tipo: TipoReservaHospede;
     dataNascimento?: Date | null;
+    /** Usuario oficial (cliente) vinculado por CPF, quando resolvido. */
+    idUsuario?: number | null;
     createdAt?: Date;
     updatedAt?: Date;
 }
 
 interface ReservaHospedeCreationAttributes
-    extends Optional<ReservaHospedeAttributes, 'id' | 'dataNascimento' | 'createdAt' | 'updatedAt'> {}
+    extends Optional<
+        ReservaHospedeAttributes,
+        'id' | 'dataNascimento' | 'idUsuario' | 'createdAt' | 'updatedAt'
+    > {}
 
 class ReservaHospede
     extends Model<ReservaHospedeAttributes, ReservaHospedeCreationAttributes>
@@ -27,6 +32,7 @@ class ReservaHospede
     public nome!: string;
     public tipo!: TipoReservaHospede;
     public dataNascimento?: Date | null;
+    public idUsuario?: number | null;
     public readonly createdAt!: Date;
     public readonly updatedAt!: Date;
 
@@ -56,6 +62,14 @@ class ReservaHospede
             dataNascimento: {
                 type: DataTypes.DATEONLY,
                 allowNull: true,
+            },
+            idUsuario: {
+                type: DataTypes.INTEGER,
+                allowNull: true,
+                references: {
+                    model: 'Usuario',
+                    key: 'id',
+                },
             },
         }, {
             sequelize,

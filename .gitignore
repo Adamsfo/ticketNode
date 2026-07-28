@@ -11,3 +11,6 @@ dist
 .env.*.local
 *.pem
 *.key
+
+# Amostras reais da API Hospedin (podem conter PII)
+scripts/fixtures/hospedin-reservation-samples.json

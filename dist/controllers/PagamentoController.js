@@ -328,9 +328,27 @@ async function geraTokenSplit() {
         throw new customError_1.CustomError('Erro ao gerar token split', 500, error.response?.data || error);
     }
 }
+/** Hospedagem link externo: bloqueia pagamento se expirada. Ingressos → no-op. */
+async function rejeitarSeReservaHospedagemExpirada(idTransacao, res) {
+    try {
+        await (0, reservaSuiteService_1.assertTransacaoHospedagemPagaivel)(Number(idTransacao));
+        return false;
+    }
+    catch (error) {
+        if (error instanceof customError_1.CustomError &&
+            String(error.message) === 'Reserva expirada.') {
+            res.status(400).json({ error: 'Reserva expirada.' });
+            return true;
+        }
+        throw error;
+    }
+}
 module.exports = {
     async pagamento(req, res, next) {
         const { token, issuer_id, payment_method_id, transaction_amount, installments, payer, idTransacao, salvarCartao, deviceId, items } = req.body;
+        if (await rejeitarSeReservaHospedagemExpirada(idTransacao, res)) {
+            return;
+        }
         const users = await Usuario_1.Usuario.findAll({
             where: { email: payer.email },
         });
@@ -468,6 +486,9 @@ module.exports = {
     },
     async pagamentoCardSalvo(req, res, next) {
         const { token, payment_method_id, transaction_amount, installments, payer, items, cvv, deviceId, idTransacao } = req.body;
+        if (await rejeitarSeReservaHospedagemExpirada(idTransacao, res)) {
+            return;
+        }
         const users = await Usuario_1.Usuario.findAll({
             where: { email: payer.email },
         });
@@ -591,6 +612,9 @@ module.exports = {
     async pagamentoPix(req, res) {
         try {
             const { valorTotal, descricao, email, idTransacao, deviceId } = req.body;
+            if (await rejeitarSeReservaHospedagemExpirada(idTransacao, res)) {
+                return;
+            }
             let empresa = await Empresa_1.Empresa.findOne({
                 where: { id: 1 },
             });
@@ -820,6 +844,9 @@ module.exports = {
     },
     async createPreferencePayment(req, res, next) {
         const { transaction_amount, items, payer, idTransacao } = req.body;
+        if (await rejeitarSeReservaHospedagemExpirada(idTransacao, res)) {
+            return;
+        }
         let empresa = await Empresa_1.Empresa.findOne({
             where: { id: 1 },
         });

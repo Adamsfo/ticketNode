@@ -62,10 +62,19 @@ export type InternalHospedinReservation = {
 
 export type HospedinImportResult = {
     operacao: string;
+    /** Total retornado pela API (antes do filtro local). */
     fetched: number;
     upserted: number;
     accountId: string | null;
     durationMs: number;
     sucesso: boolean;
     erro?: string | null;
+    /** incremental (padrão) | full (administrativo). */
+    mode?: 'incremental' | 'full';
+    /** Dias da janela histórica (checkout >= hoje - N). */
+    historicalSyncDays?: number;
+    /** Descartadas pelo filtro local (só incremental). */
+    discarded?: number;
+    /** Restante após filtro (= candidatos a enrich/upsert). */
+    remaining?: number;
 };

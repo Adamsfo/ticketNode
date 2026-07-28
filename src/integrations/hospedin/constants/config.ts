@@ -30,6 +30,11 @@ export type HospedinConfig = {
      * Obrigatório para CREATE via ReservationCreationService.
      */
     syncUserId: number | null;
+    /**
+     * Janela histórica do sync incremental (dias):
+     * mantém reservas com checkout >= hoje - N (além de check-in >= hoje).
+     */
+    historicalSyncDays: number;
 };
 
 function envFlag(value: string | undefined): boolean {
@@ -68,5 +73,10 @@ export function getHospedinConfig(): HospedinConfig {
             const n = Number(process.env.HOSPEDIN_SYNC_USER_ID);
             return Number.isFinite(n) && n > 0 ? Math.floor(n) : null;
         })(),
+        historicalSyncDays: envInt(
+            process.env.HOSPEDIN_HISTORICAL_SYNC_DAYS,
+            30,
+            0
+        ),
     };
 }

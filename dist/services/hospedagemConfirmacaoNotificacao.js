@@ -1,11 +1,15 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.montarUrlPublicaReserva = void 0;
 exports.carregarConteudoConfirmacaoHospedagem = carregarConteudoConfirmacaoHospedagem;
 exports.montarHtmlEmailConfirmacaoHospedagem = montarHtmlEmailConfirmacaoHospedagem;
 exports.montarMensagemWhatsAppConfirmacaoHospedagem = montarMensagemWhatsAppConfirmacaoHospedagem;
 exports.enviarEmailConfirmacaoHospedagem = enviarEmailConfirmacaoHospedagem;
 exports.enviarWhatsAppConfirmacaoHospedagem = enviarWhatsAppConfirmacaoHospedagem;
 exports.notificarConfirmacaoHospedagem = notificarConfirmacaoHospedagem;
+exports.montarMensagemWhatsAppLinkPagamentoHospedagem = montarMensagemWhatsAppLinkPagamentoHospedagem;
+exports.montarHtmlEmailLinkPagamentoHospedagem = montarHtmlEmailLinkPagamentoHospedagem;
+exports.notificarLinkPagamentoHospedagem = notificarLinkPagamentoHospedagem;
 const date_fns_tz_1 = require("date-fns-tz");
 const Evento_1 = require("../models/Evento");
 const ReservaHospedagem_1 = require("../models/ReservaHospedagem");
@@ -14,6 +18,8 @@ const EventoSuite_1 = require("../models/EventoSuite");
 const Usuario_1 = require("../models/Usuario");
 const Transacao_1 = require("../models/Transacao");
 const resend_1 = require("../utils/resend");
+const siteUrl_1 = require("../utils/siteUrl");
+Object.defineProperty(exports, "montarUrlPublicaReserva", { enumerable: true, get: function () { return siteUrl_1.montarUrlPublicaReserva; } });
 const zApiWhatsApp_1 = require("../utils/zApiWhatsApp");
 const reservaSuiteUtils_1 = require("../utils/reservaSuiteUtils");
 function formatarDataHospedagem(data) {
@@ -172,4 +178,80 @@ async function notificarConfirmacaoHospedagem(idReservaHospedagem, idTransacao) 
     catch (error) {
         await registrarFalhaEnvioConfirmacao(conteudo, 'WhatsApp', error);
     }
+}
+function montarMensagemWhatsAppLinkPagamentoHospedagem(conteudo) {
+    return `Olá, ${conteudo.nomeCliente}.
+
+Sua reserva foi criada com sucesso.
+
+Para concluir sua reserva e efetuar o pagamento, acesse:
+
+${conteudo.linkPagamento}`;
+}
+function montarHtmlEmailLinkPagamentoHospedagem(conteudo) {
+    return `
+    <div style="font-family: Arial, sans-serif; color: #333; line-height: 1.5;">
+      <h2>Finalize sua reserva</h2>
+      <p>Olá, <strong>${conteudo.nomeCliente}</strong>!</p>
+      <p>Sua reserva foi criada com sucesso.</p>
+      <p><strong>Número da reserva:</strong> ${conteudo.idReserva}</p>
+      <p><strong>Pousada:</strong> ${conteudo.nomeEvento}</p>
+      <p><strong>Check-in:</strong> ${conteudo.checkin}</p>
+      <p><strong>Check-out:</strong> ${conteudo.checkout}</p>
+      <p><strong>Valor total:</strong> ${conteudo.valorTotal}</p>
+      <p>Para concluir sua reserva e efetuar o pagamento, acesse:</p>
+      <p><a href="${conteudo.linkPagamento}" style="color:#0b5fff;">${conteudo.linkPagamento}</a></p>
+      <br/>
+      <small>Jango Ingressos © ${new Date().getFullYear()}</small>
+    </div>
+  `;
+}
+/**
+ * Envia link de pagamento reutilizando Z-API e Resend já existentes.
+ * Não altera o fluxo de confirmação pós-pagamento.
+ */
+async function notificarLinkPagamentoHospedagem(idReservaHospedagem) {
+    const hospedagem = await ReservaHospedagem_1.ReservaHospedagem.findByPk(idReservaHospedagem);
+    if (!hospedagem?.tokenPagamento || !hospedagem.idTransacao) {
+        throw new Error('Reserva sem token/transação para envio do link.');
+    }
+    const base = await carregarConteudoConfirmacaoHospedagem(idReservaHospedagem, hospedagem.idTransacao);
+    if (!base) {
+        throw new Error('Conteúdo da reserva não encontrado para envio do link.');
+    }
+    const linkPagamento = (0, siteUrl_1.montarUrlPublicaReserva)(hospedagem.tokenPagamento);
+    const conteudo = {
+        ...base,
+        linkPagamento,
+    };
+    try {
+        if (conteudo.email) {
+            await (0, resend_1.enviarEmailCliente)(conteudo.email, `Finalize sua reserva - ${conteudo.nomeEvento}`, montarHtmlEmailLinkPagamentoHospedagem(conteudo));
+        }
+    }
+    catch (error) {
+        await registrarFalhaEnvioConfirmacao(conteudo, 'e-mail', error);
+    }
+    try {
+        if (conteudo.telefone) {
+            await (0, zApiWhatsApp_1.enviarMensagemTextoZApi)(conteudo.telefone, montarMensagemWhatsAppLinkPagamentoHospedagem(conteudo));
+        }
+    }
+    catch (error) {
+        await registrarFalhaEnvioConfirmacao(conteudo, 'WhatsApp', error);
+    }
+    hospedagem.linkPagamentoEnviadoEm = new Date();
+    await hospedagem.save();
+    try {
+        await Transacao_1.HistoricoTransacao.create({
+            idTransacao: conteudo.idTransacao,
+            idUsuario: conteudo.idUsuario,
+            data: new Date(),
+            descricao: `Link de pagamento enviado ao cliente: ${linkPagamento}`,
+        });
+    }
+    catch (error) {
+        console.error('Erro ao registrar envio do link no histórico:', error);
+    }
+    return { linkPagamento };
 }

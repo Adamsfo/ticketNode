@@ -100,4 +100,15 @@ module.exports = {
             next(error);
         }
     },
+    /** Página pública /reserva/TOKEN — não altera APIs autenticadas existentes. */
+    async reservaPublicaPorToken(req, res, next) {
+        try {
+            const token = String(req.params.token || '').trim();
+            const data = await (0, reservaSuiteService_1.obterReservaPublicaPorToken)(token);
+            return res.status(200).json({ success: true, data });
+        }
+        catch (error) {
+            next(error);
+        }
+    },
 };

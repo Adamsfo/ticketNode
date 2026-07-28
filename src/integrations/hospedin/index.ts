@@ -13,6 +13,16 @@ export * from './mapper';
 export type { HospedinAccountSource } from './utils/resolveAccountId';
 
 export {
+    getOperationalSyncWindow,
+    isWithinOperationalSyncWindow,
+    parseHospedinSyncMode,
+} from './utils/operationalSyncWindow';
+export type {
+    HospedinSyncMode,
+    OperationalSyncWindow,
+} from './utils/operationalSyncWindow';
+
+export {
     HospedinAuthService,
     hospedinAuthService,
 } from './services/HospedinAuthService';
@@ -20,6 +30,13 @@ export {
     HospedinPlaceService,
     hospedinPlaceService,
 } from './services/HospedinPlaceService';
+export {
+    HospedinGuestService,
+    hospedinGuestService,
+    enrichReservationDtoWithPrimaryGuest,
+    payloadHasNamedGuests,
+} from './services/HospedinGuestService';
+export type { HospedinGuestDto } from './services/HospedinGuestService';
 export {
     HospedinReservationService,
     hospedinReservationService,

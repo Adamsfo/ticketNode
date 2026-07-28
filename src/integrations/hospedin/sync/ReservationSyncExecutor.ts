@@ -14,6 +14,8 @@ import {
 import { integrationSyncStateService } from '../services/IntegrationSyncStateService';
 import { placeSuiteResolver } from '../services/PlaceSuiteResolver';
 import { reservationCreationService } from '../services/ReservationCreationService';
+import { reservationUpdateService } from '../services/ReservationUpdateService';
+import { reservationCancellationService } from '../services/ReservationCancellationService';
 import { hospedinSyncLogService } from '../services/HospedinSyncLogService';
 import type {
     ReservationExecutionContext,
@@ -23,12 +25,7 @@ import type {
 
 /**
  * Executa SyncDecision no domínio Jango.
- *
- * CREATE: via ReservationCreationService (não chama checkoutHospedagem direto).
- * UPDATE / CANCEL: ainda NOT_IMPLEMENTED.
- *
- * Não decide ações. Não valida regras de negócio do Jango.
- * Não acessa HospedinPlaceSuiteMap (usa PlaceSuiteResolver).
+ * CREATE / UPDATE / CANCEL. Nunca decide a ação.
  */
 export class ReservationSyncExecutor {
     async execute(
@@ -36,14 +33,18 @@ export class ReservationSyncExecutor {
     ): Promise<ReservationSyncExecutionResult> {
         const started = Date.now();
 
-        if (decision.action !== 'CREATE') {
+        if (
+            decision.action !== 'CREATE' &&
+            decision.action !== 'UPDATE' &&
+            decision.action !== 'CANCEL'
+        ) {
             return {
                 ok: false,
                 action: decision.action,
                 reservationId: decision.reservationId,
                 correlationId: '',
                 status: NOT_IMPLEMENTED,
-                message: `Ação ${decision.action} ainda não implementada no Executor.`,
+                message: `Ação ${decision.action} não executável pelo Executor.`,
                 code: NOT_IMPLEMENTED,
             };
         }
@@ -63,26 +64,28 @@ export class ReservationSyncExecutor {
 
         const correlationId = String(syncState.correlation_id);
 
-        // Idempotência oficial via IntegrationSyncState.
-        if (
-            syncState.sync_status === IntegrationSyncStatus.SYNCED ||
-            syncState.internal_entity_id
-        ) {
-            HospedinLogger.info('executor:idempotent_skip', {
-                reservation_id: decision.reservationId,
-                correlation_id: correlationId,
-                internal_entity_id: syncState.internal_entity_id,
-            });
-            return {
-                ok: true,
-                action: decision.action,
-                reservationId: decision.reservationId,
-                correlationId,
-                internalEntityId: syncState.internal_entity_id,
-                status: IntegrationSyncStatus.SYNCED,
-                message: 'Já sincronizada — create ignorado (idempotência).',
-                code: 'ALREADY_SYNCED',
-            };
+        if (decision.action === 'CREATE') {
+            if (
+                syncState.sync_status === IntegrationSyncStatus.SYNCED ||
+                syncState.internal_entity_id
+            ) {
+                HospedinLogger.info('executor:idempotent_skip', {
+                    reservation_id: decision.reservationId,
+                    correlation_id: correlationId,
+                    internal_entity_id: syncState.internal_entity_id,
+                });
+                return {
+                    ok: true,
+                    action: decision.action,
+                    reservationId: decision.reservationId,
+                    correlationId,
+                    internalEntityId: syncState.internal_entity_id,
+                    syncVersion: Number(syncState.sync_version || 0),
+                    status: IntegrationSyncStatus.SYNCED,
+                    message: 'Já sincronizada — create ignorado (idempotência).',
+                    code: 'ALREADY_SYNCED',
+                };
+            }
         }
 
         try {
@@ -91,36 +94,159 @@ export class ReservationSyncExecutor {
                 syncStatus: IntegrationSyncStatus.SYNCING,
                 syncAction: decision.action,
                 lastError: null,
-                reason: 'Início CREATE',
+                reason: `Início ${decision.action}`,
                 operacao: 'sync_state_syncing',
             });
 
-            const ctx = await this.buildCreateContext(decision, syncState);
-            const created =
-                await reservationCreationService.createFromHospedin(ctx);
+            if (decision.action === 'CREATE') {
+                const ctx = await this.buildContext(decision, syncState, {
+                    requireSuite: true,
+                });
+                const created =
+                    await reservationCreationService.createFromHospedin(ctx);
 
-            await integrationSyncStateService.markSynced({
-                ...identity,
-                internalEntityId: String(created.idReservaHospedagem),
-                reason: `CREATE → ReservaHospedagem.id=${created.idReservaHospedagem}`,
+                const synced = await integrationSyncStateService.markSynced({
+                    ...identity,
+                    internalEntityId: String(created.idReservaHospedagem),
+                    incrementSyncVersion: true,
+                    reason: `CREATE → ReservaHospedagem.id=${created.idReservaHospedagem}`,
+                });
+                const syncVersion = Number(synced.sync_version || 0);
+
+                await this.logExecutor({
+                    operacao: 'sync_executor_create',
+                    started,
+                    decision,
+                    correlationId,
+                    sucesso: true,
+                    internalEntityId: created.idReservaHospedagem,
+                    syncVersion,
+                    response: {
+                        idReservaHospedagem: created.idReservaHospedagem,
+                        sync_version: syncVersion,
+                        changes: [
+                            {
+                                field: 'create',
+                                before: null,
+                                after: created.idReservaHospedagem,
+                            },
+                        ],
+                        message: `Reserva criada id=${created.idReservaHospedagem} (versão ${syncVersion})`,
+                    },
+                });
+
+                return {
+                    ok: true,
+                    action: decision.action,
+                    reservationId: decision.reservationId,
+                    correlationId,
+                    internalEntityId: String(created.idReservaHospedagem),
+                    syncVersion,
+                    status: IntegrationSyncStatus.SYNCED,
+                    message: `Reserva criada id=${created.idReservaHospedagem} (versão ${syncVersion})`,
+                };
+            }
+
+            if (decision.action === 'UPDATE') {
+                const ctx = await this.buildContext(decision, syncState, {
+                    requireSuite: true,
+                });
+                const desired =
+                    HospedinReservationDomainMapper.toUpdateSnapshot({
+                        staging: ctx.stagingReservation,
+                        resolvedSuite: ctx.resolvedSuite,
+                    });
+                const updated = await reservationUpdateService.updateFromHospedin(
+                    ctx,
+                    desired
+                );
+
+                const synced = await integrationSyncStateService.markSynced({
+                    ...identity,
+                    internalEntityId: String(updated.idReservaHospedagem),
+                    incrementSyncVersion: updated.applied === true,
+                    reason: updated.applied
+                        ? `UPDATE aplicado (${updated.changes.length} alterações)`
+                        : 'UPDATE sem alterações operacionais — Already synchronized',
+                });
+                const syncVersion = Number(synced.sync_version || 0);
+
+                await this.logExecutor({
+                    operacao: 'sync_executor_update',
+                    started,
+                    decision,
+                    correlationId,
+                    sucesso: true,
+                    internalEntityId: updated.idReservaHospedagem,
+                    syncVersion,
+                    response: {
+                        idReservaHospedagem: updated.idReservaHospedagem,
+                        applied: updated.applied,
+                        sync_version: syncVersion,
+                        changes: updated.changes,
+                        message: updated.applied
+                            ? `Reserva atualizada id=${updated.idReservaHospedagem} (versão ${syncVersion})`
+                            : 'Already synchronized',
+                    },
+                });
+
+                return {
+                    ok: true,
+                    action: decision.action,
+                    reservationId: decision.reservationId,
+                    correlationId,
+                    internalEntityId: String(updated.idReservaHospedagem),
+                    syncVersion,
+                    status: IntegrationSyncStatus.SYNCED,
+                    message: updated.applied
+                        ? `Reserva atualizada id=${updated.idReservaHospedagem} (versão ${syncVersion})`
+                        : 'Already synchronized',
+                    code: updated.applied ? undefined : 'ALREADY_SYNCED',
+                };
+            }
+
+            // CANCEL — não exige mapa de suíte
+            const ctx = await this.buildContext(decision, syncState, {
+                requireSuite: false,
             });
+            const cancelled =
+                await reservationCancellationService.cancelFromHospedin(ctx);
 
-            await hospedinSyncLogService.write({
-                operacao: 'sync_executor_create',
-                endpoint: null,
-                metodo: null,
-                request: {
-                    reservation_id: decision.reservationId,
-                    correlation_id: correlationId,
-                },
-                response: {
-                    idReservaHospedagem: created.idReservaHospedagem,
-                    idEvento: created.idEvento,
-                    idEventoSuite: created.idEventoSuite,
-                },
-                status: 200,
-                duracaoMs: Date.now() - started,
+            const synced = await integrationSyncStateService.markSynced({
+                ...identity,
+                internalEntityId: String(cancelled.idReservaHospedagem),
+                incrementSyncVersion: cancelled.alreadyCancelled !== true,
+                reason: cancelled.alreadyCancelled
+                    ? 'CANCEL idempotente — já Cancelada'
+                    : `CANCEL → ReservaHospedagem.id=${cancelled.idReservaHospedagem}`,
+            });
+            const syncVersion = Number(synced.sync_version || 0);
+
+            await this.logExecutor({
+                operacao: 'sync_executor_cancel',
+                started,
+                decision,
+                correlationId,
                 sucesso: true,
+                internalEntityId: cancelled.idReservaHospedagem,
+                syncVersion,
+                response: {
+                    idReservaHospedagem: cancelled.idReservaHospedagem,
+                    alreadyCancelled: cancelled.alreadyCancelled,
+                    sync_version: syncVersion,
+                    changes: [
+                        {
+                            field: 'status',
+                            before: cancelled.alreadyCancelled
+                                ? 'Cancelada'
+                                : 'Confirmada|Hospedada|…',
+                            after: 'Cancelada',
+                        },
+                    ],
+                    message: cancelled.alreadyCancelled
+                        ? 'Cancelamento já aplicado'
+                        : `Reserva cancelada id=${cancelled.idReservaHospedagem} (versão ${syncVersion})`,
+                },
             });
 
             return {
@@ -128,9 +254,12 @@ export class ReservationSyncExecutor {
                 action: decision.action,
                 reservationId: decision.reservationId,
                 correlationId,
-                internalEntityId: String(created.idReservaHospedagem),
+                internalEntityId: String(cancelled.idReservaHospedagem),
+                syncVersion,
                 status: IntegrationSyncStatus.SYNCED,
-                message: `Reserva criada id=${created.idReservaHospedagem}`,
+                message: cancelled.alreadyCancelled
+                    ? 'Cancelamento já aplicado'
+                    : `Reserva cancelada id=${cancelled.idReservaHospedagem} (versão ${syncVersion})`,
             };
         } catch (error: any) {
             const code =
@@ -138,7 +267,7 @@ export class ReservationSyncExecutor {
                     ? error.code
                     : error?.code || 'EXECUTOR_ERROR';
             const message =
-                error?.message || 'Falha ao executar CREATE da reserva.';
+                error?.message || `Falha ao executar ${decision.action}.`;
 
             if (code === 'WAIT_MAPPING') {
                 await integrationSyncStateService.updateState({
@@ -150,6 +279,13 @@ export class ReservationSyncExecutor {
                     reason: message,
                     operacao: 'sync_state_wait_mapping',
                 });
+            } else if (code === 'ORIGIN_CONFLICT') {
+                await integrationSyncStateService.markError({
+                    ...identity,
+                    error: message,
+                    validationStatus: 'ORIGIN_CONFLICT',
+                    reason: `ORIGIN_CONFLICT: ${message}`,
+                });
             } else {
                 await integrationSyncStateService.markError({
                     ...identity,
@@ -157,29 +293,32 @@ export class ReservationSyncExecutor {
                     ...(code === PAYLOAD_INCOMPLETE
                         ? { validationStatus: PAYLOAD_INCOMPLETE }
                         : {}),
-                    reason: `CREATE failed: ${code}`,
+                    reason: `${decision.action} failed: ${code}`,
                 });
             }
 
-            HospedinLogger.error('executor:create_failed', {
+            HospedinLogger.error('executor:failed', {
                 reservation_id: decision.reservationId,
                 correlation_id: correlationId,
+                action: decision.action,
                 code,
                 message,
             });
 
-            await hospedinSyncLogService.write({
-                operacao: 'sync_executor_create',
-                endpoint: null,
-                metodo: null,
-                request: {
-                    reservation_id: decision.reservationId,
-                    correlation_id: correlationId,
-                },
-                response: { code, message },
-                status: 500,
-                duracaoMs: Date.now() - started,
+            await this.logExecutor({
+                operacao: `sync_executor_${String(decision.action).toLowerCase()}`,
+                started,
+                decision,
+                correlationId,
                 sucesso: false,
+                syncVersion: Number(syncState.sync_version || 0),
+                response: {
+                    code,
+                    message,
+                    sync_version: Number(syncState.sync_version || 0),
+                    changes: [],
+                },
+                status: 500,
             });
 
             return {
@@ -187,6 +326,7 @@ export class ReservationSyncExecutor {
                 action: decision.action,
                 reservationId: decision.reservationId,
                 correlationId,
+                syncVersion: Number(syncState.sync_version || 0),
                 status:
                     code === 'WAIT_MAPPING'
                         ? IntegrationSyncStatus.WAIT_MAPPING
@@ -207,11 +347,76 @@ export class ReservationSyncExecutor {
         return results;
     }
 
-    private async buildCreateContext(
+    private async logExecutor(input: {
+        operacao: string;
+        started: number;
+        decision: SyncDecision;
+        correlationId: string;
+        sucesso: boolean;
+        response: {
+            changes?: unknown[];
+            message?: string;
+            idReservaHospedagem?: number | string;
+            sync_version?: number;
+            [key: string]: unknown;
+        };
+        status?: number;
+        internalEntityId?: string | number | null;
+        syncVersion?: number | null;
+    }) {
+        const type = input.decision.action;
+        const timestamp = new Date().toISOString();
+        const internal =
+            input.internalEntityId ??
+            input.response.idReservaHospedagem ??
+            null;
+        const syncVersion =
+            input.syncVersion ?? input.response.sync_version ?? null;
+        const changes = Array.isArray(input.response.changes)
+            ? input.response.changes
+            : [];
+        const message =
+            input.response.message ||
+            (input.sucesso
+                ? `${type} ok`
+                : String(input.response.message || input.response.code || 'erro'));
+
+        await hospedinSyncLogService.write({
+            operacao: input.operacao,
+            endpoint: null,
+            metodo: null,
+            request: {
+                type,
+                timestamp,
+                external_id: input.decision.reservationId,
+                internal_entity_id: internal,
+                correlation_id: input.correlationId,
+                sync_version: syncVersion,
+                action: type,
+            },
+            response: {
+                type,
+                timestamp,
+                external_id: input.decision.reservationId,
+                internal_entity_id: internal,
+                sync_version: syncVersion,
+                changes,
+                message,
+                ...input.response,
+            },
+            status: input.status ?? (input.sucesso ? 200 : 500),
+            duracaoMs: Date.now() - input.started,
+            sucesso: input.sucesso,
+            erro: input.sucesso ? null : message,
+        });
+    }
+
+    private async buildContext(
         decision: SyncDecision,
         syncState: Awaited<
             ReturnType<typeof integrationSyncStateService.findByIdentity>
-        >
+        >,
+        options: { requireSuite: boolean }
     ): Promise<ReservationExecutionContext> {
         if (!syncState) {
             throw new HospedinDomainMappingError(
@@ -228,6 +433,25 @@ export class ReservationSyncExecutor {
                 `Reserva ${decision.reservationId} não encontrada no staging.`,
                 PAYLOAD_INCOMPLETE
             );
+        }
+
+        if (!options.requireSuite) {
+            // CANCEL: resolvedSuite placeholder (CancellationService não usa suíte).
+            return {
+                decision,
+                syncState,
+                stagingReservation: staging,
+                resolvedSuite: {
+                    found: true,
+                    placeId: 0,
+                    idEventoSuite: 0,
+                    idEvento: null,
+                    mapId: 0,
+                    mappedAt: new Date(0),
+                    mappedBy: null,
+                },
+                correlationId: String(syncState.correlation_id),
+            };
         }
 
         const dto = HospedinReservationDomainMapper.toDtoFromStaging(staging);

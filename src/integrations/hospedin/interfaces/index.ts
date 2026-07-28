@@ -48,5 +48,8 @@ export interface IHospedinReservationService {
 export interface IHospedinSyncService {
     importPlaceTypes(): Promise<unknown>;
     importPlaces(): Promise<unknown>;
-    importReservations(options?: { fetchDetails?: boolean }): Promise<unknown>;
+    importReservations(options?: {
+        fetchDetails?: boolean;
+        mode?: string;
+    }): Promise<unknown>;
 }

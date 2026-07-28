@@ -45,6 +45,11 @@ interface IntegrationSyncStateAttributes {
     sync_status: IntegrationSyncStatusValue | string;
     payload_hash: string | null;
     retry_count: number;
+    /**
+     * Contador monotônico de sincronizações efetivamente aplicadas
+     * (CREATE / UPDATE com mudanças / CANCEL efetivo). Não sobe em UNCHANGED/CONFLICT/FAILED.
+     */
+    sync_version: number;
     last_validation_at: Date | null;
     last_sync_at: Date | null;
     last_error: string | null;
@@ -61,6 +66,7 @@ interface IntegrationSyncStateCreationAttributes
         | 'sync_action'
         | 'payload_hash'
         | 'retry_count'
+        | 'sync_version'
         | 'last_validation_at'
         | 'last_sync_at'
         | 'last_error'
@@ -85,6 +91,7 @@ class IntegrationSyncStateModel
     public sync_status!: IntegrationSyncStatusValue | string;
     public payload_hash!: string | null;
     public retry_count!: number;
+    public sync_version!: number;
     public last_validation_at!: Date | null;
     public last_sync_at!: Date | null;
     public last_error!: string | null;
@@ -137,6 +144,11 @@ class IntegrationSyncStateModel
                     allowNull: true,
                 },
                 retry_count: {
+                    type: DataTypes.INTEGER,
+                    allowNull: false,
+                    defaultValue: 0,
+                },
+                sync_version: {
                     type: DataTypes.INTEGER,
                     allowNull: false,
                     defaultValue: 0,

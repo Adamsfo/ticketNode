@@ -39,6 +39,8 @@ export type ReservationSyncExecutionResult = {
     reservationId: number;
     correlationId: string;
     internalEntityId?: string | null;
+    /** Versão de sync após a operação (não sobe em UNCHANGED/CONFLICT/falha). */
+    syncVersion?: number | null;
     status: string;
     message?: string;
     code?: string;

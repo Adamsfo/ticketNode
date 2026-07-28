@@ -6,8 +6,30 @@ const sequelize_1 = require("sequelize");
 function convertToSnakeCase(str) {
     return str.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
 }
+function buildDefaultSearchOr(model, search, includeOptions) {
+    return [
+        // Condições para os campos das associações
+        ...(includeOptions?.map(option => {
+            if (option.as) {
+                return option.attributes?.map(attr => ({
+                    [`$${option.as}.${convertToSnakeCase(attr)}$`]: { [sequelize_1.Op.like]: `%${search}%` }
+                }));
+            }
+            return null;
+        }).flat().filter(Boolean) || []),
+        // Condições para os campos da tabela principal
+        ...Object.keys(model.rawAttributes)
+            .filter(field => {
+            const dbField = convertToSnakeCase(field);
+            return dbField !== 'created_at' && dbField !== 'updated_at';
+        })
+            .map(field => ({
+            [field]: { [sequelize_1.Op.like]: `%${search}%` }
+        }))
+    ];
+}
 // Tipagem genérica para a função `getRegistros`
-async function getRegistros(model, req, res, next, includeOptions, returnRegisters = false) {
+async function getRegistros(model, req, res, next, includeOptions, returnRegisters = false, buildSearchConditions) {
     try {
         // Pegando os parâmetros de paginação, pesquisa, filtros e ordenação da query string
         const page = parseInt(req.query.page, 10) || 1;
@@ -18,29 +40,13 @@ async function getRegistros(model, req, res, next, includeOptions, returnRegiste
         const filters = req.query.filters ? JSON.parse(req.query.filters) : {};
         const offset = (page - 1) * pageSize;
         const limit = pageSize;
-        const searchCondition = search
-            ? {
-                [sequelize_1.Op.or]: [
-                    // Condições para os campos das associações
-                    ...(includeOptions?.map(option => {
-                        if (option.as) {
-                            return option.attributes?.map(attr => ({
-                                [`$${option.as}.${convertToSnakeCase(attr)}$`]: { [sequelize_1.Op.like]: `%${search}%` }
-                            }));
-                        }
-                        return null;
-                    }).flat().filter(Boolean) || []),
-                    // Condições para os campos da tabela principal
-                    ...Object.keys(model.rawAttributes)
-                        .filter(field => {
-                        const dbField = convertToSnakeCase(field);
-                        return dbField !== 'created_at' && dbField !== 'updated_at';
-                    })
-                        .map(field => ({
-                        [field]: { [sequelize_1.Op.like]: `%${search}%` }
-                    }))
-                ]
-            }
+        const searchOr = search
+            ? (buildSearchConditions
+                ? buildSearchConditions(String(search))
+                : buildDefaultSearchOr(model, String(search), includeOptions))
+            : [];
+        const searchCondition = searchOr.length > 0
+            ? { [sequelize_1.Op.or]: searchOr }
             : {};
         const filterConditions = {};
         if (filters && typeof filters === 'object') {

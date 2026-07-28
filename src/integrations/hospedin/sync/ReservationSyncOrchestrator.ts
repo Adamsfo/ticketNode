@@ -58,8 +58,7 @@ export class ReservationSyncOrchestrator {
                 return {
                     reservationId,
                     action: 'CREATE',
-                    reason:
-                        'Estado READY — CREATE (até existir distinção ALREADY_IMPORTED).',
+                    reason: 'Estado READY com validation READY_TO_SYNC — CREATE.',
                 };
 
             case IntegrationSyncStatus.WAIT_MAPPING:

@@ -4,6 +4,7 @@ const Usuario_1 = require("../models/Usuario");
 const getRegistros_1 = require("../utils/getRegistros");
 const customError_1 = require("../utils/customError");
 const Empresa_1 = require("../models/Empresa");
+const usuarioSearch_1 = require("../utils/usuarioSearch");
 module.exports = {
     async getUsuario(req, res, next) {
         console.log('req.query:', req);
@@ -13,12 +14,12 @@ module.exports = {
                 as: 'funcaoUsuario',
                 attributes: ['funcaoUsuario'],
             }
-        ], true);
+        ], true, usuarioSearch_1.buildUsuarioSearchConditions);
         console.log(result);
         res.status(200).json(result ?? { data: [], meta: { totalItems: 0, totalPages: 0, currentPage: 0, pageSize: 0 } });
     },
     async getUsuarioEmailTelefone(req, res, next) {
-        const result = await (0, getRegistros_1.getRegistros)(Usuario_1.Usuario, req, res, next, [], true);
+        const result = await (0, getRegistros_1.getRegistros)(Usuario_1.Usuario, req, res, next, [], true, usuarioSearch_1.buildUsuarioSearchConditions);
         console.log(result);
         const { data, meta } = result ?? { data: [], meta: { totalItems: 0, totalPages: 0, currentPage: 0, pageSize: 0 } };
         const dataFiltrada = data.map((registro) => ({

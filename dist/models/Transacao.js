@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.EventoSuiteTransacao = exports.TipoPagamento = exports.TransacaoPagamento = exports.HistoricoTransacao = exports.IngressoTransacao = exports.Transacao = exports.TransacaoInit = void 0;
+exports.EventoSuiteTransacao = exports.OrigemTransacao = exports.TipoPagamento = exports.TransacaoPagamento = exports.HistoricoTransacao = exports.IngressoTransacao = exports.Transacao = exports.TransacaoInit = void 0;
 const sequelize_1 = require("sequelize");
 const Evento_1 = require("./Evento");
 const Usuario_1 = require("./Usuario");
@@ -13,6 +13,12 @@ var TipoPagamento;
     TipoPagamento["Pix"] = "Pix";
     TipoPagamento["Dinheiro"] = "Dinheiro";
 })(TipoPagamento || (exports.TipoPagamento = TipoPagamento = {}));
+/** Origem modular da Transacao — padrão INGRESSOS não afeta o fluxo existente. */
+var OrigemTransacao;
+(function (OrigemTransacao) {
+    OrigemTransacao["INGRESSOS"] = "INGRESSOS";
+    OrigemTransacao["HOSPEDAGEM"] = "HOSPEDAGEM";
+})(OrigemTransacao || (exports.OrigemTransacao = OrigemTransacao = {}));
 class Transacao extends sequelize_1.Model {
     static initialize(sequelize) {
         Transacao.init({
@@ -92,7 +98,14 @@ class Transacao extends sequelize_1.Model {
                 type: sequelize_1.DataTypes.ENUM(...Object.values(TipoPagamento)),
                 allowNull: true,
                 // defaultValue: TipoPagamento.Debito // Valor padrão
-            }
+            },
+            origemTransacao: {
+                type: sequelize_1.DataTypes.ENUM(...Object.values(OrigemTransacao)),
+                allowNull: false,
+                defaultValue: OrigemTransacao.INGRESSOS,
+                // Coluna física origem_transacao (pedido de produto); API Sequelize: origemTransacao.
+                field: 'origem_transacao',
+            },
         }, {
             sequelize,
             modelName: "Transacao",

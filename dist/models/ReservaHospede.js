@@ -35,6 +35,14 @@ class ReservaHospede extends sequelize_1.Model {
                 type: sequelize_1.DataTypes.DATEONLY,
                 allowNull: true,
             },
+            idUsuario: {
+                type: sequelize_1.DataTypes.INTEGER,
+                allowNull: true,
+                references: {
+                    model: 'Usuario',
+                    key: 'id',
+                },
+            },
         }, {
             sequelize,
             modelName: 'ReservaHospede',

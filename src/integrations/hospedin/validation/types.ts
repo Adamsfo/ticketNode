@@ -8,10 +8,15 @@ export type ValidationStatus =
     | 'READY_TO_SYNC'
     | 'WAITING_SUITE_MAPPING'
     | 'ALREADY_IMPORTED'
+    /** Hash igual — sem UPDATE/CANCEL operacional. */
+    | 'UNCHANGED'
     | 'PAYLOAD_INVALID'
     | 'INVALID_STATUS'
     | 'INVALID_DATES'
     | 'CANCELLED'
+    /** Reserva Jango existe mas origem ≠ HOSPEDIN. */
+    | 'ORIGIN_CONFLICT'
+    | 'IGNORED'
     | 'ERROR';
 
 export type ValidationStep = {

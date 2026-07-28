@@ -8,6 +8,7 @@ import type { HospedinReservationDto } from '../dto';
 import { HospedinReservationMapper } from '../mapper/HospedinReservationMapper';
 import { asDate, asNumber, asRecord, asString } from '../mapper/mapperHelpers';
 import type { ResolvedInternalSuite } from '../services/PlaceSuiteResolver';
+import type { ReservationDiffSnapshot } from '../services/ReservationDiffService';
 
 export const PAYLOAD_INCOMPLETE = 'PAYLOAD_INCOMPLETE';
 
@@ -129,6 +130,62 @@ export const HospedinReservationDomainMapper = {
             ],
         };
     },
+
+    /**
+     * Intenção operacional para UPDATE (sem valores financeiros).
+     * Hóspedes nomeados quando existirem no payload; senão lista vazia
+     * (contagens adults/children ainda entram no Diff).
+     */
+    toUpdateSnapshot(input: {
+        staging: HospedinReservation;
+        resolvedSuite: ResolvedInternalSuite & { found: true };
+    }): ReservationDiffSnapshot {
+        const dto = this.toDtoFromStaging(input.staging);
+        const payload = dto.sourcePayload || {};
+
+        if (!dto.checkin || !dto.checkout) {
+            throw new HospedinDomainMappingError(
+                'check_in/check_out ausentes no staging Hospedin.',
+                PAYLOAD_INCOMPLETE
+            );
+        }
+
+        const guests = extractGuests(payload);
+        const adultosPayload = asNumber(payload.adults) ?? asNumber(payload.adultos);
+        const criancasPayload =
+            asNumber(payload.children) ?? asNumber(payload.criancas);
+
+        const adultos =
+            guests.filter((g) => g.tipo === TipoReservaHospede.Adulto).length ||
+            Number(adultosPayload || 0);
+        const criancas =
+            guests.filter((g) => g.tipo === TipoReservaHospede.Crianca).length ||
+            Number(criancasPayload || 0);
+
+        return {
+            checkin: dto.checkin,
+            checkout: dto.checkout,
+            idEventoSuite: input.resolvedSuite.idEventoSuite,
+            observacoes: buildObservacoes(dto, payload),
+            adultos,
+            criancas,
+            hospedes: guests.map((g) => ({
+                nome: g.nome,
+                tipo: String(g.tipo),
+                dataNascimento: g.dataNascimento
+                    ? (g.dataNascimento instanceof Date
+                          ? g.dataNascimento
+                          : new Date(g.dataNascimento)
+                      )
+                          .toISOString()
+                          .slice(0, 10)
+                    : null,
+                cpf: g.cpf ?? null,
+                email: g.email ?? null,
+                telefone: g.telefone ?? null,
+            })),
+        };
+    },
 };
 
 function readPayload(
@@ -159,6 +216,7 @@ function buildObservacoes(
     );
 
     const notes =
+        asString(payload.note) ||
         asString(payload.notes) ||
         asString(payload.observation) ||
         asString(payload.observations) ||
@@ -247,6 +305,7 @@ function mapGuestRecord(
             nome,
             tipo: TipoReservaHospede.Crianca,
             dataNascimento: birth,
+            ...guestContactFields(row),
         };
     }
 
@@ -257,12 +316,34 @@ function mapGuestRecord(
             nome,
             tipo: TipoReservaHospede.Crianca,
             dataNascimento: birth,
+            ...guestContactFields(row),
         };
     }
 
     return {
         nome,
         tipo: TipoReservaHospede.Adulto,
-        dataNascimento: null,
+        dataNascimento: birth,
+        ...guestContactFields(row),
     };
+}
+
+function guestContactFields(row: Record<string, unknown>) {
+    const contact = asRecord(row.contact);
+    const cpf =
+        asString(row.cpf) ||
+        asString(row.ssn) ||
+        asString(row.identification) ||
+        asString(row.document) ||
+        asString(row.tax_id) ||
+        asString(row.documento) ||
+        null;
+    const email = asString(row.email) || asString(contact.email) || null;
+    const telefone =
+        asString(row.phone) ||
+        asString(row.telefone) ||
+        asString(contact.phone) ||
+        asString(contact.extra_phone) ||
+        null;
+    return { cpf, email, telefone };
 }

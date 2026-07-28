@@ -3,8 +3,12 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.inicioDoDia = exports.toNumber = exports.roundMoney = exports.calcularTotaisSuitePousada = exports.VALOR_ADICIONAL_CRIANCA_EXTRA = exports.VALOR_ADICIONAL_ADULTO_EXTRA = exports.HORA_CHECKOUT_HOSPEDAGEM = exports.HORA_CHECKIN_HOSPEDAGEM = void 0;
 exports.calcularNoitesHotelaria = calcularNoitesHotelaria;
 exports.intervalosConflitam = intervalosConflitam;
+exports.periodosHospedagemConflitam = periodosHospedagemConflitam;
+exports.reservaTemCheckinNaDataCivil = reservaTemCheckinNaDataCivil;
+exports.suiteIndisponivelPorCheckinNaData = suiteIndisponivelPorCheckinNaData;
 exports.validarHorarioCheckinHospedagem = validarHorarioCheckinHospedagem;
 exports.validarCheckinPosteriorAoAgoraSeHoje = validarCheckinPosteriorAoAgoraSeHoje;
+exports.validarCheckinNaoEmDataPassada = validarCheckinNaoEmDataPassada;
 exports.validarHorarioCheckoutHospedagem = validarHorarioCheckoutHospedagem;
 exports.parseDateTimeParam = parseDateTimeParam;
 exports.parsePositiveInt = parsePositiveInt;
@@ -39,9 +43,44 @@ function calcularNoitesHotelaria(checkin, checkout) {
     }
     return noites;
 }
-/** Conflito de intervalos: inicioA < fimB && fimA > inicioB */
+/**
+ * Única regra de sobreposição de hospedagem (data + horário).
+ *
+ * Intervalos semiabertos [inicio, fim): o instante de check-out libera a suíte.
+ * Ex.: checkout existente 27/07 13:00 → novo check-in 13:00 ou depois = sem conflito;
+ *      novo check-in 12:59 = conflito.
+ *
+ * Usar em: lista de disponibilidade, validação de checkout e ocupação operacional
+ * (card/agenda) — não duplicar comparação só por data civil.
+ */
 function intervalosConflitam(a, b) {
-    return a.inicio.getTime() < b.fim.getTime() && a.fim.getTime() > b.inicio.getTime();
+    return (a.inicio.getTime() < b.fim.getTime() &&
+        a.fim.getTime() > b.inicio.getTime());
+}
+/** Alias semântico: disponibilidade de suíte no período solicitado. */
+function periodosHospedagemConflitam(periodoA, periodoB) {
+    return intervalosConflitam(periodoA, periodoB);
+}
+/**
+ * Disponibilidade para nova reserva na data civil (Cuiabá) — sem horário.
+ * Se já existe reserva com check-in na mesma data, a suíte fica indisponível.
+ * Usar em: cards Suítes + listarSuitesDisponiveis (mesma regra).
+ */
+function reservaTemCheckinNaDataCivil(checkinReserva, dataReferencia) {
+    const dataStr = typeof dataReferencia === 'string' &&
+        /^\d{4}-\d{2}-\d{2}$/.test(dataReferencia)
+        ? dataReferencia
+        : (0, date_fns_tz_1.formatInTimeZone)(dataReferencia instanceof Date
+            ? dataReferencia
+            : new Date(dataReferencia), TZ_HOSPEDAGEM, 'yyyy-MM-dd');
+    const checkinStr = (0, date_fns_tz_1.formatInTimeZone)(checkinReserva instanceof Date
+        ? checkinReserva
+        : new Date(checkinReserva), TZ_HOSPEDAGEM, 'yyyy-MM-dd');
+    return checkinStr === dataStr;
+}
+/** True se alguma reserva ocupante tem check-in na data civil informada. */
+function suiteIndisponivelPorCheckinNaData(checkinsOcupantes, dataReferencia) {
+    return checkinsOcupantes.some((checkin) => reservaTemCheckinNaDataCivil(checkin instanceof Date ? checkin : new Date(checkin), dataReferencia));
 }
 function minutosNoFuso(d) {
     const h = Number((0, date_fns_tz_1.formatInTimeZone)(d, TZ_HOSPEDAGEM, 'H'));
@@ -67,6 +106,15 @@ function validarCheckinPosteriorAoAgoraSeHoje(checkin) {
     }
     if (checkin.getTime() <= agora.getTime()) {
         throw new customError_1.CustomError('O horário de check-in deve ser posterior ao horário atual.', 400, '');
+    }
+}
+/** Impede criar reserva com check-in em dia anterior ao atual (fuso Cuiabá). */
+function validarCheckinNaoEmDataPassada(checkin) {
+    const agora = new Date();
+    const hojeStr = (0, date_fns_tz_1.formatInTimeZone)(agora, TZ_HOSPEDAGEM, 'yyyy-MM-dd');
+    const checkinStr = (0, date_fns_tz_1.formatInTimeZone)(checkin, TZ_HOSPEDAGEM, 'yyyy-MM-dd');
+    if (checkinStr < hojeStr) {
+        throw new customError_1.CustomError('Não é permitido criar reservas para datas passadas.', 400, '');
     }
 }
 /** Garante check-out entre 08:00 e 13:00 (fuso Cuiabá). */

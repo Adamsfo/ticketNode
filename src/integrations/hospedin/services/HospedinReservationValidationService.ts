@@ -5,11 +5,17 @@ import {
     type IntegrationSyncStatusValue,
 } from '../../../models/IntegrationSyncState';
 import { HospedinReservation } from '../../../models/HospedinReservation';
+import { getHospedinConfig } from '../constants/config';
 import type { HospedinReservationDto } from '../dto';
 import { HospedinLogger } from '../logger/HospedinLogger';
 import { HospedinReservationMapper } from '../mapper/HospedinReservationMapper';
 import { asRecord } from '../mapper/mapperHelpers';
 import { reservationSyncOrchestrator } from '../sync/ReservationSyncOrchestrator';
+import {
+    getOperationalSyncWindow,
+    isWithinOperationalSyncWindow,
+    parseHospedinSyncMode,
+} from '../utils/operationalSyncWindow';
 import {
     NOT_IMPLEMENTED,
     type ValidationResult,
@@ -19,6 +25,10 @@ import {
 import { integrationSyncStateService } from './IntegrationSyncStateService';
 import { hospedinSyncLogService } from './HospedinSyncLogService';
 import { placeSuiteResolver } from './PlaceSuiteResolver';
+import {
+    isHospedinCancelledStatus,
+    isHospedinSyncableActiveStatus,
+} from '../sync/hospedinReservationStatus';
 
 type ValidationContext = {
     reservationId: number;
@@ -75,7 +85,9 @@ export class HospedinReservationValidationService {
             };
             this.logRule(id, step);
             const result = this.buildResult({ reservationId: id, steps: [step] });
-            await this.persistSyncStateFromValidation(result, null);
+            const { state: syncState, validationStatus } =
+                await this.persistSyncStateFromValidation(result, null);
+            result.status = validationStatus;
             return result;
         }
 
@@ -118,7 +130,7 @@ export class HospedinReservationValidationService {
             this.runRule(ctx, 'validateDates', () => this.validateDates(ctx)),
             this.runRule(ctx, 'validateGuests', () => this.validateGuests(ctx)),
             await this.runRuleAsync(ctx, () => this.validateSuiteMapping(ctx)),
-            this.runRule(ctx, 'validateExistingReservation', () =>
+            await this.runRuleAsync(ctx, () =>
                 this.validateExistingReservation(ctx)
             ),
             this.runRule(ctx, 'validateDuplicates', () =>
@@ -131,46 +143,90 @@ export class HospedinReservationValidationService {
 
         const result = this.buildResult({ reservationId: id, steps });
 
-        const syncState = await this.persistSyncStateFromValidation(
-            result,
-            ctx.payload
-        );
+        const { state: syncState, validationStatus } =
+            await this.persistSyncStateFromValidation(result, ctx.payload);
+        result.status = validationStatus;
+        if (validationStatus === 'UNCHANGED') {
+            result.ready = false;
+        }
 
         await hospedinSyncLogService.write({
-            operacao: 'validate_reservation',
+            operacao: this.operacaoFromValidation(validationStatus),
             endpoint: '/api/integrations/hospedin/validate/reservations',
             metodo: 'POST',
-            request: { reservationId: id },
+            request: {
+                reservationId: id,
+                type: validationStatus,
+                timestamp: new Date().toISOString(),
+                external_id: id,
+                internal_entity_id: syncState.internal_entity_id,
+            },
             response: {
+                type: validationStatus,
+                timestamp: new Date().toISOString(),
+                external_id: id,
+                internal_entity_id: syncState.internal_entity_id,
                 ready: result.ready,
-                status: result.status,
+                status: validationStatus,
                 errors: result.errors,
                 warnings: result.warnings,
                 sync_state_id: syncState.id,
                 correlation_id: syncState.correlation_id,
                 sync_status: syncState.sync_status,
                 sync_action: syncState.sync_action,
+                payload_hash: syncState.payload_hash,
+                changes: [],
+                message: this.messageFromValidation(validationStatus),
             },
             status: 200,
             duracaoMs: Date.now() - started,
-            sucesso: true,
+            sucesso: validationStatus !== 'ORIGIN_CONFLICT' && validationStatus !== 'ERROR',
         });
 
         return result;
     }
 
-    async validateAll(): Promise<{
+    /**
+     * Valida staging. No modo incremental (padrão), aplica a mesma janela
+     * operacional do Import (check-in >= hoje OU checkout >= hoje - N).
+     * mode=full valida absolutamente todas as linhas do staging.
+     */
+    async validateAll(options?: {
+        mode?: string;
+    }): Promise<{
         total: number;
         ready: number;
+        discarded: number;
+        mode: 'incremental' | 'full';
+        historicalSyncDays: number;
         results: ValidationResult[];
     }> {
+        const mode = parseHospedinSyncMode(options?.mode, 'incremental');
+        const historicalSyncDays = getHospedinConfig().historicalSyncDays;
+        const window = getOperationalSyncWindow(
+            new Date(),
+            historicalSyncDays
+        );
+
         const rows = await HospedinReservation.findAll({
-            attributes: ['reservation_id'],
+            attributes: ['reservation_id', 'checkin', 'checkout'],
             order: [['reservation_id', 'ASC']],
         });
 
+        const selected =
+            mode === 'full'
+                ? rows
+                : rows.filter((row) =>
+                      isWithinOperationalSyncWindow(
+                          row.checkin,
+                          row.checkout,
+                          window
+                      )
+                  );
+        const discarded = rows.length - selected.length;
+
         const results: ValidationResult[] = [];
-        for (const row of rows) {
+        for (const row of selected) {
             results.push(
                 await this.validateReservation(Number(row.reservation_id))
             );
@@ -179,6 +235,9 @@ export class HospedinReservationValidationService {
         return {
             total: results.length,
             ready: results.filter((r) => r.ready).length,
+            discarded,
+            mode,
+            historicalSyncDays,
             results,
         };
     }
@@ -254,18 +313,85 @@ export class HospedinReservationValidationService {
         };
     }
 
-    // ─── Regras preparadas (futuras) ────────────────────────────
+    validateReservationStatus(ctx: ValidationContext): ValidationStep {
+        const started = Date.now();
+        const status = ctx.dto?.status ?? ctx.payload?.status ?? ctx.row.status;
 
-    validateReservationStatus(_ctx: ValidationContext): ValidationStep {
-        return this.notImplemented('validateReservationStatus');
+        if (isHospedinCancelledStatus(status)) {
+            return {
+                rule: 'validateReservationStatus',
+                success: true,
+                message: `Status Hospedin cancelado (${status}).`,
+                durationMs: Date.now() - started,
+                implemented: true,
+                code: 'CANCELLED',
+            };
+        }
+
+        if (isHospedinSyncableActiveStatus(status)) {
+            return {
+                rule: 'validateReservationStatus',
+                success: true,
+                message: `Status Hospedin operacional (${status}).`,
+                durationMs: Date.now() - started,
+                implemented: true,
+                code: 'ACTIVE',
+            };
+        }
+
+        return {
+            rule: 'validateReservationStatus',
+            success: true,
+            message: `Status Hospedin ignorado para sync de domínio (${status}).`,
+            durationMs: Date.now() - started,
+            implemented: true,
+            code: 'IGNORED_STATUS',
+        };
     }
 
-    validateDates(_ctx: ValidationContext): ValidationStep {
-        return this.notImplemented('validateDates');
+    validateDates(ctx: ValidationContext): ValidationStep {
+        const started = Date.now();
+        const checkin = ctx.dto?.checkin ?? null;
+        const checkout = ctx.dto?.checkout ?? null;
+        if (!checkin || !checkout) {
+            return {
+                rule: 'validateDates',
+                success: false,
+                message: 'check_in/check_out inválidos.',
+                durationMs: Date.now() - started,
+                implemented: true,
+                code: 'INVALID_DATES',
+            };
+        }
+        if (checkout.getTime() <= checkin.getTime()) {
+            return {
+                rule: 'validateDates',
+                success: false,
+                message: 'check_out deve ser posterior a check_in.',
+                durationMs: Date.now() - started,
+                implemented: true,
+                code: 'INVALID_DATES',
+            };
+        }
+        return {
+            rule: 'validateDates',
+            success: true,
+            message: 'Datas válidas.',
+            durationMs: Date.now() - started,
+            implemented: true,
+        };
     }
 
     validateGuests(_ctx: ValidationContext): ValidationStep {
-        return this.notImplemented('validateGuests');
+        // Contagens adults/children bastam para UPDATE; CREATE continua
+        // exigindo nomes no DomainMapper.
+        return {
+            rule: 'validateGuests',
+            success: true,
+            message: 'Validação de hóspedes adiada ao mapper de execução.',
+            durationMs: 0,
+            implemented: true,
+        };
     }
 
     /**
@@ -305,8 +431,66 @@ export class HospedinReservationValidationService {
         };
     }
 
-    validateExistingReservation(_ctx: ValidationContext): ValidationStep {
-        return this.notImplemented('validateExistingReservation');
+    async validateExistingReservation(
+        ctx: ValidationContext
+    ): Promise<ValidationStep> {
+        const started = Date.now();
+        const identity = {
+            provider: IntegrationProvider.HOSPEDIN,
+            entityType: IntegrationEntityType.RESERVATION,
+            externalId: ctx.reservationId,
+        };
+        const state = await integrationSyncStateService.findByIdentity(identity);
+        const internalId = state?.internal_entity_id
+            ? Number(state.internal_entity_id)
+            : null;
+
+        if (!internalId || !Number.isFinite(internalId) || internalId <= 0) {
+            return {
+                rule: 'validateExistingReservation',
+                success: true,
+                message: 'Sem reserva Jango vinculada — candidato a CREATE.',
+                durationMs: Date.now() - started,
+                implemented: true,
+                code: 'NEW',
+            };
+        }
+
+        const { ReservaHospedagem } = await import(
+            '../../../models/ReservaHospedagem'
+        );
+        const reserva = await ReservaHospedagem.findByPk(internalId);
+        if (!reserva) {
+            return {
+                rule: 'validateExistingReservation',
+                success: false,
+                message: `internal_entity_id=${internalId} órfão (ReservaHospedagem inexistente).`,
+                durationMs: Date.now() - started,
+                implemented: true,
+                code: 'INTERNAL_ENTITY_MISSING',
+            };
+        }
+
+        const origem = String((reserva as any).origemReserva || '');
+        if (origem !== 'HOSPEDIN') {
+            return {
+                rule: 'validateExistingReservation',
+                success: false,
+                message: `origemReserva=${origem || 'null'} — Hospedin não sobrescreve.`,
+                durationMs: Date.now() - started,
+                implemented: true,
+                code: 'ORIGIN_CONFLICT',
+            };
+        }
+
+        return {
+            rule: 'validateExistingReservation',
+            success: true,
+            message: `Reserva Jango #${internalId} (HOSPEDIN) — candidato a UPDATE/CANCEL.`,
+            durationMs: Date.now() - started,
+            implemented: true,
+            code: 'ALREADY_IMPORTED',
+        };
     }
 
     validateDuplicates(_ctx: ValidationContext): ValidationStep {
@@ -377,38 +561,59 @@ export class HospedinReservationValidationService {
     private async persistSyncStateFromValidation(
         result: ValidationResult,
         payload: unknown
-    ) {
+    ): Promise<{
+        state: Awaited<
+            ReturnType<typeof integrationSyncStateService.findOrCreate>
+        >;
+        validationStatus: ValidationStatus;
+    }> {
         const identity = {
             provider: IntegrationProvider.HOSPEDIN,
             entityType: IntegrationEntityType.RESERVATION,
             externalId: result.reservationId,
         };
 
-        await integrationSyncStateService.findOrCreate(identity);
+        const existing = await integrationSyncStateService.findOrCreate(
+            identity
+        );
 
+        // CANCEL é classificado antes do hash (nunca engolido por UNCHANGED).
         const payloadHash = integrationSyncStateService.hashPayload(payload);
         const errorText =
             result.errors.length > 0 ? result.errors.join('; ') : null;
 
+        let finalValidation = result.status;
+        if (
+            finalValidation === 'ALREADY_IMPORTED' &&
+            existing.payload_hash &&
+            payloadHash &&
+            existing.payload_hash === payloadHash
+        ) {
+            finalValidation = 'UNCHANGED';
+        }
+
         await integrationSyncStateService.updateState({
             ...identity,
             syncStatus: IntegrationSyncStatus.VALIDATED,
-            validationStatus: result.status,
+            validationStatus: finalValidation,
             payloadHash,
             touchValidation: true,
             lastError: errorText,
-            reason: `Validação concluída: ${result.status}`,
+            reason: `Validação concluída: ${finalValidation}`,
             operacao: 'sync_state_validated',
         });
 
-        const finalStatus = this.mapValidationToSyncStatus(result.status);
+        const finalStatus = this.mapValidationToSyncStatus(finalValidation);
         let state = await integrationSyncStateService.updateState({
             ...identity,
             syncStatus: finalStatus,
-            validationStatus: result.status,
+            validationStatus: finalValidation,
             lastError:
                 finalStatus === IntegrationSyncStatus.FAILED ? errorText : null,
-            reason: `Estado pós-validação: ${finalStatus}`,
+            reason:
+                finalValidation === 'UNCHANGED'
+                    ? 'Already synchronized (payload_hash igual).'
+                    : `Estado pós-validação: ${finalStatus}`,
             operacao: 'sync_state_after_validation',
         });
 
@@ -424,13 +629,47 @@ export class HospedinReservationValidationService {
             reservation_id: result.reservationId,
             sync_state_id: state.id,
             correlation_id: state.correlation_id,
-            validation_status: result.status,
+            validation_status: finalValidation,
             sync_status: state.sync_status,
             sync_action: state.sync_action,
             decision_reason: decision.reason,
         });
 
-        return state;
+        return { state, validationStatus: finalValidation };
+    }
+
+    private operacaoFromValidation(status: ValidationStatus): string {
+        switch (status) {
+            case 'UNCHANGED':
+                return 'sync_unchanged';
+            case 'ORIGIN_CONFLICT':
+                return 'sync_conflict_origin';
+            case 'CANCELLED':
+                return 'validate_reservation_cancel';
+            case 'ALREADY_IMPORTED':
+                return 'validate_reservation_update';
+            case 'READY_TO_SYNC':
+                return 'validate_reservation_create';
+            default:
+                return 'validate_reservation';
+        }
+    }
+
+    private messageFromValidation(status: ValidationStatus): string {
+        switch (status) {
+            case 'UNCHANGED':
+                return 'Already synchronized';
+            case 'ORIGIN_CONFLICT':
+                return 'ORIGIN_CONFLICT — Hospedin não sobrescreve reserva de outra origem.';
+            case 'CANCELLED':
+                return 'CANCEL identificado na Validation (antes do hash).';
+            case 'ALREADY_IMPORTED':
+                return 'Candidato a UPDATE.';
+            case 'READY_TO_SYNC':
+                return 'Candidato a CREATE.';
+            default:
+                return `Validação: ${status}`;
+        }
     }
 
     private mapValidationToSyncStatus(
@@ -441,8 +680,13 @@ export class HospedinReservationValidationService {
             case 'ALREADY_IMPORTED':
             case 'CANCELLED':
                 return IntegrationSyncStatus.READY;
+            case 'UNCHANGED':
+                return IntegrationSyncStatus.SYNCED;
+            case 'IGNORED':
+                return IntegrationSyncStatus.IGNORED;
             case 'WAITING_SUITE_MAPPING':
                 return IntegrationSyncStatus.WAIT_MAPPING;
+            case 'ORIGIN_CONFLICT':
             case 'PAYLOAD_INVALID':
             case 'INVALID_STATUS':
             case 'INVALID_DATES':
@@ -480,14 +724,17 @@ export class HospedinReservationValidationService {
         const suiteMappingFailed = implementedFailed.some(
             (s) => s.rule === 'validateSuiteMapping'
         );
-        const otherImplementedFailed = implementedFailed.filter(
-            (s) =>
-                ![
-                    'validatePayload',
-                    'validateRequiredFields',
-                    'loadStaging',
-                    'validateSuiteMapping',
-                ].includes(s.rule)
+        const datesFailed = implementedFailed.some(
+            (s) => s.rule === 'validateDates'
+        );
+        const originConflict = implementedFailed.some(
+            (s) => s.code === 'ORIGIN_CONFLICT'
+        );
+        const statusStep = input.steps.find(
+            (s) => s.rule === 'validateReservationStatus' && s.implemented
+        );
+        const existingStep = input.steps.find(
+            (s) => s.rule === 'validateExistingReservation' && s.implemented
         );
 
         let status: ValidationStatus;
@@ -497,20 +744,59 @@ export class HospedinReservationValidationService {
             status = 'ERROR';
         } else if (payloadFailed) {
             status = 'PAYLOAD_INVALID';
+        } else if (datesFailed) {
+            status = 'INVALID_DATES';
+        } else if (originConflict) {
+            status = 'ORIGIN_CONFLICT';
         } else if (
             suiteMappingFailed &&
-            otherImplementedFailed.length === 0
+            statusStep?.code !== 'CANCELLED'
         ) {
-            const suiteStep = implementedFailed.find(
-                (s) => s.rule === 'validateSuiteMapping'
-            );
-            status =
-                suiteStep?.code === 'WAITING_SUITE_MAPPING'
-                    ? 'WAITING_SUITE_MAPPING'
-                    : 'ERROR';
+            // CANCEL ainda precisa de mapa? Para cancelar, mapa não é obrigatório.
+            // Se já importada, CANCEL segue; se não, erro de mapa impede CREATE.
+            if (existingStep?.code === 'ALREADY_IMPORTED') {
+                // suíte sumiu do mapa — ainda assim cancelamento deve seguir
+                if (statusStep?.code === 'CANCELLED') {
+                    status = 'CANCELLED';
+                    ready = true;
+                } else {
+                    const suiteStep = implementedFailed.find(
+                        (s) => s.rule === 'validateSuiteMapping'
+                    );
+                    status =
+                        suiteStep?.code === 'WAITING_SUITE_MAPPING'
+                            ? 'WAITING_SUITE_MAPPING'
+                            : 'ERROR';
+                }
+            } else {
+                const suiteStep = implementedFailed.find(
+                    (s) => s.rule === 'validateSuiteMapping'
+                );
+                status =
+                    suiteStep?.code === 'WAITING_SUITE_MAPPING'
+                        ? 'WAITING_SUITE_MAPPING'
+                        : 'ERROR';
+            }
+        } else if (statusStep?.code === 'CANCELLED') {
+            // CANCEL antes de qualquer consideração de hash.
+            status = 'CANCELLED';
+            ready = existingStep?.code === 'ALREADY_IMPORTED';
+            if (!ready) {
+                // Cancelada na Hospedin sem nunca ter sido criada no Jango.
+                status = 'IGNORED';
+                ready = false;
+            }
+        } else if (statusStep?.code === 'IGNORED_STATUS') {
+            status = 'IGNORED';
+            ready = false;
         } else if (implementedFailed.length === 0) {
-            status = 'READY_TO_SYNC';
-            ready = true;
+            if (existingStep?.code === 'ALREADY_IMPORTED') {
+                status = 'ALREADY_IMPORTED';
+                ready = true;
+            } else {
+                status = 'READY_TO_SYNC';
+                ready = true;
+            }
         } else {
             status = 'ERROR';
         }

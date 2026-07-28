@@ -155,6 +155,11 @@ export type HospedeCheckoutItem = {
     nome: string;
     tipo: TipoReservaHospede;
     dataNascimento: Date | null;
+    /** Vínculo opcional com Usuario (resolvido por CPF na integração). */
+    idUsuario?: number | null;
+    cpf?: string | null;
+    email?: string | null;
+    telefone?: string | null;
 };
 
 export type SuiteCheckoutItem = {
@@ -1117,6 +1122,9 @@ export async function checkoutHospedagem(params: {
                         nome: hospede.nome,
                         tipo: hospede.tipo,
                         dataNascimento: hospede.dataNascimento,
+                        ...(hospede.idUsuario != null
+                            ? { idUsuario: Number(hospede.idUsuario) }
+                            : {}),
                     },
                     { transaction: t }
                 );

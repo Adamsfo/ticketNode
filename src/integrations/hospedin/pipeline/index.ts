@@ -16,18 +16,25 @@
  *   ↓
  * ReservationSyncOrchestrator → SyncDecision
  *   ↓
- * ReservationSyncExecutor
+ *   · Import enriquece guest principal via GET /guests/{id} se payload sem nomes
  *   · monta ReservationExecutionContext
- *   · CREATE → ReservationCreationService.createFromHospedin
- *   · DomainMapper: Hospedin → params Jango (sem hóspedes fictícios)
- *   · PlaceSuiteResolver (nunca HospedinPlaceSuiteMap direto)
+ *   · CREATE → ReservationCreationService
+ *   · UPDATE → Diff → PatchBuilder → ReservationUpdateService
+ *   · CANCEL → ReservationCancellationService (encapsula cancelarReservaHospedagem)
+ *   · PlaceSuiteResolver (nunca HospedinPlaceSuiteMap direto; cache TTL curto)
  *   ↓
- * Jango (checkoutHospedagem origem=integracao / origemReserva=HOSPEDIN)
+ * Jango
  *
  * Regras:
- * - Executor não decide; não chama checkoutHospedagem diretamente.
- * - Idempotência via IntegrationSyncState (+ internal_entity_id).
- * - Payload incompleto → FAILED + validation_status PAYLOAD_INCOMPLETE.
+ * - Executor não decide.
+ * - CANCEL classificado na Validation antes do hash.
+ * - origemReserva=HOSPEDIN prevalece; senão ORIGIN_CONFLICT.
+ * - Hóspedes no UPDATE: replace completo.
+ * - Import: se só guest_id, enriquece titular via API Guests (pipeline oficial).
+ * - GuestResolverService: CPF → Usuario existente ou novo (sem sobrescrever cadastro).
+ * - Sem sync financeiro.
+ * - Logs: type, timestamp, external_id, internal_entity_id, sync_version, changes[], message.
+ * - sync_version sobe só em aplicação efetiva (CREATE / UPDATE com mudanças / CANCEL).
  */
 
 export type HospedinSyncPipelineStage =

@@ -79,9 +79,11 @@ class ReservaHospedagem extends sequelize_1.Model {
                 allowNull: true,
             },
             origemReserva: {
-                type: sequelize_1.DataTypes.ENUM('SITE', 'ATENDENTE'),
+                // VARCHAR no banco (produção já tem CLIENTE/ATENDENTE).
+                // Evita ENUM para não exigir ALTER ao incluir novas origens.
+                type: sequelize_1.DataTypes.STRING(30),
                 allowNull: false,
-                defaultValue: 'SITE',
+                defaultValue: 'CLIENTE',
             },
             idUsuarioCriacao: {
                 type: sequelize_1.DataTypes.INTEGER,
@@ -97,6 +99,19 @@ class ReservaHospedagem extends sequelize_1.Model {
                 type: sequelize_1.DataTypes.INTEGER,
                 allowNull: true,
                 references: { model: Transacao_1.Transacao, key: 'id' },
+            },
+            tokenPagamento: {
+                type: sequelize_1.DataTypes.STRING(64),
+                allowNull: true,
+                unique: true,
+            },
+            expiraEm: {
+                type: sequelize_1.DataTypes.DATE,
+                allowNull: true,
+            },
+            linkPagamentoEnviadoEm: {
+                type: sequelize_1.DataTypes.DATE,
+                allowNull: true,
             },
             dataConfirmacao: {
                 type: sequelize_1.DataTypes.DATE,

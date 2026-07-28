@@ -99,7 +99,7 @@ router.post(
     HospedinIntegrationController.activateSuiteMapping
 );
 
-/** Sync CREATE: READY → Orchestrator → Executor (sem UPDATE/CANCEL). */
+/** Sync reservas: READY → Orchestrator → Executor (CREATE | UPDATE | CANCEL). */
 router.post(
     '/api/integrations/hospedin/sync/reservations',
     authenticate,

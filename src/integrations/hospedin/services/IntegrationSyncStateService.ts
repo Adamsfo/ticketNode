@@ -28,6 +28,8 @@ export type UpsertStateInput = FindIdentityInput & {
     touchValidation?: boolean;
     touchSync?: boolean;
     incrementRetry?: boolean;
+    /** Incrementa sync_version somente em aplicação efetiva (CREATE/UPDATE/CANCEL). */
+    incrementSyncVersion?: boolean;
     correlationId?: string | null;
     reason?: string;
     operacao?: string;
@@ -123,6 +125,7 @@ export class IntegrationSyncStateService {
             correlation_id: randomUUID(),
             sync_status: IntegrationSyncStatus.NEW,
             retry_count: 0,
+            sync_version: 0,
             created_at: now,
             updated_at: now,
         });
@@ -186,6 +189,9 @@ export class IntegrationSyncStateService {
         if (input.incrementRetry) {
             patch.retry_count = Number(state.retry_count || 0) + 1;
         }
+        if (input.incrementSyncVersion) {
+            patch.sync_version = Number(state.sync_version || 0) + 1;
+        }
 
         await state.update(patch);
 
@@ -236,6 +242,8 @@ export class IntegrationSyncStateService {
         input: FindIdentityInput & {
             internalEntityId: string;
             reason?: string;
+            /** true = alteração efetiva aplicada (CREATE / UPDATE com mudanças / CANCEL). */
+            incrementSyncVersion?: boolean;
         }
     ): Promise<IntegrationSyncState> {
         return this.updateState({
@@ -244,6 +252,7 @@ export class IntegrationSyncStateService {
             internalEntityId: input.internalEntityId,
             lastError: null,
             touchSync: true,
+            incrementSyncVersion: input.incrementSyncVersion === true,
             reason: input.reason || 'Sincronização concluída',
             operacao: 'sync_state_synced',
         });
@@ -317,6 +326,7 @@ export class IntegrationSyncStateService {
             entity_type: input.state.entity_type,
             external_id: input.state.external_id,
             correlation_id: input.state.correlation_id,
+            sync_version: input.state.sync_version,
             previousStatus: input.previousStatus,
             nextStatus: input.nextStatus,
             reason: input.reason,
@@ -331,10 +341,12 @@ export class IntegrationSyncStateService {
                 id: input.state.id,
                 external_id: input.state.external_id,
                 correlation_id: input.state.correlation_id,
+                sync_version: input.state.sync_version,
             },
             response: {
                 previousStatus: input.previousStatus,
                 nextStatus: input.nextStatus,
+                sync_version: input.state.sync_version,
                 reason: input.reason,
             },
             status: 200,

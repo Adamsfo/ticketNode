@@ -1,20 +1,88 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-const getRegistros_1 = require("../utils/getRegistros");
+const EventoSuiteService_1 = require("../services/EventoSuiteService");
 const customError_1 = require("../utils/customError");
-const EventoSuite_1 = require("../models/EventoSuite");
+function requireUserId(req) {
+    const idUsuario = Number(req.user?.id);
+    if (!Number.isFinite(idUsuario) || idUsuario <= 0) {
+        throw new customError_1.CustomError('Usuário não autenticado.', 401, '');
+    }
+    return idUsuario;
+}
+function requireSuiteId(req) {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id) || id <= 0) {
+        throw new customError_1.CustomError('ID da suíte é obrigatório.', 400, '');
+    }
+    return id;
+}
 module.exports = {
     async get(req, res, next) {
-        await (0, getRegistros_1.getRegistros)(EventoSuite_1.EventoSuite, req, res, next, []);
+        try {
+            const idUsuario = requireUserId(req);
+            let filters = {};
+            if (req.query.filters) {
+                try {
+                    filters = JSON.parse(String(req.query.filters));
+                }
+                catch {
+                    throw new customError_1.CustomError('Filtros inválidos. Verifique o formato da consulta.', 400, '');
+                }
+            }
+            const idSuiteRaw = filters.id ?? undefined;
+            if (idSuiteRaw !== undefined &&
+                idSuiteRaw !== null &&
+                idSuiteRaw !== '') {
+                const idSuite = Number(idSuiteRaw);
+                if (!Number.isFinite(idSuite) || idSuite <= 0) {
+                    throw new customError_1.CustomError('ID da suíte inválido.', 400, '');
+                }
+                const registro = await EventoSuiteService_1.EventoSuiteService.getById(idUsuario, idSuite);
+                return res.status(200).json({
+                    data: [registro],
+                    meta: {
+                        totalItems: 1,
+                        totalPages: 1,
+                        currentPage: 1,
+                        pageSize: 1,
+                    },
+                });
+            }
+            const idEventoRaw = filters.idEvento ?? req.query.idEvento ?? undefined;
+            const idEvento = idEventoRaw !== undefined &&
+                idEventoRaw !== null &&
+                idEventoRaw !== ''
+                ? Number(idEventoRaw)
+                : undefined;
+            const result = await EventoSuiteService_1.EventoSuiteService.listByEvento(idUsuario, {
+                idEvento: idEvento != null && Number.isFinite(idEvento)
+                    ? idEvento
+                    : undefined,
+                page: Number(req.query.page) || 1,
+                pageSize: Number(req.query.pageSize) || 50,
+                search: req.query.search ? String(req.query.search) : undefined,
+            });
+            return res.status(200).json(result);
+        }
+        catch (error) {
+            next(error);
+        }
+    },
+    async getById(req, res, next) {
+        try {
+            const idUsuario = requireUserId(req);
+            const id = requireSuiteId(req);
+            const registro = await EventoSuiteService_1.EventoSuiteService.getById(idUsuario, id);
+            return res.status(200).json({ data: registro });
+        }
+        catch (error) {
+            next(error);
+        }
     },
     async add(req, res, next) {
         try {
-            const { nome, idTipoIngresso, idEvento, qtde, preco, taxaServico, lote, valor } = req.body;
-            //   // Validação básica
-            if (!nome || !idTipoIngresso || !idEvento || !qtde || !preco || !taxaServico || !lote || !valor) {
-                throw new customError_1.CustomError('Faltando informações em campos obrigatórios.', 400, '');
-            }
-            const registro = await EventoSuite_1.EventoSuite.create(req.body);
+            const idUsuario = requireUserId(req);
+            const registro = await EventoSuiteService_1.EventoSuiteService.create(idUsuario, req.body || {});
             return res.status(201).json(registro);
         }
         catch (error) {
@@ -23,42 +91,24 @@ module.exports = {
     },
     async edit(req, res, next) {
         try {
-            const id = req.params.id;
-            const registro = await EventoSuite_1.EventoSuite.findByPk(id);
-            if (!registro) {
-                throw new customError_1.CustomError('Registro não encontrado.', 404, '');
-            }
-            // Atualizar apenas os campos que estão definidos (não são undefined)
-            Object.keys(req.body).forEach(field => {
-                if (req.body[field] !== undefined && field in registro) {
-                    registro[field] = req.body[field];
-                }
-            });
-            await registro.save();
+            const idUsuario = requireUserId(req);
+            const id = requireSuiteId(req);
+            const registro = await EventoSuiteService_1.EventoSuiteService.update(idUsuario, id, req.body || {});
             return res.status(200).json(registro);
         }
         catch (error) {
-            next(error); // Passa o erro para o middleware de tratamento de erros
+            next(error);
         }
     },
     async delete(req, res, next) {
         try {
-            const id = req.params.id;
-            if (!id) {
-                throw new customError_1.CustomError('ID do registro é obrigatório.', 400, '');
-            }
-            // Verificar se o usuário existe
-            const registro = await EventoSuite_1.EventoSuite.findByPk(id);
-            if (!registro) {
-                throw new customError_1.CustomError('Registro não encontrado.', 404, '');
-                // return res.status(404).json({ message: 'Usuário não encontrado.' });
-            }
-            // Deletar o usuário
-            await registro.destroy();
-            return res.status(200).json({ message: 'Registro deletado com sucesso.' });
+            const idUsuario = requireUserId(req);
+            const id = requireSuiteId(req);
+            const result = await EventoSuiteService_1.EventoSuiteService.delete(idUsuario, id);
+            return res.status(200).json(result);
         }
         catch (error) {
-            next(error); // Passa o erro para o middleware de tratamento de erros
+            next(error);
         }
-    }
+    },
 };
