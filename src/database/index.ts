@@ -14,6 +14,7 @@ import { UsuarioMetodoPagamentoInit } from '../models/ClienteMetodoPagamento';
 import { CupomPromocionalInit } from '../models/CupomPromocional';
 import { VisitasInit } from '../models/Visitas';
 import { EventoSuiteInit } from '../models/EventoSuite';
+import { EventoSuiteFotoInit } from '../models/EventoSuiteFoto';
 import { ReservaHospedagemInit } from '../models/ReservaHospedagem';
 import { ReservaSuiteInit } from '../models/ReservaSuite';
 import { ReservaHospedeInit } from '../models/ReservaHospede';
@@ -21,6 +22,12 @@ import { PagamentoHospedagemInit } from '../models/PagamentoHospedagem';
 import { HospedagemPagamentoOperacaoInit } from '../models/HospedagemPagamentoOperacao';
 import { ReservaSuiteMovimentacaoInit } from '../models/ReservaSuiteMovimentacao';
 import { ReservaPeriodoMovimentacaoInit } from '../models/ReservaPeriodoMovimentacao';
+import { HospedinPlaceTypeInit } from '../models/HospedinPlaceType';
+import { HospedinPlaceInit } from '../models/HospedinPlace';
+import { HospedinReservationInit } from '../models/HospedinReservation';
+import { HospedinSyncLogInit } from '../models/HospedinSyncLog';
+import { IntegrationSyncStateInit } from '../models/IntegrationSyncState';
+import { HospedinPlaceSuiteMapInit } from '../models/HospedinPlaceSuiteMap';
 const ConfigIniciais = require('./ConfigIniciais')
 const FuncaoSistema = require('./FuncaoSistema')
 
@@ -49,6 +56,7 @@ const connection = new Sequelize(dbConfig);
     EventoIngressoInit(connection)
     IngressoInit(connection)
     EventoSuiteInit(connection)
+    EventoSuiteFotoInit(connection)
     TransacaoInit(connection)
     ReservaHospedagemInit(connection)
     ReservaSuiteInit(connection)
@@ -57,6 +65,12 @@ const connection = new Sequelize(dbConfig);
     HospedagemPagamentoOperacaoInit(connection)
     ReservaSuiteMovimentacaoInit(connection)
     ReservaPeriodoMovimentacaoInit(connection)
+    HospedinPlaceTypeInit(connection)
+    HospedinPlaceInit(connection)
+    HospedinReservationInit(connection)
+    HospedinSyncLogInit(connection)
+    IntegrationSyncStateInit(connection)
+    HospedinPlaceSuiteMapInit(connection)
     UsuarioMetodoPagamentoInit(connection)
     VisitasInit(connection)
 

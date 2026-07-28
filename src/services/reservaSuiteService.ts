@@ -819,8 +819,13 @@ export async function checkoutHospedagem(params: {
     checkin: Date;
     checkout: Date;
     suites: SuiteCheckoutItem[];
-    /** online = aguarda pagamento; recepcao = Confirmada imediatamente */
-    origem?: 'online' | 'recepcao';
+    /**
+     * online = aguarda pagamento + janela horária pública
+     * recepcao = Confirmada (ou link cliente)
+     * integracao = mesmo comportamento de confirmação da recepção,
+     *              com origemReserva = HOSPEDIN (canal externo)
+     */
+    origem?: 'online' | 'recepcao' | 'integracao';
     /**
      * Recepção: cria AguardandoPagamento + token/link para o cliente pagar
      * na infraestrutura de pagamentos existente (não altera fluxo de ingressos).
@@ -850,9 +855,10 @@ export async function checkoutHospedagem(params: {
 
     validarSuitesSemDuplicata(suites);
 
-    const isRecepcao = origem === 'recepcao';
-    const isLinkCliente = isRecepcao && !!enviarParaCliente;
-    /** Confirma na hora (recepção tradicional). Link ao cliente NÃO confirma. */
+    const isIntegracao = origem === 'integracao';
+    const isRecepcao = origem === 'recepcao' || isIntegracao;
+    const isLinkCliente = origem === 'recepcao' && !!enviarParaCliente;
+    /** Confirma na hora (recepção tradicional / integração). Link ao cliente NÃO confirma. */
     const confirmaImediatamente = isRecepcao && !isLinkCliente;
 
     if (!isRecepcao && pagamento) {
@@ -1055,8 +1061,12 @@ export async function checkoutHospedagem(params: {
                     confirmaImediatamente && pagamento?.comprovante
                         ? pagamento.comprovante
                         : null,
-                // Produção usa CLIENTE (online) e ATENDENTE (recepção). SITE = legado.
-                origemReserva: isRecepcao ? 'ATENDENTE' : 'CLIENTE',
+                // Produção: CLIENTE (online), ATENDENTE (recepção), HOSPEDIN (integração).
+                origemReserva: isIntegracao
+                    ? 'HOSPEDIN'
+                    : isRecepcao
+                      ? 'ATENDENTE'
+                      : 'CLIENTE',
                 idUsuarioCriacao: isRecepcao
                     ? idUsuarioOperador || null
                     : null,

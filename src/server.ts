@@ -21,8 +21,9 @@ const hospedagemPagamentoRoutes = require('./routes/hospedagemPagamentoRoutes');
 const transacaoRoutes = require('./routes/transacaoRoutes');
 const cupomPromocionalRoutes = require('./routes/cupomPromocialRoutes');
 const jangoRoutes = require('./routes/jangoRoutes');
-import fs from 'fs'
+const hospedinIntegrationRoutes = require('./routes/hospedinIntegrationRoutes');
 import { iniciarJobsReservaHospedagem } from './jobs/reservaHospedagemJobs';
+import { uploadStorage } from './utils/uploadStorage';
 
 // Inicializa o banco de dados
 require('./database/index');
@@ -30,7 +31,7 @@ const cors = require('cors');
 const fileupload = require('express-fileupload');
 var path = require('path');
 var publicDir = path.join(__dirname, 'public');
-var uploadsDir = path.join(__dirname, 'public/uploads');
+var uploadsDir = uploadStorage.getUploadsDir();
 const errorHandler = require('./middlewares/errorHandler');
 
 const server = express();
@@ -67,6 +68,7 @@ server.use(reservaSuiteRoutes)
 server.use(hospedagemAdminRoutes)
 server.use(hospedagemReceberSaldoRoutes)
 server.use(hospedagemPagamentoRoutes)
+server.use(hospedinIntegrationRoutes)
 
 // Tratamento de erros
 server.use(errorHandler);
@@ -76,56 +78,34 @@ server.get('/', (req: any, res: any) => {
     res.send('Hello World');
 });
 
-// Rota de upload (imagens e comprovantes)
-server.post('/upload', (req: Request, res: Response) => {
-    if (!req.body || !req.body.file) {
-        return res.status(400).send('No files were uploaded.');
+// Rota de upload (único endpoint — lógica em uploadStorage)
+server.post('/upload', async (req: Request, res: Response) => {
+    try {
+        const result = await uploadStorage.saveFromBase64({
+            file: req.body?.file,
+            prefixo: req.body?.prefixo,
+            Codigo: req.body?.Codigo,
+            mimeType: req.body?.mimeType,
+            nomeOriginal: req.body?.nomeOriginal,
+        });
+        return res.send({
+            filename: result.filename,
+            publicPath: result.publicPath,
+        });
+    } catch (err: any) {
+        const message = err?.message || 'Não foi possível salvar o arquivo.';
+        const status =
+            /nenhum arquivo|vazio|inválido|muito grande|formato|não suportado/i.test(
+                message
+            )
+                ? 400
+                : 500;
+        if (status === 500) console.error('[upload]', err);
+        return res.status(status).json({
+            status: status === 400 ? 'fail' : 'error',
+            message,
+        });
     }
-
-    const base64Data = String(req.body.file).replace(
-        /^data:[^;]+;base64,/,
-        ''
-    );
-    const buffer = Buffer.from(base64Data, 'base64');
-
-    const prefixo = String(req.body.prefixo || req.body.Codigo || 'Upload')
-        .replace(/[^a-zA-Z0-9_-]/g, '')
-        .slice(0, 40) || 'Upload';
-
-    const mime = String(req.body.mimeType || '').toLowerCase();
-    const nomeOriginal = String(req.body.nomeOriginal || '');
-    let ext = 'png';
-    if (mime.includes('pdf') || nomeOriginal.toLowerCase().endsWith('.pdf')) {
-        ext = 'pdf';
-    } else if (
-        mime.includes('jpeg') ||
-        mime.includes('jpg') ||
-        nomeOriginal.toLowerCase().endsWith('.jpg') ||
-        nomeOriginal.toLowerCase().endsWith('.jpeg')
-    ) {
-        ext = 'jpg';
-    } else if (
-        mime.includes('heic') ||
-        nomeOriginal.toLowerCase().endsWith('.heic')
-    ) {
-        ext = 'heic';
-    } else if (
-        mime.includes('png') ||
-        nomeOriginal.toLowerCase().endsWith('.png')
-    ) {
-        ext = 'png';
-    }
-
-    const filename = `${prefixo}_${Date.now()}.${ext}`;
-    const uploadPath = path.join(__dirname, '/public/uploads', filename);
-
-    fs.writeFile(uploadPath, new Uint8Array(buffer), (err) => {
-        if (err) {
-            return res.status(500).send('Error saving file.');
-        }
-
-        res.send({ filename });
-    });
 });
 
 // Inicia o WebSocket

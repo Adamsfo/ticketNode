@@ -2,22 +2,12 @@ import { getRegistros } from "../utils/getRegistros"
 import { CustomError } from '../utils/customError'
 import { Evento } from "../models/Evento";
 import { Produtor } from "../models/Produtor";
-import path from "path";
 import fs from "fs";
 import sharp from "sharp";
+import { uploadStorage } from "../utils/uploadStorage";
 
 module.exports = {
     async get(req: any, res: any, next: any) {
-        // await getRegistros(Evento, req, res, next,
-        //     [
-        //         {
-        //             model: Produtor,
-        //             as: 'Produtor',
-        //             attributes: ['logo'],
-        //         }
-        //     ]
-        // )
-
         const result = await getRegistros(Evento, req, res, next,
             [
                 {
@@ -33,22 +23,20 @@ module.exports = {
         const dataComQrCode = await Promise.all(
             data.map(async (registro: any) => {
                 try {
-                    const filePath = path.join(__dirname.replace("\controllers", ""), 'public/uploads', registro.imagem); // caminho físico no servidor                    
                     let imagemBase64 = null;
+                    if (registro.imagem) {
+                        const filePath = uploadStorage.resolvePath(registro.imagem);
+                        if (fs.existsSync(filePath)) {
+                            const buffer = await sharp(filePath)
+                                .resize({ width: 390 })
+                                .png({
+                                    compressionLevel: 9,
+                                    adaptiveFiltering: true,
+                                })
+                                .toBuffer();
 
-                    console.log("Caminho da imagem:", filePath);
-                    if (fs.existsSync(filePath)) {
-                        console.log("Caminho da imagem existe:", filePath);
-                        // Redimensiona para largura 320px e converte em PNG
-                        const buffer = await sharp(filePath)
-                            .resize({ width: 390 }) // largura ajustada para bobina
-                            .png({
-                                compressionLevel: 9,         // máxima compressão PNG
-                                adaptiveFiltering: true,     // melhora compressão em imagens simples
-                            })
-                            .toBuffer();
-
-                        imagemBase64 = buffer.toString("base64");
+                            imagemBase64 = buffer.toString("base64");
+                        }
                     }
 
                     return {
@@ -64,8 +52,6 @@ module.exports = {
                 }
             })
         );
-
-        console.log("Data enviada:", dataComQrCode);
 
         return res.status(200).json({ data: dataComQrCode, meta });
     },

@@ -19,7 +19,8 @@ export type OrigemReservaHospedagem =
     | 'LINK_CLIENTE'
     | 'BOOKING'
     | 'AIRBNB'
-    | 'EXPEDIA';
+    | 'EXPEDIA'
+    | 'HOSPEDIN';
 
 interface ReservaHospedagemAttributes {
     id: number;
