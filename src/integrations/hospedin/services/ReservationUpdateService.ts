@@ -170,6 +170,15 @@ export class ReservationUpdateService {
             replacedHospedes: hospedesResolved,
         });
 
+        const { reservationOriginEnrichmentService } = await import(
+            './ReservationOriginEnrichmentService'
+        );
+        await reservationOriginEnrichmentService.enrichFromHospedinStaging({
+            idReservaHospedagem,
+            staging: ctx.stagingReservation,
+            correlationId: ctx.correlationId,
+        });
+
         if (!diff.hasChanges && !linkChanges.length) {
             HospedinLogger.info('update:no_operational_changes', {
                 correlation_id: ctx.correlationId,

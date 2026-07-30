@@ -85,6 +85,18 @@ class ReservaHospedagem extends sequelize_1.Model {
                 allowNull: false,
                 defaultValue: 'CLIENTE',
             },
+            idExterno: {
+                type: sequelize_1.DataTypes.STRING(64),
+                allowNull: true,
+            },
+            codigoExterno: {
+                type: sequelize_1.DataTypes.STRING(64),
+                allowNull: true,
+            },
+            canalVenda: {
+                type: sequelize_1.DataTypes.STRING(40),
+                allowNull: true,
+            },
             idUsuarioCriacao: {
                 type: sequelize_1.DataTypes.INTEGER,
                 allowNull: true,

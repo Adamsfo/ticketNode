@@ -53,6 +53,11 @@ interface IntegrationSyncStateAttributes {
     last_validation_at: Date | null;
     last_sync_at: Date | null;
     last_error: string | null;
+    error_code: string | null;
+    error_severityity: string | null;
+    resolution_status: string;
+    last_success_at: Date | null;
+    next_retry_at: Date | null;
     created_at: Date;
     updated_at: Date;
 }
@@ -70,6 +75,11 @@ interface IntegrationSyncStateCreationAttributes
         | 'last_validation_at'
         | 'last_sync_at'
         | 'last_error'
+        | 'error_code'
+        | 'error_severityity'
+        | 'resolution_status'
+        | 'last_success_at'
+        | 'next_retry_at'
         | 'sync_status'
     > {}
 
@@ -95,6 +105,11 @@ class IntegrationSyncStateModel
     public last_validation_at!: Date | null;
     public last_sync_at!: Date | null;
     public last_error!: string | null;
+    public error_code!: string | null;
+    public error_severityity!: string | null;
+    public resolution_status!: string;
+    public last_success_at!: Date | null;
+    public next_retry_at!: Date | null;
     public created_at!: Date;
     public updated_at!: Date;
 
@@ -163,6 +178,27 @@ class IntegrationSyncStateModel
                 },
                 last_error: {
                     type: DataTypes.TEXT,
+                    allowNull: true,
+                },
+                error_code: {
+                    type: DataTypes.STRING(64),
+                    allowNull: true,
+                },
+                error_severityity: {
+                    type: DataTypes.STRING(20),
+                    allowNull: true,
+                },
+                resolution_status: {
+                    type: DataTypes.STRING(20),
+                    allowNull: false,
+                    defaultValue: 'OPEN',
+                },
+                last_success_at: {
+                    type: DataTypes.DATE,
+                    allowNull: true,
+                },
+                next_retry_at: {
+                    type: DataTypes.DATE,
                     allowNull: true,
                 },
                 created_at: {

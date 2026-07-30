@@ -1,13 +1,8 @@
-import { getHospedinConfig } from '../constants/config';
-
 export type HospedinSyncMode = 'incremental' | 'full';
 
 export type OperationalSyncWindow = {
     /** Início do dia corrente (local). */
     todayStart: Date;
-    /** checkout >= este instante mantém a reserva no modo incremental. */
-    historyCutoff: Date;
-    historicalSyncDays: number;
 };
 
 export function parseHospedinSyncMode(
@@ -32,43 +27,28 @@ export function parseHospedinSyncMode(
 }
 
 export function getOperationalSyncWindow(
-    now: Date = new Date(),
-    historicalSyncDays?: number
+    now: Date = new Date()
 ): OperationalSyncWindow {
-    const days =
-        historicalSyncDays ?? getHospedinConfig().historicalSyncDays;
     const todayStart = new Date(now);
     todayStart.setHours(0, 0, 0, 0);
-    const historyCutoff = new Date(todayStart);
-    historyCutoff.setDate(historyCutoff.getDate() - days);
-    return {
-        todayStart,
-        historyCutoff,
-        historicalSyncDays: days,
-    };
+    return { todayStart };
 }
 
 /**
  * Janela operacional (incremental):
- * check-in >= hoje  OR  checkout >= hoje - historicalSyncDays
+ * somente check_in >= início do dia corrente.
  *
- * Sem check-in/checkout → fora da janela (descartada no incremental).
+ * Sem check-in válido → fora da janela (descartada no incremental).
+ * O parâmetro checkout é ignorado (mantido na assinatura por compatibilidade).
  */
 export function isWithinOperationalSyncWindow(
     checkin: Date | string | null | undefined,
-    checkout: Date | string | null | undefined,
+    _checkout?: Date | string | null | undefined,
     window: OperationalSyncWindow = getOperationalSyncWindow()
 ): boolean {
     const checkInDate = toValidDate(checkin);
-    const checkOutDate = toValidDate(checkout);
-
-    if (checkInDate && checkInDate >= window.todayStart) {
-        return true;
-    }
-    if (checkOutDate && checkOutDate >= window.historyCutoff) {
-        return true;
-    }
-    return false;
+    if (!checkInDate) return false;
+    return checkInDate >= window.todayStart;
 }
 
 function toValidDate(

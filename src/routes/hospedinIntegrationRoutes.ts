@@ -75,6 +75,12 @@ router.post(
     HospedinIntegrationController.createSuiteMapping
 );
 
+router.post(
+    '/api/integrations/hospedin/mappings/suites/ignore',
+    authenticate,
+    HospedinIntegrationController.ignoreSuiteMapping
+);
+
 router.get(
     '/api/integrations/hospedin/mappings/suites/:id',
     authenticate,
@@ -85,6 +91,12 @@ router.put(
     '/api/integrations/hospedin/mappings/suites/:id',
     authenticate,
     HospedinIntegrationController.updateSuiteMapping
+);
+
+router.post(
+    '/api/integrations/hospedin/mappings/suites/:id/unignore',
+    authenticate,
+    HospedinIntegrationController.unignoreSuiteMapping
 );
 
 router.post(

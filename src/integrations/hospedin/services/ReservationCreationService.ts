@@ -104,8 +104,19 @@ export class ReservationCreationService {
             pagamento: null,
         });
 
+        const idReservaHospedagem = Number(resultado.hospedagem.id);
+
+        const { reservationOriginEnrichmentService } = await import(
+            './ReservationOriginEnrichmentService'
+        );
+        await reservationOriginEnrichmentService.enrichFromHospedinStaging({
+            idReservaHospedagem,
+            staging: ctx.stagingReservation,
+            correlationId: ctx.correlationId,
+        });
+
         return {
-            idReservaHospedagem: Number(resultado.hospedagem.id),
+            idReservaHospedagem,
             idEvento: params.idEvento,
             idEventoSuite: ctx.resolvedSuite.idEventoSuite,
         };

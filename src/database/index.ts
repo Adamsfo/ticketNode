@@ -28,6 +28,14 @@ import { HospedinReservationInit } from '../models/HospedinReservation';
 import { HospedinSyncLogInit } from '../models/HospedinSyncLog';
 import { IntegrationSyncStateInit } from '../models/IntegrationSyncState';
 import { HospedinPlaceSuiteMapInit } from '../models/HospedinPlaceSuiteMap';
+import { ReservaIdentificadorExternoInit } from '../models/ReservaIdentificadorExterno';
+import { ReservaOrigemFinanceiraInit } from '../models/ReservaOrigemFinanceira';
+import { ReservaOrigemPayloadInit } from '../models/ReservaOrigemPayload';
+import { ReservaHospedeDocumentoInit } from '../models/ReservaHospedeDocumento';
+import { IntegrationProviderConfigInit } from '../models/IntegrationProviderConfig';
+import { IntegrationProviderStateInit } from '../models/IntegrationProviderState';
+import { IntegrationSyncExecutionInit } from '../models/IntegrationSyncExecution';
+import { IntegrationEntitySyncEventInit } from '../models/IntegrationEntitySyncEvent';
 const ConfigIniciais = require('./ConfigIniciais')
 const FuncaoSistema = require('./FuncaoSistema')
 
@@ -61,6 +69,14 @@ const connection = new Sequelize(dbConfig);
     ReservaHospedagemInit(connection)
     ReservaSuiteInit(connection)
     ReservaHospedeInit(connection)
+    ReservaIdentificadorExternoInit(connection)
+    ReservaOrigemFinanceiraInit(connection)
+    ReservaOrigemPayloadInit(connection)
+    ReservaHospedeDocumentoInit(connection)
+    IntegrationProviderConfigInit(connection)
+    IntegrationProviderStateInit(connection)
+    IntegrationSyncExecutionInit(connection)
+    IntegrationEntitySyncEventInit(connection)
     PagamentoHospedagemInit(connection)
     HospedagemPagamentoOperacaoInit(connection)
     ReservaSuiteMovimentacaoInit(connection)

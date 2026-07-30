@@ -134,9 +134,15 @@ export async function enrichReservationDtoWithPrimaryGuest(
 }> {
     let working = dto;
     let payload = { ...(working.sourcePayload || {}) };
+    /** Campos da listagem (sale_channel/company) que o detail costuma omitir. */
+    const listHints = pickListChannelHints(payload);
 
     if (payloadHasNamedGuests(payload)) {
-        return { dto: working, enriched: false, skippedReason: 'already_named' };
+        return {
+            dto: mergeListHintsIntoDto(working, listHints),
+            enriched: false,
+            skippedReason: 'already_named',
+        };
     }
 
     let guestId = asNumber(payload.guest_id);
@@ -147,7 +153,7 @@ export async function enrichReservationDtoWithPrimaryGuest(
     if (guestId == null || guestId <= 0) {
         if (!isOperationalStatus(working.status)) {
             return {
-                dto: working,
+                dto: mergeListHintsIntoDto(working, listHints),
                 enriched: false,
                 skippedReason: 'non_operational_no_guest_id',
             };
@@ -157,7 +163,13 @@ export async function enrichReservationDtoWithPrimaryGuest(
                 working.reservationId,
                 options?.accountId
             );
-            payload = { ...(working.sourcePayload || {}) };
+            payload = {
+                ...listHints,
+                ...(working.sourcePayload || {}),
+            };
+            // Preferir sale_channel/company da lista quando o detail não traz.
+            payload = applyListHints(payload, listHints);
+            working = { ...working, sourcePayload: payload };
             if (payloadHasNamedGuests(payload)) {
                 return {
                     dto: working,
@@ -175,7 +187,7 @@ export async function enrichReservationDtoWithPrimaryGuest(
                 }
             );
             return {
-                dto,
+                dto: mergeListHintsIntoDto(dto, listHints),
                 enriched: false,
                 skippedReason: 'detail_fetch_failed',
             };
@@ -183,7 +195,11 @@ export async function enrichReservationDtoWithPrimaryGuest(
     }
 
     if (guestId == null || guestId <= 0) {
-        return { dto: working, enriched: false, skippedReason: 'no_guest_id' };
+        return {
+            dto: mergeListHintsIntoDto(working, listHints),
+            enriched: false,
+            skippedReason: 'no_guest_id',
+        };
     }
 
     const cache = options?.guestCache;
@@ -225,13 +241,11 @@ export async function enrichReservationDtoWithPrimaryGuest(
         type: 'adult',
         birth: guest.birth,
         email: guest.email,
-        cpf:
-            guest.sourcePayload?.ssn ||
-            guest.sourcePayload?.identification ||
-            guest.sourcePayload?.cpf ||
-            null,
+        cpf: guest.sourcePayload?.ssn || guest.sourcePayload?.cpf || null,
         ssn: guest.sourcePayload?.ssn ?? null,
         identification: guest.sourcePayload?.identification ?? null,
+        passport: guest.sourcePayload?.passport ?? null,
+        note: guest.sourcePayload?.note ?? null,
         phone: guest.sourcePayload?.contact
             ? (guest.sourcePayload.contact as any).phone
             : null,
@@ -239,14 +253,17 @@ export async function enrichReservationDtoWithPrimaryGuest(
         source: 'hospedin_guests_api',
     };
 
-    const enrichedPayload: Record<string, unknown> = {
-        ...payload,
-        guest_id: guest.guestId,
-        main_guest: mainGuest,
-        guests: [mainGuest],
-        _jango_guest_enriched: true,
-        _jango_guest_enriched_at: new Date().toISOString(),
-    };
+    const enrichedPayload: Record<string, unknown> = applyListHints(
+        {
+            ...payload,
+            guest_id: guest.guestId,
+            main_guest: mainGuest,
+            guests: [mainGuest],
+            _jango_guest_enriched: true,
+            _jango_guest_enriched_at: new Date().toISOString(),
+        },
+        listHints
+    );
 
     HospedinLogger.info('guest enrich ok', {
         reservation_id: working.reservationId,
@@ -260,5 +277,37 @@ export async function enrichReservationDtoWithPrimaryGuest(
             sourcePayload: enrichedPayload,
         },
         enriched: true,
+    };
+}
+
+function pickListChannelHints(
+    payload: Record<string, unknown>
+): Record<string, unknown> {
+    const hints: Record<string, unknown> = {};
+    if (payload.sale_channel != null) hints.sale_channel = payload.sale_channel;
+    if (payload.company != null) hints.company = payload.company;
+    if (payload.company_name != null) hints.company_name = payload.company_name;
+    return hints;
+}
+
+function applyListHints(
+    payload: Record<string, unknown>,
+    hints: Record<string, unknown>
+): Record<string, unknown> {
+    const next = { ...payload };
+    for (const [k, v] of Object.entries(hints)) {
+        if (next[k] == null || next[k] === '') next[k] = v;
+    }
+    return next;
+}
+
+function mergeListHintsIntoDto(
+    dto: HospedinReservationDto,
+    hints: Record<string, unknown>
+): HospedinReservationDto {
+    if (!Object.keys(hints).length) return dto;
+    return {
+        ...dto,
+        sourcePayload: applyListHints({ ...(dto.sourcePayload || {}) }, hints),
     };
 }

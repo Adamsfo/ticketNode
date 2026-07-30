@@ -73,6 +73,12 @@ export {
     ReservationCreationService,
     reservationCreationService,
 } from './services/ReservationCreationService';
+export {
+    ReservationOriginEnrichmentService,
+    reservationOriginEnrichmentService,
+    normalizeCanalVenda,
+    INTEGRATION_PROVIDER_HOSPEDIN,
+} from './services/ReservationOriginEnrichmentService';
 export * from './sync';
 export * from './validation';
 export * from './pipeline';
@@ -86,6 +92,8 @@ export type {
     HospedinTestStep,
     HospedinTestStepName,
 } from './services/HospedinConnectivityTestService';
+
+export { hospedinSyncProvider, HospedinSyncProvider } from './HospedinSyncProvider';
 
 /** @deprecated Não usar no MVP (403). */
 export {

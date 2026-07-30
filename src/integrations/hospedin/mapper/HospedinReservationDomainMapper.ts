@@ -186,6 +186,12 @@ export const HospedinReservationDomainMapper = {
             })),
         };
     },
+
+    /** Observações seccionadas a partir do staging (sem prefixo técnico). */
+    buildObservacoesFromStaging(staging: HospedinReservation): string | null {
+        const dto = this.toDtoFromStaging(staging);
+        return buildObservacoes(dto, dto.sourcePayload || {});
+    },
 };
 
 function readPayload(
@@ -203,28 +209,61 @@ function readPayload(
     return asRecord(raw);
 }
 
+/**
+ * Monta observações em seções (sem cabeçalhos técnicos tipo "Hospedin #…").
+ * Seções vazias são omitidas.
+ */
 function buildObservacoes(
-    dto: HospedinReservationDto,
+    _dto: HospedinReservationDto,
     payload: Record<string, unknown>
 ): string | null {
-    const parts: string[] = [];
-    const code = dto.searchableCode || asString(payload.searchable_code);
-    parts.push(
-        code
-            ? `Hospedin #${code} (id=${dto.reservationId})`
-            : `Hospedin id=${dto.reservationId}`
-    );
+    const sections: string[] = [];
 
-    const notes =
+    const reservaNote =
         asString(payload.note) ||
         asString(payload.notes) ||
         asString(payload.observation) ||
         asString(payload.observations) ||
         asString(payload.obs) ||
         asString(payload.comment);
-    if (notes) parts.push(notes);
+    if (reservaNote) {
+        sections.push(`Reserva\n${reservaNote.trim()}`);
+    }
 
-    return parts.join(' — ').slice(0, 2000);
+    const mainGuest =
+        asRecord(payload.main_guest) ||
+        asRecord(payload.guest) ||
+        asRecord(payload.customer) ||
+        asRecord(payload.client);
+    const guestNote =
+        asString(mainGuest?.note) ||
+        asString(mainGuest?.notes) ||
+        asString(mainGuest?.observation) ||
+        asString(mainGuest?.observations);
+    if (guestNote) {
+        sections.push(`Hóspede\n${guestNote.trim()}`);
+    }
+
+    const special =
+        asString(payload.special_requests) ||
+        asString(payload.special_request) ||
+        asString(payload.guest_requests) ||
+        asString(payload.pedido_especial) ||
+        asString(payload.requests);
+    if (special) {
+        sections.push(`Pedido especial\n${special.trim()}`);
+    }
+
+    const other =
+        asString(payload.internal_note) ||
+        asString(payload.staff_note) ||
+        asString(payload.additional_info);
+    if (other) {
+        sections.push(`Informações adicionais\n${other.trim()}`);
+    }
+
+    if (!sections.length) return null;
+    return sections.join('\n\n').slice(0, 4000);
 }
 
 function extractGuests(
@@ -330,14 +369,12 @@ function mapGuestRecord(
 
 function guestContactFields(row: Record<string, unknown>) {
     const contact = asRecord(row.contact);
-    const cpf =
-        asString(row.cpf) ||
-        asString(row.ssn) ||
-        asString(row.identification) ||
-        asString(row.document) ||
-        asString(row.tax_id) ||
-        asString(row.documento) ||
-        null;
+        const cpf =
+            asString(row.cpf) ||
+            asString(row.ssn) ||
+            asString(row.documento) ||
+            null;
+        // identification/passport são documentos — não usar como CPF.
     const email = asString(row.email) || asString(contact.email) || null;
     const telefone =
         asString(row.phone) ||

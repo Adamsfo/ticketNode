@@ -1,13 +1,23 @@
 import { DataTypes, Model, Optional, Sequelize } from 'sequelize';
 import { EventoSuite } from './EventoSuite';
 
+/** Estado operacional do mapeamento. UNMAPPED = sem linha ativa. */
+export const PlaceSuiteMappingStatus = {
+    LINKED: 'LINKED',
+    IGNORED: 'IGNORED',
+} as const;
+
+export type PlaceSuiteMappingStatusValue =
+    (typeof PlaceSuiteMappingStatus)[keyof typeof PlaceSuiteMappingStatus];
+
 interface HospedinPlaceSuiteMapAttributes {
     id: number;
     provider: string;
     place_id: number;
-    id_evento_suite: number;
+    id_evento_suite: number | null;
     id_evento: number | null;
     ativo: boolean;
+    mapping_status: string;
     notes: string | null;
     mapped_at: Date;
     mapped_by: number | null;
@@ -20,8 +30,10 @@ interface HospedinPlaceSuiteMapCreationAttributes
         HospedinPlaceSuiteMapAttributes,
         | 'id'
         | 'provider'
+        | 'id_evento_suite'
         | 'id_evento'
         | 'ativo'
+        | 'mapping_status'
         | 'notes'
         | 'mapped_by'
     > {}
@@ -36,9 +48,10 @@ class HospedinPlaceSuiteMapModel
     public id!: number;
     public provider!: string;
     public place_id!: number;
-    public id_evento_suite!: number;
+    public id_evento_suite!: number | null;
     public id_evento!: number | null;
     public ativo!: boolean;
+    public mapping_status!: string;
     public notes!: string | null;
     public mapped_at!: Date;
     public mapped_by!: number | null;
@@ -65,7 +78,7 @@ class HospedinPlaceSuiteMapModel
                 },
                 id_evento_suite: {
                     type: DataTypes.INTEGER,
-                    allowNull: false,
+                    allowNull: true,
                     unique: true,
                     references: {
                         model: EventoSuite,
@@ -80,6 +93,11 @@ class HospedinPlaceSuiteMapModel
                     type: DataTypes.BOOLEAN,
                     allowNull: false,
                     defaultValue: true,
+                },
+                mapping_status: {
+                    type: DataTypes.STRING(20),
+                    allowNull: false,
+                    defaultValue: PlaceSuiteMappingStatus.LINKED,
                 },
                 notes: {
                     type: DataTypes.STRING(255),

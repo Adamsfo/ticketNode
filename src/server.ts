@@ -22,7 +22,9 @@ const transacaoRoutes = require('./routes/transacaoRoutes');
 const cupomPromocionalRoutes = require('./routes/cupomPromocialRoutes');
 const jangoRoutes = require('./routes/jangoRoutes');
 const hospedinIntegrationRoutes = require('./routes/hospedinIntegrationRoutes');
+const integrationAdminRoutes = require('./routes/integrationAdminRoutes');
 import { iniciarJobsReservaHospedagem } from './jobs/reservaHospedagemJobs';
+import { iniciarJobsIntegracaoSync } from './jobs/integrationSyncJobs';
 import { uploadStorage } from './utils/uploadStorage';
 
 // Inicializa o banco de dados
@@ -69,6 +71,7 @@ server.use(hospedagemAdminRoutes)
 server.use(hospedagemReceberSaldoRoutes)
 server.use(hospedagemPagamentoRoutes)
 server.use(hospedinIntegrationRoutes)
+server.use(integrationAdminRoutes)
 
 // Tratamento de erros
 server.use(errorHandler);
@@ -116,4 +119,5 @@ const PORT = process.env.PORT || 9000; // Define a porta padrão como 9000 se n�
 httpServer.listen(PORT, () => {
     console.log(`Servidor rodando no endereço: ${process.env.BASE || `http://localhost:${PORT}`} e porta ${PORT}`);
     iniciarJobsReservaHospedagem();
+    void iniciarJobsIntegracaoSync();
 });

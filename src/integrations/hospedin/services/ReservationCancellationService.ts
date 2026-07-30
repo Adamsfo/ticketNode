@@ -64,6 +64,15 @@ export class ReservationCancellationService {
             `Cancelamento sincronizado Hospedin (reservation_id=${ctx.decision.reservationId}).`
         );
 
+        const { reservationOriginEnrichmentService } = await import(
+            './ReservationOriginEnrichmentService'
+        );
+        await reservationOriginEnrichmentService.enrichFromHospedinStaging({
+            idReservaHospedagem,
+            staging: ctx.stagingReservation,
+            correlationId: ctx.correlationId,
+        });
+
         HospedinLogger.info('cancellation:done', {
             correlation_id: ctx.correlationId,
             reservation_id: ctx.decision.reservationId,

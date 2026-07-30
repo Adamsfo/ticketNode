@@ -60,8 +60,21 @@ function resolverOrigemReserva(
         valorPago?: number;
     },
     temPagamentoHospedagem = false
-): 'CLIENTE' | 'ATENDENTE' {
-    // Produção: CLIENTE | ATENDENTE. SITE = legado (tratado como CLIENTE na UI).
+): string {
+    const raw = String(reserva.origemReserva || '').toUpperCase();
+    // Integrações / canais externos: preservar o valor real (não colapsar).
+    if (raw === 'HOSPEDIN') return 'HOSPEDIN';
+    if (
+        raw === 'BOOKING' ||
+        raw === 'AIRBNB' ||
+        raw === 'EXPEDIA' ||
+        raw === 'TELEFONE' ||
+        raw === 'BALCAO' ||
+        raw === 'BALCÃO'
+    ) {
+        return raw === 'BALCÃO' ? 'BALCAO' : raw;
+    }
+    // Produção local: CLIENTE | ATENDENTE. SITE = legado (tratado como CLIENTE na UI).
     if (reserva.origemReserva === 'ATENDENTE') {
         return 'ATENDENTE';
     }
@@ -76,6 +89,138 @@ function resolverOrigemReserva(
         return 'ATENDENTE';
     }
     return 'CLIENTE';
+}
+
+function centsToNumber(cents: number | null | undefined): number | null {
+    if (cents == null || !Number.isFinite(Number(cents))) return null;
+    return Number(cents) / 100;
+}
+
+/** Metadados multi-provedor (Fase 1) para auditoria no modal admin. */
+async function carregarOrigemIntegracao(idReservaHospedagem: number) {
+    const { ReservaIdentificadorExterno } = await import(
+        '../models/ReservaIdentificadorExterno'
+    );
+    const { ReservaOrigemFinanceira } = await import(
+        '../models/ReservaOrigemFinanceira'
+    );
+    const { ReservaOrigemPayload } = await import(
+        '../models/ReservaOrigemPayload'
+    );
+    const { ReservaHospedeDocumento } = await import(
+        '../models/ReservaHospedeDocumento'
+    );
+
+    const [identificadores, financeira, payloads, suiteRows] =
+        await Promise.all([
+            ReservaIdentificadorExterno.findAll({
+                where: { idReservaHospedagem },
+                order: [['id', 'ASC']],
+            }),
+            ReservaOrigemFinanceira.findOne({
+                where: { idReservaHospedagem },
+            }),
+            ReservaOrigemPayload.findAll({
+                where: { idReservaHospedagem },
+                order: [['capturedAt', 'DESC']],
+            }),
+            ReservaSuite.findAll({
+                where: { idReservaHospedagem },
+                attributes: ['id'],
+            }),
+        ]);
+
+    const suiteIds = suiteRows.map((s) => s.id);
+    const hospedes =
+        suiteIds.length > 0
+            ? await ReservaHospede.findAll({
+                  where: { idReservaSuite: { [Op.in]: suiteIds } },
+                  attributes: ['id', 'nome', 'tipo'],
+                  order: [['id', 'ASC']],
+              })
+            : [];
+    const hospedeIds = hospedes.map((h) => h.id);
+    const docs =
+        hospedeIds.length > 0
+            ? await ReservaHospedeDocumento.findAll({
+                  where: { idReservaHospede: { [Op.in]: hospedeIds } },
+                  order: [['id', 'ASC']],
+              })
+            : [];
+
+    const hospedePorId = new Map(hospedes.map((h) => [h.id, h]));
+    const documentos = docs.map((d) => {
+        const h = hospedePorId.get(d.idReservaHospede);
+        return {
+            id: d.id,
+            idReservaHospede: d.idReservaHospede,
+            hospedeNome: h?.nome ?? null,
+            hospedeTipo: h?.tipo ?? null,
+            provider: d.provider ?? null,
+            tipo: d.tipo,
+            numero: d.numero,
+            paisEmissao: d.paisEmissao ?? null,
+            observacao: d.observacao ?? null,
+        };
+    });
+
+    const fin = financeira
+        ? {
+              provider: financeira.provider,
+              moeda: financeira.moeda ?? null,
+              total: centsToNumber(financeira.totalCents),
+              received: centsToNumber(financeira.receivedCents),
+              toReceive: centsToNumber(financeira.toReceiveCents),
+              daily: centsToNumber(financeira.dailyCents),
+              totalDaily: centsToNumber(financeira.totalDailyCents),
+              discount: centsToNumber(financeira.discountCents),
+              product: centsToNumber(financeira.productCents),
+              service: centsToNumber(financeira.serviceCents),
+              itemsCount: financeira.itemsCount ?? null,
+              paymentFromOta: financeira.paymentFromOta ?? null,
+              statusPagamento: financeira.statusPagamento ?? null,
+              formaPagamento: financeira.formaPagamento ?? null,
+              origemPagamento: financeira.origemPagamento ?? null,
+              responsavelPagamento: financeira.responsavelPagamento ?? null,
+              syncedAt: financeira.syncedAt,
+              aviso: 'Informativo da origem — não substitui o financeiro oficial do Jango.',
+          }
+        : null;
+
+    const payloadsOut = payloads.map((p) => ({
+        id: p.id,
+        provider: p.provider,
+        kind: p.kind,
+        externalId: p.externalId ?? null,
+        payloadHash: p.payloadHash,
+        capturedAt: p.capturedAt,
+        payloadJson: p.payloadJson,
+    }));
+
+    let ultimaSincronizacao: Date | null = null;
+    const candidatos: Date[] = [];
+    if (financeira?.syncedAt) candidatos.push(new Date(financeira.syncedAt));
+    for (const p of payloads) {
+        if (p.capturedAt) candidatos.push(new Date(p.capturedAt));
+    }
+    if (candidatos.length > 0) {
+        ultimaSincronizacao = new Date(
+            Math.max(...candidatos.map((d) => d.getTime()))
+        );
+    }
+
+    return {
+        identificadores: identificadores.map((i) => ({
+            id: i.id,
+            provider: i.provider,
+            tipo: i.tipo,
+            valor: i.valor,
+        })),
+        financeira: fin,
+        documentos,
+        payloads: payloadsOut,
+        ultimaSincronizacao,
+    };
 }
 
 /** Consolida valor pago / saldo (colunas denormalizadas ou soma de PagamentoHospedagem). */
@@ -129,6 +274,7 @@ export type FiltroReservasAdmin =
     | 'expiradas'
     | 'online'
     | 'atendente'
+    | 'sync_erro'
     | 'todos'
     | '';
 
@@ -457,6 +603,29 @@ export async function listarReservasAdmin(params: {
         ...(whereFiltro || {}),
     };
 
+    if (filtro === 'sync_erro') {
+        const { findInternalIdsWithSyncError } = await import(
+            '../integrations/core/SyncMonitorService'
+        );
+        const idsErro = await findInternalIdsWithSyncError(1000);
+        if (idsErro.length === 0) {
+            return {
+                data: [],
+                meta: {
+                    page,
+                    pageSize,
+                    total: 0,
+                    totalPages: 0,
+                    hasMore: false,
+                    filtro,
+                    ordenacao,
+                    busca: busca || null,
+                },
+            };
+        }
+        (whereReserva as any).id = { [Op.in]: idsErro };
+    }
+
     if (busca) {
         const like = `%${busca}%`;
         const orBusca: any[] = [
@@ -548,10 +717,39 @@ export async function listarReservasAdmin(params: {
     });
 
     const data = (rows as ReservaComIncludes[]).map(mapearResumoLista);
+
+    const { getSyncStatesByInternalIds } = await import(
+        '../integrations/core/SyncMonitorService'
+    );
+    const syncMap = await getSyncStatesByInternalIds(
+        data.map((d) => d.idReservaHospedagem)
+    );
+    const dataComSync = data.map((d) => {
+        const sync = syncMap.get(String(d.idReservaHospedagem));
+        if (!sync) return d;
+        return {
+            ...d,
+            syncIntegracao: {
+                uiStatus: sync.uiStatus,
+                syncStatus: sync.syncStatus,
+                syncAction: sync.syncAction,
+                lastError: sync.lastError,
+                errorCode: sync.errorCode,
+                errorSeverity: sync.errorSeverity,
+                errorSeverityLabel: sync.errorSeverityLabel,
+                lastSyncAt: sync.lastSyncAt,
+                lastSuccessAt: sync.lastSuccessAt,
+                retryCount: sync.retryCount,
+                provider: sync.provider,
+                externalId: sync.externalId,
+            },
+        };
+    });
+
     const totalPages = Math.max(1, Math.ceil(count / pageSize));
 
     return {
-        data,
+        data: dataComSync,
         meta: {
             page,
             pageSize,
@@ -1082,6 +1280,21 @@ export async function obterReservaAdminDetalhe(
         pagamentos.length > 0 || valorPago > 0
     );
 
+    const idExterno =
+        (reserva as ReservaHospedagem).idExterno ?? null;
+    const codigoExterno =
+        (reserva as ReservaHospedagem).codigoExterno ?? null;
+    const canalVenda =
+        (reserva as ReservaHospedagem).canalVenda ?? null;
+
+    const deveCarregarOrigemIntegracao =
+        String(origemReserva).toUpperCase() === 'HOSPEDIN' ||
+        Boolean(idExterno) ||
+        Boolean(canalVenda);
+    const origemIntegracao = deveCarregarOrigemIntegracao
+        ? await carregarOrigemIntegracao(reserva.id)
+        : null;
+
     const idEventoSuiteOperacao = suites[0]?.idEventoSuite ?? null;
     const dataOp =
         dataSelecionada && /^\d{4}-\d{2}-\d{2}$/.test(dataSelecionada)
@@ -1149,6 +1362,16 @@ export async function obterReservaAdminDetalhe(
                 comprovantePagamento?: string | null;
             }).comprovantePagamento ?? null,
         origemReserva,
+        idExterno,
+        codigoExterno,
+        canalVenda,
+        origemIntegracao,
+        syncIntegracao: await (async () => {
+            const { getSyncStateByInternalId } = await import(
+                '../integrations/core/SyncMonitorService'
+            );
+            return getSyncStateByInternalId(reserva.id);
+        })(),
         idUsuarioCriacao:
             (reserva as ReservaHospedagem & {
                 idUsuarioCriacao?: number | null;
@@ -1925,6 +2148,49 @@ function filtrarCardsOperacionais<
     }
 }
 
+/**
+ * Prioridade operacional para a grade (atenção primeiro),
+ * depois nome alfabético dentro do grupo.
+ *
+ * 1 Hospedada → 2 Check-in → 3 Check-out → 4 Aguardando pag. →
+ * 5 Reservada → 6 Livre → 7 Manutenção → 8 Bloqueada
+ */
+function prioridadeCardOperacional(card: {
+    badge?: string | null;
+    status?: string | null;
+}): number {
+    const badge = String(card.badge || '').toUpperCase();
+    const status = String(card.status || '');
+
+    if (badge === 'HOSPEDADA' || status === 'Hospedada') return 1;
+    if (badge === 'CHECKIN_HOJE' || status === 'CheckInHoje') return 2;
+    if (badge === 'CHECKOUT_HOJE' || status === 'CheckOutHoje') return 3;
+    if (
+        badge === 'AGUARDANDO_PAGAMENTO' ||
+        status === 'AguardandoPagamento'
+    ) {
+        return 4;
+    }
+    if (badge === 'RESERVADA' || status === 'Ocupada') return 5;
+    if (status === 'Manutencao') return 7;
+    if (status === 'Bloqueada') return 8;
+    return 6; // Livre / demais
+}
+
+function ordenarCardsOperacionais<
+    T extends { nome?: string | null; badge?: string | null; status?: string | null }
+>(cards: T[]): T[] {
+    return [...cards].sort((a, b) => {
+        const pa = prioridadeCardOperacional(a);
+        const pb = prioridadeCardOperacional(b);
+        if (pa !== pb) return pa - pb;
+        return String(a.nome || '').localeCompare(String(b.nome || ''), 'pt-BR', {
+            sensitivity: 'base',
+            numeric: true,
+        });
+    });
+}
+
 export async function listarSituacaoSuites(params: {
     idUsuario: number;
     filtro?: string;
@@ -2024,6 +2290,7 @@ export async function listarSituacaoSuites(params: {
     });
 
     cards = filtrarCardsOperacionais(cards, filtro);
+    cards = ordenarCardsOperacionais(cards);
 
     return {
         data: cards,

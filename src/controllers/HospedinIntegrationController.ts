@@ -296,7 +296,11 @@ module.exports = {
                 ...new Set(items.map((i: any) => Number(i.place_id))),
             ];
             const suiteIds = [
-                ...new Set(items.map((i: any) => Number(i.id_evento_suite))),
+                ...new Set(
+                    items
+                        .map((i: any) => Number(i.id_evento_suite))
+                        .filter((n: number) => Number.isFinite(n) && n > 0)
+                ),
             ];
             const places =
                 placeIds.length > 0
@@ -460,6 +464,41 @@ module.exports = {
                 id,
                 mappedBy
             );
+            return res.status(200).json(row);
+        } catch (error: any) {
+            return mapHospedinError(error, next);
+        }
+    },
+
+    async ignoreSuiteMapping(req: any, res: any, next: any) {
+        try {
+            const placeId = Number(req.body?.placeId ?? req.body?.place_id);
+            const notes =
+                req.body?.notes != null ? String(req.body.notes) : null;
+            const mappedBy = Number(req.user?.id) || null;
+
+            const row = await hospedinPlaceSuiteMapService.ignorePlace({
+                placeId,
+                notes,
+                mappedBy,
+            });
+            return res.status(200).json(row);
+        } catch (error: any) {
+            return mapHospedinError(error, next);
+        }
+    },
+
+    async unignoreSuiteMapping(req: any, res: any, next: any) {
+        try {
+            const id = Number(req.params?.id);
+            if (!Number.isFinite(id) || id <= 0) {
+                throw new CustomError('id inválido.', 400, 'HOSPEDIN_MAPPING');
+            }
+            const mappedBy = Number(req.user?.id) || null;
+            const row = await hospedinPlaceSuiteMapService.unignorePlace({
+                id,
+                mappedBy,
+            });
             return res.status(200).json(row);
         } catch (error: any) {
             return mapHospedinError(error, next);

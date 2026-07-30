@@ -31,8 +31,8 @@ export type HospedinConfig = {
      */
     syncUserId: number | null;
     /**
-     * Janela histórica do sync incremental (dias):
-     * mantém reservas com checkout >= hoje - N (além de check-in >= hoje).
+     * @deprecated Incremental usa apenas check_in >= hoje.
+     * Mantido por compatibilidade de env; não afeta o filtro operacional.
      */
     historicalSyncDays: number;
 };

@@ -5,7 +5,6 @@ import {
     type IntegrationSyncStatusValue,
 } from '../../../models/IntegrationSyncState';
 import { HospedinReservation } from '../../../models/HospedinReservation';
-import { getHospedinConfig } from '../constants/config';
 import type { HospedinReservationDto } from '../dto';
 import { HospedinLogger } from '../logger/HospedinLogger';
 import { HospedinReservationMapper } from '../mapper/HospedinReservationMapper';
@@ -29,6 +28,14 @@ import {
     isHospedinCancelledStatus,
     isHospedinSyncableActiveStatus,
 } from '../sync/hospedinReservationStatus';
+import {
+    isPermanentNonActionableError,
+    normalizeSyncErrorCode,
+    severityForErrorCode,
+    SyncErrorCode,
+    SyncResolutionStatus,
+} from '../../core/syncErrorClassification';
+import { recordEntitySyncEvent } from '../../core/EntitySyncEventService';
 
 type ValidationContext = {
     reservationId: number;
@@ -188,7 +195,7 @@ export class HospedinReservationValidationService {
 
     /**
      * Valida staging. No modo incremental (padrão), aplica a mesma janela
-     * operacional do Import (check-in >= hoje OU checkout >= hoje - N).
+     * operacional do Import (somente check_in >= hoje).
      * mode=full valida absolutamente todas as linhas do staging.
      */
     async validateAll(options?: {
@@ -198,15 +205,10 @@ export class HospedinReservationValidationService {
         ready: number;
         discarded: number;
         mode: 'incremental' | 'full';
-        historicalSyncDays: number;
         results: ValidationResult[];
     }> {
         const mode = parseHospedinSyncMode(options?.mode, 'incremental');
-        const historicalSyncDays = getHospedinConfig().historicalSyncDays;
-        const window = getOperationalSyncWindow(
-            new Date(),
-            historicalSyncDays
-        );
+        const window = getOperationalSyncWindow();
 
         const rows = await HospedinReservation.findAll({
             attributes: ['reservation_id', 'checkin', 'checkout'],
@@ -237,7 +239,6 @@ export class HospedinReservationValidationService {
             ready: results.filter((r) => r.ready).length,
             discarded,
             mode,
-            historicalSyncDays,
             results,
         };
     }
@@ -408,6 +409,16 @@ export class HospedinReservationValidationService {
         const resolved = await placeSuiteResolver.resolveInternalSuite(placeId);
 
         if (!resolved.found) {
+            if (resolved.status === 'IGNORED') {
+                return {
+                    rule: 'validateSuiteMapping',
+                    success: true,
+                    message: resolved.message,
+                    durationMs: Date.now() - started,
+                    implemented: true,
+                    code: 'SUITE_IGNORED',
+                };
+            }
             return {
                 rule: 'validateSuiteMapping',
                 success: false,
@@ -579,8 +590,18 @@ export class HospedinReservationValidationService {
 
         // CANCEL é classificado antes do hash (nunca engolido por UNCHANGED).
         const payloadHash = integrationSyncStateService.hashPayload(payload);
+        const suiteIgnoredStep = result.validations.find(
+            (s) =>
+                s.rule === 'validateSuiteMapping' && s.code === 'SUITE_IGNORED'
+        );
+        const suiteIgnored = Boolean(suiteIgnoredStep);
         const errorText =
-            result.errors.length > 0 ? result.errors.join('; ') : null;
+            result.errors.length > 0
+                ? result.errors.join('; ')
+                : suiteIgnored
+                  ? suiteIgnoredStep?.message ||
+                    'Suíte ignorada por configuração'
+                  : null;
 
         let finalValidation = result.status;
         if (
@@ -604,16 +625,60 @@ export class HospedinReservationValidationService {
         });
 
         const finalStatus = this.mapValidationToSyncStatus(finalValidation);
+        const errorCode =
+            finalStatus === IntegrationSyncStatus.FAILED ||
+            finalStatus === IntegrationSyncStatus.IGNORED ||
+            finalStatus === IntegrationSyncStatus.WAIT_MAPPING
+                ? normalizeSyncErrorCode(
+                      suiteIgnored ? 'SUITE_IGNORED' : finalValidation,
+                      errorText
+                  )
+                : null;
+
+        let resolutionStatus: string | null = null;
+        if (finalStatus === IntegrationSyncStatus.SYNCED) {
+            resolutionStatus = SyncResolutionStatus.RESOLVED;
+        } else if (
+            finalStatus === IntegrationSyncStatus.IGNORED ||
+            (errorCode &&
+                isPermanentNonActionableError(errorCode, errorText))
+        ) {
+            resolutionStatus = SyncResolutionStatus.IGNORED;
+        } else if (
+            finalStatus === IntegrationSyncStatus.FAILED ||
+            finalStatus === IntegrationSyncStatus.WAIT_MAPPING
+        ) {
+            resolutionStatus = SyncResolutionStatus.OPEN;
+        }
+
+        const effectiveSyncStatus =
+            resolutionStatus === SyncResolutionStatus.IGNORED &&
+            finalStatus === IntegrationSyncStatus.FAILED
+                ? IntegrationSyncStatus.IGNORED
+                : finalStatus;
+
         let state = await integrationSyncStateService.updateState({
             ...identity,
-            syncStatus: finalStatus,
+            syncStatus: effectiveSyncStatus,
             validationStatus: finalValidation,
             lastError:
-                finalStatus === IntegrationSyncStatus.FAILED ? errorText : null,
+                effectiveSyncStatus === IntegrationSyncStatus.FAILED ||
+                effectiveSyncStatus === IntegrationSyncStatus.WAIT_MAPPING ||
+                effectiveSyncStatus === IntegrationSyncStatus.IGNORED
+                    ? errorText
+                    : null,
+            errorCode,
+            errorSeverity: errorCode
+                ? severityForErrorCode(errorCode)
+                : null,
+            resolutionStatus: resolutionStatus ?? undefined,
+            clearNextRetry:
+                resolutionStatus === SyncResolutionStatus.IGNORED ||
+                resolutionStatus === SyncResolutionStatus.RESOLVED,
             reason:
                 finalValidation === 'UNCHANGED'
                     ? 'Already synchronized (payload_hash igual).'
-                    : `Estado pós-validação: ${finalStatus}`,
+                    : `Estado pós-validação: ${effectiveSyncStatus}`,
             operacao: 'sync_state_after_validation',
         });
 
@@ -634,6 +699,22 @@ export class HospedinReservationValidationService {
             sync_action: state.sync_action,
             decision_reason: decision.reason,
         });
+
+        if (suiteIgnored) {
+            await recordEntitySyncEvent({
+                provider: IntegrationProvider.HOSPEDIN,
+                externalId: result.reservationId,
+                internalEntityId: state.internal_entity_id,
+                operation: 'VALIDATE',
+                result: 'IGNORED',
+                errorCode: SyncErrorCode.SUITE_IGNORED,
+                errorSeverity: 'INFO',
+                message:
+                    errorText ||
+                    'Suíte ignorada por configuração — fora da operação Jango.',
+                correlationId: state.correlation_id,
+            });
+        }
 
         return { state, validationStatus: finalValidation };
     }
@@ -742,6 +823,16 @@ export class HospedinReservationValidationService {
 
         if (implementedFailed.some((s) => s.rule === 'loadStaging')) {
             status = 'ERROR';
+        } else if (
+            input.steps.some(
+                (s) =>
+                    s.rule === 'validateSuiteMapping' &&
+                    s.code === 'SUITE_IGNORED'
+            )
+        ) {
+            // Suíte deliberadamente fora da operação — sem pendência/retry.
+            status = 'IGNORED';
+            ready = false;
         } else if (payloadFailed) {
             status = 'PAYLOAD_INVALID';
         } else if (datesFailed) {

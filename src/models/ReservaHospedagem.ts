@@ -43,6 +43,12 @@ interface ReservaHospedagemAttributes {
      * Aceita futuras origens (SITE legado, LINK_CLIENTE, BOOKING, AIRBNB, etc.).
      */
     origemReserva?: OrigemReservaHospedagem | string;
+    /** ID primário na origem (ex.: reservation_id Hospedin). */
+    idExterno?: string | null;
+    /** Código humano na origem (ex.: searchable_code). */
+    codigoExterno?: string | null;
+    /** Canal comercial (Booking, Airbnb, Site…) — VARCHAR, não ENUM. */
+    canalVenda?: string | null;
     idUsuarioCriacao?: number | null;
     status: StatusReservaHospedagem;
     idTransacao?: number | null;
@@ -77,6 +83,9 @@ interface ReservaHospedagemCreationAttributes
         | 'observacaoPagamento'
         | 'comprovantePagamento'
         | 'origemReserva'
+        | 'idExterno'
+        | 'codigoExterno'
+        | 'canalVenda'
     | 'idUsuarioCriacao'
         | 'tokenPagamento'
         | 'expiraEm'
@@ -102,6 +111,9 @@ class ReservaHospedagem
     public observacaoPagamento?: string | null;
     public comprovantePagamento?: string | null;
     public origemReserva?: OrigemReservaHospedagem | string;
+    public idExterno?: string | null;
+    public codigoExterno?: string | null;
+    public canalVenda?: string | null;
     public idUsuarioCriacao?: number | null;
     public status!: StatusReservaHospedagem;
     public idTransacao?: number | null;
@@ -184,6 +196,18 @@ class ReservaHospedagem
                 type: DataTypes.STRING(30),
                 allowNull: false,
                 defaultValue: 'CLIENTE',
+            },
+            idExterno: {
+                type: DataTypes.STRING(64),
+                allowNull: true,
+            },
+            codigoExterno: {
+                type: DataTypes.STRING(64),
+                allowNull: true,
+            },
+            canalVenda: {
+                type: DataTypes.STRING(40),
+                allowNull: true,
             },
             idUsuarioCriacao: {
                 type: DataTypes.INTEGER,

@@ -5,7 +5,6 @@ import {
 } from '../../../models/IntegrationSyncState';
 import { HospedinLogger } from '../logger/HospedinLogger';
 import { HospedinReservation } from '../../../models/HospedinReservation';
-import { getHospedinConfig } from '../constants/config';
 import { integrationSyncStateService } from '../services/IntegrationSyncStateService';
 import { hospedinSyncLogService } from '../services/HospedinSyncLogService';
 import {
@@ -33,16 +32,11 @@ export class ReservationSyncRunner {
         total: number;
         discarded: number;
         mode: HospedinSyncMode;
-        historicalSyncDays: number;
         results: ReservationSyncExecutionResult[];
     }> {
         const limit = options?.limit ?? 50;
         const mode = parseHospedinSyncMode(options?.mode, 'incremental');
-        const historicalSyncDays = getHospedinConfig().historicalSyncDays;
-        const window = getOperationalSyncWindow(
-            new Date(),
-            historicalSyncDays
-        );
+        const window = getOperationalSyncWindow();
 
         // Busca um lote amplo: no incremental, READY antigos fora da janela
         // permanecem READY e seriam "reencontrados" com offset — filtramos em memória.
@@ -97,7 +91,6 @@ export class ReservationSyncRunner {
             total: results.length,
             discarded,
             mode,
-            historicalSyncDays,
             results,
         };
     }

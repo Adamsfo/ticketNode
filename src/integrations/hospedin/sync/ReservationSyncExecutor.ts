@@ -17,6 +17,14 @@ import { reservationCreationService } from '../services/ReservationCreationServi
 import { reservationUpdateService } from '../services/ReservationUpdateService';
 import { reservationCancellationService } from '../services/ReservationCancellationService';
 import { hospedinSyncLogService } from '../services/HospedinSyncLogService';
+import {
+    applyFailureClassification,
+} from '../../core/EntityRunService';
+import { recordEntitySyncEvent } from '../../core/EntitySyncEventService';
+import {
+    normalizeSyncErrorCode,
+    severityForErrorCode,
+} from '../../core/syncErrorClassification';
 import type {
     ReservationExecutionContext,
     ReservationSyncExecutionResult,
@@ -133,6 +141,17 @@ export class ReservationSyncExecutor {
                         ],
                         message: `Reserva criada id=${created.idReservaHospedagem} (versão ${syncVersion})`,
                     },
+                });
+
+                await recordEntitySyncEvent({
+                    provider: IntegrationProvider.HOSPEDIN,
+                    externalId: decision.reservationId,
+                    internalEntityId: String(created.idReservaHospedagem),
+                    operation: 'CREATE',
+                    result: 'SUCCESS',
+                    message: `Reserva criada id=${created.idReservaHospedagem}`,
+                    durationMs: Date.now() - started,
+                    correlationId,
                 });
 
                 return {
@@ -270,32 +289,59 @@ export class ReservationSyncExecutor {
                 error?.message || `Falha ao executar ${decision.action}.`;
 
             if (code === 'WAIT_MAPPING') {
-                await integrationSyncStateService.updateState({
-                    ...identity,
+                await applyFailureClassification({
+                    provider: IntegrationProvider.HOSPEDIN,
+                    externalId: decision.reservationId,
+                    rawCode: code,
+                    message,
                     syncStatus: IntegrationSyncStatus.WAIT_MAPPING,
                     validationStatus: 'WAITING_SUITE_MAPPING',
-                    lastError: message,
-                    incrementRetry: true,
-                    reason: message,
-                    operacao: 'sync_state_wait_mapping',
+                });
+            } else if (code === 'SUITE_IGNORED') {
+                await applyFailureClassification({
+                    provider: IntegrationProvider.HOSPEDIN,
+                    externalId: decision.reservationId,
+                    rawCode: code,
+                    message,
+                    validationStatus: 'IGNORED',
                 });
             } else if (code === 'ORIGIN_CONFLICT') {
-                await integrationSyncStateService.markError({
-                    ...identity,
-                    error: message,
+                await applyFailureClassification({
+                    provider: IntegrationProvider.HOSPEDIN,
+                    externalId: decision.reservationId,
+                    rawCode: code,
+                    message,
                     validationStatus: 'ORIGIN_CONFLICT',
-                    reason: `ORIGIN_CONFLICT: ${message}`,
                 });
             } else {
-                await integrationSyncStateService.markError({
-                    ...identity,
-                    error: message,
-                    ...(code === PAYLOAD_INCOMPLETE
-                        ? { validationStatus: PAYLOAD_INCOMPLETE }
-                        : {}),
-                    reason: `${decision.action} failed: ${code}`,
+                await applyFailureClassification({
+                    provider: IntegrationProvider.HOSPEDIN,
+                    externalId: decision.reservationId,
+                    rawCode: code,
+                    message,
+                    validationStatus:
+                        code === PAYLOAD_INCOMPLETE
+                            ? PAYLOAD_INCOMPLETE
+                            : undefined,
                 });
             }
+
+            await recordEntitySyncEvent({
+                provider: IntegrationProvider.HOSPEDIN,
+                externalId: decision.reservationId,
+                operation: decision.action,
+                result: code === 'SUITE_IGNORED' ? 'IGNORED' : 'ERROR',
+                errorCode: normalizeSyncErrorCode(code, message),
+                errorSeverity:
+                    code === 'SUITE_IGNORED'
+                        ? 'INFO'
+                        : severityForErrorCode(
+                              normalizeSyncErrorCode(code, message)
+                          ),
+                message,
+                durationMs: Date.now() - started,
+                correlationId,
+            });
 
             HospedinLogger.error('executor:failed', {
                 reservation_id: decision.reservationId,
@@ -443,6 +489,7 @@ export class ReservationSyncExecutor {
                 stagingReservation: staging,
                 resolvedSuite: {
                     found: true,
+                    status: 'LINKED',
                     placeId: 0,
                     idEventoSuite: 0,
                     idEvento: null,
@@ -459,6 +506,12 @@ export class ReservationSyncExecutor {
             dto.placeId
         );
         if (!resolved.found) {
+            if (resolved.status === 'IGNORED') {
+                throw new HospedinDomainMappingError(
+                    resolved.message,
+                    'SUITE_IGNORED'
+                );
+            }
             throw new HospedinDomainMappingError(
                 resolved.message,
                 'WAIT_MAPPING'

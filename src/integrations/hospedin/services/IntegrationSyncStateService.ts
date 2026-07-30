@@ -24,6 +24,12 @@ export type UpsertStateInput = FindIdentityInput & {
     syncStatus?: IntegrationSyncStatusValue | string;
     payloadHash?: string | null;
     lastError?: string | null;
+    errorCode?: string | null;
+    errorSeverity?: string | null;
+    resolutionStatus?: string | null;
+    nextRetryAt?: Date | null;
+    clearNextRetry?: boolean;
+    touchSuccess?: boolean;
     internalEntityId?: string | null;
     touchValidation?: boolean;
     touchSync?: boolean;
@@ -177,6 +183,21 @@ export class IntegrationSyncStateService {
         if (input.lastError !== undefined) {
             patch.last_error = input.lastError;
         }
+        if (input.errorCode !== undefined) {
+            (patch as any).error_code = input.errorCode;
+        }
+        if (input.errorSeverity !== undefined) {
+            (patch as any).error_severityity = input.errorSeverity;
+        }
+        if (input.resolutionStatus !== undefined) {
+            (patch as any).resolution_status = input.resolutionStatus;
+        }
+        if (input.nextRetryAt !== undefined) {
+            (patch as any).next_retry_at = input.nextRetryAt;
+        }
+        if (input.clearNextRetry) {
+            (patch as any).next_retry_at = null;
+        }
         if (input.correlationId) {
             patch.correlation_id = input.correlationId;
         }
@@ -185,6 +206,13 @@ export class IntegrationSyncStateService {
         }
         if (input.touchSync) {
             patch.last_sync_at = now;
+        }
+        if (input.touchSuccess) {
+            (patch as any).last_success_at = now;
+            (patch as any).error_code = null;
+            (patch as any).error_severityity = null;
+            (patch as any).next_retry_at = null;
+            (patch as any).resolution_status = 'RESOLVED';
         }
         if (input.incrementRetry) {
             patch.retry_count = Number(state.retry_count || 0) + 1;
@@ -251,7 +279,12 @@ export class IntegrationSyncStateService {
             syncStatus: IntegrationSyncStatus.SYNCED,
             internalEntityId: input.internalEntityId,
             lastError: null,
+            errorCode: null,
+            errorSeverity: null,
+            resolutionStatus: 'RESOLVED',
+            clearNextRetry: true,
             touchSync: true,
+            touchSuccess: true,
             incrementSyncVersion: input.incrementSyncVersion === true,
             reason: input.reason || 'Sincronização concluída',
             operacao: 'sync_state_synced',
@@ -263,16 +296,45 @@ export class IntegrationSyncStateService {
             error: string;
             reason?: string;
             validationStatus?: string | null;
+            errorCode?: string | null;
+            errorSeverity?: string | null;
+            nextRetryAt?: Date | null;
+            resolutionStatus?: string | null;
+            syncStatus?: IntegrationSyncStatusValue | string;
         }
     ): Promise<IntegrationSyncState> {
         return this.updateState({
             ...input,
-            syncStatus: IntegrationSyncStatus.FAILED,
+            syncStatus: input.syncStatus || IntegrationSyncStatus.FAILED,
             lastError: input.error,
+            errorCode: input.errorCode ?? null,
+            errorSeverity: input.errorSeverity ?? null,
+            resolutionStatus: input.resolutionStatus ?? 'OPEN',
+            nextRetryAt: input.nextRetryAt ?? null,
             validationStatus: input.validationStatus,
             incrementRetry: true,
             reason: input.reason || input.error,
             operacao: 'sync_state_error',
+        });
+    }
+
+    async markIgnored(
+        input: FindIdentityInput & {
+            error?: string | null;
+            errorCode?: string | null;
+            reason?: string;
+        }
+    ): Promise<IntegrationSyncState> {
+        return this.updateState({
+            ...input,
+            syncStatus: IntegrationSyncStatus.IGNORED,
+            lastError: input.error ?? null,
+            errorCode: input.errorCode ?? null,
+            errorSeverity: 'INFO',
+            resolutionStatus: 'IGNORED',
+            clearNextRetry: true,
+            reason: input.reason || 'Ignorado — sem ação operacional',
+            operacao: 'sync_state_ignored',
         });
     }
 
@@ -302,6 +364,10 @@ export class IntegrationSyncStateService {
             externalId: state.external_id,
             syncStatus: IntegrationSyncStatus.READY,
             lastError: null,
+            errorCode: null,
+            errorSeverity: null,
+            resolutionStatus: 'OPEN',
+            clearNextRetry: true,
             reason,
             operacao: 'sync_state_reprocess',
         });

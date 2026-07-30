@@ -1,10 +1,24 @@
 import { Op } from 'sequelize';
 import { EventoSuite } from '../../../models/EventoSuite';
 import { HospedinPlace } from '../../../models/HospedinPlace';
-import { HospedinPlaceSuiteMap } from '../../../models/HospedinPlaceSuiteMap';
+import {
+    HospedinPlaceSuiteMap,
+    PlaceSuiteMappingStatus,
+} from '../../../models/HospedinPlaceSuiteMap';
+import {
+    IntegrationEntityType,
+    IntegrationSyncState,
+    IntegrationSyncStatus,
+} from '../../../models/IntegrationSyncState';
+import { HospedinReservation } from '../../../models/HospedinReservation';
 import { CustomError } from '../../../utils/customError';
 import { HospedinLogger } from '../logger/HospedinLogger';
 import { hospedinSyncLogService } from './HospedinSyncLogService';
+import { recordEntitySyncEvent } from '../../core/EntitySyncEventService';
+import {
+    SyncErrorCode,
+    SyncResolutionStatus,
+} from '../../core/syncErrorClassification';
 
 export type CreatePlaceSuiteMapInput = {
     placeId: number;
@@ -139,6 +153,7 @@ export class HospedinPlaceSuiteMapService {
         idEvento?: number;
         limit?: number;
     }): Promise<UnmappedPlaceItem[]> {
+        // Ativas LINKED ou IGNORED saem da lista "sem vínculo".
         const mapped = await HospedinPlaceSuiteMap.findAll({
             where: { ativo: true },
             attributes: ['place_id'],
@@ -165,10 +180,16 @@ export class HospedinPlaceSuiteMapService {
         const alreadyMappedSuiteIds = new Set(
             (
                 await HospedinPlaceSuiteMap.findAll({
-                    where: { ativo: true },
+                    where: {
+                        ativo: true,
+                        mapping_status: PlaceSuiteMappingStatus.LINKED,
+                        id_evento_suite: { [Op.ne]: null },
+                    },
                     attributes: ['id_evento_suite'],
                 })
-            ).map((m) => Number(m.id_evento_suite))
+            )
+                .map((m) => Number(m.id_evento_suite))
+                .filter((n) => Number.isFinite(n) && n > 0)
         );
 
         const availableSuites = suites.filter(
@@ -191,6 +212,222 @@ export class HospedinPlaceSuiteMapService {
         }
 
         return items;
+    }
+
+    /**
+     * Marca place como IGNORED: fora da operação Jango.
+     * Não gera pendência; fecha WAIT_MAPPING abertas desse place.
+     */
+    async ignorePlace(input: {
+        placeId: number;
+        notes?: string | null;
+        mappedBy?: number | null;
+    }): Promise<HospedinPlaceSuiteMap> {
+        const placeId = Number(input.placeId);
+        if (!Number.isFinite(placeId) || placeId <= 0) {
+            throw new CustomError('placeId inválido.', 400, 'HOSPEDIN_MAPPING');
+        }
+
+        const place = await HospedinPlace.findOne({
+            where: { place_id: placeId },
+        });
+        if (!place) {
+            throw new CustomError(
+                `Place Hospedin ${placeId} não encontrado no staging.`,
+                404,
+                'HOSPEDIN_MAPPING'
+            );
+        }
+
+        const existing = await HospedinPlaceSuiteMap.findOne({
+            where: { place_id: placeId },
+        });
+
+        if (
+            existing?.ativo &&
+            String(existing.mapping_status).toUpperCase() ===
+                PlaceSuiteMappingStatus.LINKED &&
+            existing.id_evento_suite != null
+        ) {
+            throw new CustomError(
+                `place_id=${placeId} está vinculado. Remova o vínculo antes de ignorar.`,
+                409,
+                'HOSPEDIN_MAPPING'
+            );
+        }
+
+        if (
+            existing?.ativo &&
+            String(existing.mapping_status).toUpperCase() ===
+                PlaceSuiteMappingStatus.IGNORED
+        ) {
+            return existing;
+        }
+
+        const now = new Date();
+        let row: HospedinPlaceSuiteMap;
+
+        if (existing) {
+            await existing.update({
+                id_evento_suite: null,
+                id_evento: null,
+                ativo: true,
+                mapping_status: PlaceSuiteMappingStatus.IGNORED,
+                notes:
+                    input.notes !== undefined ? input.notes : existing.notes,
+                mapped_at: now,
+                mapped_by:
+                    input.mappedBy !== undefined
+                        ? input.mappedBy
+                        : existing.mapped_by,
+                updated_at: now,
+            });
+            row = existing;
+        } else {
+            row = await HospedinPlaceSuiteMap.create({
+                provider: 'HOSPEDIN',
+                place_id: placeId,
+                id_evento_suite: null,
+                id_evento: null,
+                ativo: true,
+                mapping_status: PlaceSuiteMappingStatus.IGNORED,
+                notes: input.notes ?? null,
+                mapped_at: now,
+                mapped_by: input.mappedBy ?? null,
+                created_at: now,
+                updated_at: now,
+            });
+        }
+
+        placeSuiteResolverInvalidate(placeId);
+
+        await this.logChange({
+            operacao: 'place_suite_map_ignore',
+            row,
+            reason: 'Suíte ignorada por configuração (fora da operação Jango)',
+        });
+
+        await this.closeOpenPendenciasForPlace(placeId);
+
+        return row;
+    }
+
+    /**
+     * Reativa suíte ignorada → volta a "sem vínculo" (exige configuração).
+     */
+    async unignorePlace(input: {
+        id?: number;
+        placeId?: number;
+        mappedBy?: number | null;
+    }): Promise<HospedinPlaceSuiteMap> {
+        let row: HospedinPlaceSuiteMap | null = null;
+        if (input.id != null) {
+            row = await this.findById(Number(input.id));
+        } else if (input.placeId != null) {
+            row = await HospedinPlaceSuiteMap.findOne({
+                where: { place_id: Number(input.placeId) },
+            });
+        }
+
+        if (!row) {
+            throw new CustomError(
+                'Mapeamento ignorado não encontrado.',
+                404,
+                'HOSPEDIN_MAPPING'
+            );
+        }
+
+        if (
+            String(row.mapping_status).toUpperCase() !==
+            PlaceSuiteMappingStatus.IGNORED
+        ) {
+            throw new CustomError(
+                `Mapeamento id=${row.id} não está IGNORED.`,
+                400,
+                'HOSPEDIN_MAPPING'
+            );
+        }
+
+        const now = new Date();
+        await row.update({
+            ativo: false,
+            mapping_status: PlaceSuiteMappingStatus.IGNORED,
+            mapped_at: now,
+            mapped_by:
+                input.mappedBy !== undefined ? input.mappedBy : row.mapped_by,
+            updated_at: now,
+        });
+
+        placeSuiteResolverInvalidate(Number(row.place_id));
+
+        await this.logChange({
+            operacao: 'place_suite_map_unignore',
+            row,
+            reason: 'Suíte reativada — volta a exigir mapeamento',
+        });
+
+        return row;
+    }
+
+    /** Fecha pendências OPEN/WAIT_MAPPING de reservas do place ignorado. */
+    private async closeOpenPendenciasForPlace(
+        placeId: number
+    ): Promise<number> {
+        const staging = await HospedinReservation.findAll({
+            attributes: ['reservation_id', 'payload_json'],
+            limit: 5000,
+        });
+
+        const externalIds: string[] = [];
+        for (const row of staging) {
+            const payload = (row.payload_json || {}) as Record<string, unknown>;
+            const pid = Number(payload.place_id);
+            if (pid === placeId) {
+                externalIds.push(String(row.reservation_id));
+            }
+        }
+        if (externalIds.length === 0) return 0;
+
+        const states = await IntegrationSyncState.findAll({
+            where: {
+                entity_type: IntegrationEntityType.RESERVATION,
+                external_id: { [Op.in]: externalIds },
+                resolution_status: SyncResolutionStatus.OPEN,
+                sync_status: {
+                    [Op.in]: [
+                        IntegrationSyncStatus.WAIT_MAPPING,
+                        IntegrationSyncStatus.FAILED,
+                    ],
+                },
+            },
+        });
+
+        let closed = 0;
+        const message = `Suíte place_id=${placeId} ignorada por configuração — sem ação operacional.`;
+        for (const state of states) {
+            await state.update({
+                sync_status: IntegrationSyncStatus.IGNORED,
+                resolution_status: SyncResolutionStatus.IGNORED,
+                error_code: SyncErrorCode.SUITE_IGNORED,
+                error_severityity: 'INFO',
+                last_error: message,
+                next_retry_at: null,
+                updated_at: new Date(),
+            } as any);
+
+            await recordEntitySyncEvent({
+                provider: String(state.provider),
+                externalId: state.external_id,
+                internalEntityId: state.internal_entity_id,
+                operation: 'VALIDATE',
+                result: 'IGNORED',
+                errorCode: SyncErrorCode.SUITE_IGNORED,
+                errorSeverity: 'INFO',
+                message,
+            });
+            closed += 1;
+        }
+        return closed;
     }
 
     async create(input: CreatePlaceSuiteMapInput): Promise<HospedinPlaceSuiteMap> {
@@ -235,15 +472,25 @@ export class HospedinPlaceSuiteMapService {
             where: { id_evento_suite: idEventoSuite },
         });
 
-        // Conflitos ativos: não sobrescrever vínculo em uso.
-        if (placeRow?.ativo) {
+        // Conflitos ativos LINKED: não sobrescrever vínculo em uso.
+        // IGNORED ativo pode ser convertido em LINKED.
+        const placeLinked =
+            placeRow?.ativo &&
+            String(placeRow.mapping_status || '').toUpperCase() ===
+                PlaceSuiteMappingStatus.LINKED &&
+            placeRow.id_evento_suite != null;
+        if (placeLinked) {
             throw new CustomError(
                 `Já existe mapeamento ativo para place_id=${placeId}.`,
                 409,
                 'HOSPEDIN_MAPPING'
             );
         }
-        if (suiteRow?.ativo) {
+        if (
+            suiteRow?.ativo &&
+            String(suiteRow.mapping_status || '').toUpperCase() ===
+                PlaceSuiteMappingStatus.LINKED
+        ) {
             throw new CustomError(
                 `EventoSuite id=${idEventoSuite} já está mapeada para place_id=${suiteRow.place_id}.`,
                 409,
@@ -289,12 +536,15 @@ export class HospedinPlaceSuiteMapService {
             id_evento_suite: idEventoSuite,
             id_evento: suite.idEvento ?? null,
             ativo: true,
+            mapping_status: PlaceSuiteMappingStatus.LINKED,
             notes: input.notes ?? null,
             mapped_at: now,
             mapped_by: input.mappedBy ?? null,
             created_at: now,
             updated_at: now,
         });
+
+        placeSuiteResolverInvalidate(placeId);
 
         await this.logChange({
             operacao: 'place_suite_map_create',
@@ -369,6 +619,8 @@ export class HospedinPlaceSuiteMapService {
 
             patch.id_evento_suite = idEventoSuite;
             patch.id_evento = suite.idEvento ?? null;
+            patch.mapping_status = PlaceSuiteMappingStatus.LINKED;
+            patch.ativo = true;
             patch.mapped_at = new Date();
             if (input.mappedBy !== undefined) {
                 patch.mapped_by = input.mappedBy;
@@ -378,6 +630,7 @@ export class HospedinPlaceSuiteMapService {
         }
 
         await row.update(patch);
+        placeSuiteResolverInvalidate(Number(row.place_id));
 
         await this.logChange({
             operacao: 'place_suite_map_update',
@@ -406,6 +659,8 @@ export class HospedinPlaceSuiteMapService {
             mapped_by: mappedBy !== undefined ? mappedBy : row.mapped_by,
             updated_at: new Date(),
         });
+
+        placeSuiteResolverInvalidate(Number(row.place_id));
 
         await this.logChange({
             operacao: 'place_suite_map_deactivate',
@@ -448,6 +703,7 @@ export class HospedinPlaceSuiteMapService {
             where: {
                 id_evento_suite: row.id_evento_suite,
                 ativo: true,
+                mapping_status: PlaceSuiteMappingStatus.LINKED,
                 id: { [Op.ne]: id },
             },
         });
@@ -459,13 +715,24 @@ export class HospedinPlaceSuiteMapService {
             );
         }
 
+        if (row.id_evento_suite == null) {
+            throw new CustomError(
+                'Não é possível reativar vínculo sem EventoSuite. Use Vincular.',
+                400,
+                'HOSPEDIN_MAPPING'
+            );
+        }
+
         const now = new Date();
         await row.update({
             ativo: true,
+            mapping_status: PlaceSuiteMappingStatus.LINKED,
             mapped_at: now,
             mapped_by: mappedBy !== undefined ? mappedBy : row.mapped_by,
             updated_at: now,
         });
+
+        placeSuiteResolverInvalidate(Number(row.place_id));
 
         await this.logChange({
             operacao: 'place_suite_map_activate',
@@ -512,11 +779,14 @@ export class HospedinPlaceSuiteMapService {
             id_evento_suite: input.idEventoSuite,
             id_evento: input.suite.idEvento ?? null,
             ativo: true,
+            mapping_status: PlaceSuiteMappingStatus.LINKED,
             notes: input.notes !== undefined ? input.notes : row.notes,
             mapped_at: now,
             mapped_by: input.mappedBy ?? row.mapped_by,
             updated_at: now,
         });
+
+        placeSuiteResolverInvalidate(Number(row.place_id));
 
         await this.logChange({
             operacao: 'place_suite_map_reactivate',
@@ -545,11 +815,14 @@ export class HospedinPlaceSuiteMapService {
             place_id: input.placeId,
             id_evento: input.suite.idEvento ?? null,
             ativo: true,
+            mapping_status: PlaceSuiteMappingStatus.LINKED,
             notes: input.notes !== undefined ? input.notes : row.notes,
             mapped_at: now,
             mapped_by: input.mappedBy ?? row.mapped_by,
             updated_at: now,
         });
+
+        placeSuiteResolverInvalidate(input.placeId);
 
         await this.logChange({
             operacao: 'place_suite_map_reuse_suite',
@@ -590,11 +863,14 @@ export class HospedinPlaceSuiteMapService {
             id_evento_suite: input.idEventoSuite,
             id_evento: input.suite.idEvento ?? null,
             ativo: true,
+            mapping_status: PlaceSuiteMappingStatus.LINKED,
             notes: input.notes !== undefined ? input.notes : placeRow.notes,
             mapped_at: now,
             mapped_by: input.mappedBy ?? placeRow.mapped_by,
             updated_at: now,
         });
+
+        placeSuiteResolverInvalidate(input.placeId);
 
         await this.logChange({
             operacao: 'place_suite_map_merge_inactive',
@@ -637,8 +913,10 @@ export class HospedinPlaceSuiteMapService {
             id: input.row.id,
             place_id: input.row.place_id,
             id_evento_suite: input.row.id_evento_suite,
+            mapping_status: (input.row as any).mapping_status,
             ativo: input.row.ativo,
             mapped_by: input.row.mapped_by,
+            mapped_at: input.row.mapped_at,
             reason: input.reason,
             operacao: input.operacao,
         });
@@ -651,9 +929,11 @@ export class HospedinPlaceSuiteMapService {
                 id: input.row.id,
                 place_id: input.row.place_id,
                 id_evento_suite: input.row.id_evento_suite,
+                mapping_status: (input.row as any).mapping_status,
             },
             response: {
                 ativo: input.row.ativo,
+                mapping_status: (input.row as any).mapping_status,
                 reason: input.reason,
                 mapped_at: input.row.mapped_at,
                 mapped_by: input.row.mapped_by,
@@ -662,6 +942,18 @@ export class HospedinPlaceSuiteMapService {
             duracaoMs: 0,
             sucesso: true,
         });
+    }
+}
+
+function placeSuiteResolverInvalidate(placeId?: number | null) {
+    try {
+        // Lazy require evita ciclo PlaceSuiteResolver ↔ MapService.
+        const {
+            placeSuiteResolver,
+        } = require('./PlaceSuiteResolver') as typeof import('./PlaceSuiteResolver');
+        placeSuiteResolver.invalidate(placeId);
+    } catch {
+        // ignore
     }
 }
 
