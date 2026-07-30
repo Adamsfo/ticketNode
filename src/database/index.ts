@@ -1,5 +1,6 @@
 const Sequelize = require('sequelize')
 const dbConfig = require('../config/database')
+import { logger } from '../utils/logger';
 import { EmpresaInit } from '../models/Empresa';
 import { UsuarioInit } from '../models/Usuario'
 import { CidadeInit } from '../models/Cidade';
@@ -45,7 +46,7 @@ const connection = new Sequelize(dbConfig);
   try {
     // Autenticação da conexão
     await connection.authenticate();
-    console.log('Conectado no banco de dados!');
+    logger.info('Conectado no banco de dados');
     // ContaAPagarInit(connection)
     // ContaAReceberInit(connection)
     // ContaBancariaInit(connection)
@@ -99,8 +100,11 @@ const connection = new Sequelize(dbConfig);
     // await ConfigIniciais.configUsuario();
 
 
-  } catch (error) {
-    console.error('Banco de dados não conectado:', error);
+  } catch (error: any) {
+    logger.error('Banco de dados não conectado', {
+      message: error?.message,
+      stack: error?.stack,
+    });
   }
 })();
 

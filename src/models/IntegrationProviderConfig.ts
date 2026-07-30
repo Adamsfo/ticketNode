@@ -11,6 +11,8 @@ interface IntegrationProviderConfigAttributes {
     priority: number;
     maxRetries: number;
     backoffBaseSeconds: number;
+    /** Tempo máximo de um ciclo RUNNING antes do watchdog abortar (minutos). */
+    maxRunMinutes: number;
     webhookEnabled: boolean;
     createdAt?: Date;
     updatedAt?: Date;
@@ -26,6 +28,7 @@ type Creation = Optional<
     | 'priority'
     | 'maxRetries'
     | 'backoffBaseSeconds'
+    | 'maxRunMinutes'
     | 'webhookEnabled'
     | 'createdAt'
     | 'updatedAt'
@@ -45,6 +48,7 @@ class IntegrationProviderConfig
     public priority!: number;
     public maxRetries!: number;
     public backoffBaseSeconds!: number;
+    public maxRunMinutes!: number;
     public webhookEnabled!: boolean;
     public readonly createdAt!: Date;
     public readonly updatedAt!: Date;
@@ -100,6 +104,11 @@ class IntegrationProviderConfig
                     type: DataTypes.INTEGER,
                     allowNull: false,
                     defaultValue: 30,
+                },
+                maxRunMinutes: {
+                    type: DataTypes.INTEGER,
+                    allowNull: false,
+                    defaultValue: 10,
                 },
                 webhookEnabled: {
                     type: DataTypes.BOOLEAN,

@@ -51,8 +51,18 @@ export type SyncSummarySaude = {
 };
 
 export type SyncSummaryCounts = {
-    /** Estado atual — o que precisa atenção agora. */
+    /**
+     * Pendências OPEN com reserva Jango (internal_entity_id preenchido).
+     * Mesma regra do filtro Reservas → "Falhas sync".
+     */
     erros: number;
+    /**
+     * Pendências OPEN sem reserva criada (internal_entity_id NULL).
+     * Só aparecem em Integrações → Pendências.
+     */
+    errosSemReserva: number;
+    /** erros + errosSemReserva (badge / atenção total). */
+    errosTotal: number;
     criticos: number;
     alertas: number;
     informativos: number;
@@ -150,9 +160,24 @@ export async function getSyncSummaryCounts(
         byStatus[status] = Number(r.total || 0);
     }
 
-    // Erros operacionais = apenas OPEN + FAILED/WAIT_MAPPING
+    // Erros com reserva Jango (= filtro Reservas "Falhas sync")
     const openWhere = openErrorWhere(provider);
-    const erros = await IntegrationSyncState.count({ where: openWhere });
+    const openComReserva = {
+        ...openWhere,
+        internal_entity_id: { [Op.ne]: null },
+    };
+    const openSemReserva = {
+        ...openWhere,
+        [Op.or]: [{ internal_entity_id: null }, { internal_entity_id: '' }],
+    };
+
+    const erros = await IntegrationSyncState.count({ where: openComReserva });
+    const errosSemReserva = await IntegrationSyncState.count({
+        where: openSemReserva,
+    });
+    const errosTotal = erros + errosSemReserva;
+
+    // Severidade sobre o total OPEN (com + sem reserva) — visão Integrações
     const criticos = await IntegrationSyncState.count({
         where: { ...openWhere, error_severityity: 'CRITICAL' },
     });
@@ -242,6 +267,8 @@ export async function getSyncSummaryCounts(
 
     return {
         erros,
+        errosSemReserva,
+        errosTotal,
         criticos,
         alertas,
         informativos,
@@ -442,6 +469,10 @@ export async function listSyncPendencias(options?: {
     return { total, items };
 }
 
+/**
+ * IDs de ReservaHospedagem com falha OPEN.
+ * Mesma regra de negócio de SyncSummaryCounts.erros / filtro "Falhas sync".
+ */
 export async function findInternalIdsWithSyncError(
     limit = 500
 ): Promise<number[]> {

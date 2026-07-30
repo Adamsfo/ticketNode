@@ -52,6 +52,10 @@ export async function ensureProviderConfigsFromRegistry(): Promise<void> {
                     1,
                     Number(defaults.backoffBaseSeconds) || 30
                 ),
+                maxRunMinutes: Math.max(
+                    1,
+                    Number((defaults as any).maxRunMinutes) || 10
+                ),
                 webhookEnabled: Boolean(defaults.webhookEnabled),
             });
         }
@@ -106,6 +110,7 @@ export async function getProviderScheduleConfig(
         priority: row.priority,
         maxRetries: row.maxRetries,
         backoffBaseSeconds: row.backoffBaseSeconds,
+        maxRunMinutes: Math.max(1, Number(row.maxRunMinutes) || 10),
         webhookEnabled: Boolean(row.webhookEnabled),
         displayName: row.displayName,
     };

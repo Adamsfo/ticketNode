@@ -100,4 +100,11 @@ router.patch(
     IntegrationAdminController.patchConfig
 );
 
+/** Promove HÓSPEDE SEM CPF → Usuario com CPF a partir de ReservaHospedeDocumento. */
+router.post(
+    '/api/integrations/guests/reconcile-cpf',
+    authenticate,
+    IntegrationAdminController.reconcileGuestCpf
+);
+
 module.exports = router;

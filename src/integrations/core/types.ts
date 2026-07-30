@@ -41,6 +41,8 @@ export type ProviderScheduleConfig = {
     priority: number;
     maxRetries: number;
     backoffBaseSeconds: number;
+    /** Watchdog: aborta ciclo acima deste tempo (minutos). Padrão 10. */
+    maxRunMinutes: number;
     webhookEnabled: boolean;
     displayName: string;
 };

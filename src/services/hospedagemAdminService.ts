@@ -183,7 +183,7 @@ async function carregarOrigemIntegracao(idReservaHospedagem: number) {
               origemPagamento: financeira.origemPagamento ?? null,
               responsavelPagamento: financeira.responsavelPagamento ?? null,
               syncedAt: financeira.syncedAt,
-              aviso: 'Informativo da origem — não substitui o financeiro oficial do Jango.',
+              aviso: 'Auditoria da origem. O financeiro operacional da reserva (aba Operação) espelha estes valores enquanto a origem for Hospedin.',
           }
         : null;
 

@@ -1,6 +1,7 @@
 import { bootstrapIntegrationProviders } from '../integrations/bootstrap';
 import { startIntegrationScheduler } from '../integrations/core/IntegrationScheduler';
 import { startEntitySmartRetryJob } from '../integrations/core/EntitySmartRetryJob';
+import { logger } from '../utils/logger';
 
 /**
  * Jobs de sincronização multi-provider (Fase 2).
@@ -13,10 +14,10 @@ export async function iniciarJobsIntegracaoSync(): Promise<void> {
         bootstrapIntegrationProviders();
         await startIntegrationScheduler();
         startEntitySmartRetryJob();
-    } catch (error) {
-        console.error(
-            '[IntegrationScheduler] falha ao iniciar:',
-            error
-        );
+    } catch (error: any) {
+        logger.error('Falha ao iniciar Integration Scheduler', {
+            message: error?.message,
+            stack: error?.stack,
+        });
     }
 }

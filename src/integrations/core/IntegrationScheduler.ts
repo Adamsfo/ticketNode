@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import { IntegrationProviderConfig } from '../../models/IntegrationProviderConfig';
 import {
     IntegrationProviderRuntimeStatus,
@@ -7,6 +8,7 @@ import { IntegrationSyncTrigger } from '../../models/IntegrationSyncExecution';
 import { ensureProviderConfigsFromRegistry } from './ProviderConfigService';
 import { providerRegistry } from './ProviderRegistry';
 import { providerRunLock } from './ProviderRunLock';
+import { recoverDeadRuns } from './ProviderRunLifecycle';
 import { runProviderCycle } from './SyncRunOrchestrator';
 
 const TICK_MS = 30_000;
@@ -14,14 +16,22 @@ const TICK_MS = 30_000;
 let tickTimer: ReturnType<typeof setInterval> | null = null;
 let tickRunning = false;
 
+const log = logger.child('Scheduler');
+
 /**
- * Scheduler genérico: tick curto → providers due (por prioridade) → runCycle.
- * Sem regra de negócio de PMS.
+ * Scheduler genérico: tick → recoverDeadRuns → providers due → runCycle.
  */
 export async function startIntegrationScheduler(): Promise<void> {
     await ensureProviderConfigsFromRegistry();
 
-    console.log('Integration Scheduler iniciado');
+    const recovered = await recoverDeadRuns();
+    if (recovered.recovered.length) {
+        log.warn('Providers RUNNING mortos recuperados no boot', {
+            providers: recovered.recovered,
+        });
+    }
+
+    log.info('Integration Scheduler iniciado');
     for (const provider of providerRegistry.list()) {
         const config = await IntegrationProviderConfig.findOne({
             where: { provider: provider.id.toUpperCase() },
@@ -29,18 +39,16 @@ export async function startIntegrationScheduler(): Promise<void> {
         const state = await IntegrationProviderState.findOne({
             where: { provider: provider.id.toUpperCase() },
         });
-        console.log(
-            [
-                `Provider: ${config?.displayName || provider.displayName}`,
-                `Habilitado: ${config?.enabled ? 'sim' : 'não'}`,
-                `Intervalo: ${config?.intervalMinutes ?? '?'} minutos`,
-                `Prioridade: ${config?.priority ?? 100}`,
-                `Próxima execução: ${
-                    state?.nextRunAt
-                        ? new Date(state.nextRunAt).toISOString()
-                        : '—'
-                }`,
-            ].join(' | ')
+        log.info(
+            `Provider ${config?.displayName || provider.displayName}: ${
+                config?.enabled ? 'habilitado' : 'desabilitado'
+            } · intervalo ${config?.intervalMinutes ?? '?'} min · max ${
+                config?.maxRunMinutes ?? 10
+            } min · próxima ${
+                state?.nextRunAt
+                    ? new Date(state.nextRunAt).toISOString()
+                    : '—'
+            }`
         );
     }
 
@@ -49,7 +57,6 @@ export async function startIntegrationScheduler(): Promise<void> {
         void tickDueProviders();
     }, TICK_MS);
 
-    // Primeiro tick após 15s (evita pico no boot).
     setTimeout(() => {
         void tickDueProviders();
     }, 15_000);
@@ -66,6 +73,8 @@ async function tickDueProviders(): Promise<void> {
     if (tickRunning) return;
     tickRunning = true;
     try {
+        await recoverDeadRuns();
+
         const now = Date.now();
         const configs = await IntegrationProviderConfig.findAll({
             where: { enabled: true },
@@ -82,7 +91,9 @@ async function tickDueProviders(): Promise<void> {
                 where: { provider: config.provider },
             });
             if (!state) continue;
+
             if (state.status === IntegrationProviderRuntimeStatus.RUNNING) {
+                // Vivo neste processo — skip. Mortos já foram liberados por recoverDeadRuns.
                 continue;
             }
             if (providerRunLock.isLocked(config.provider)) continue;
@@ -94,14 +105,15 @@ async function tickDueProviders(): Promise<void> {
                 due.push({
                     provider: config.provider,
                     priority: config.priority,
-                    isRetry:
-                        state.status ===
-                        IntegrationProviderRuntimeStatus.WAITING_RETRY,
+                    isRetry: (state.consecutiveFailures || 0) > 0,
                 });
             }
         }
 
-        due.sort((a, b) => a.priority - b.priority || a.provider.localeCompare(b.provider));
+        due.sort(
+            (a, b) =>
+                a.priority - b.priority || a.provider.localeCompare(b.provider)
+        );
 
         for (const item of due) {
             await runProviderCycle(
@@ -111,8 +123,11 @@ async function tickDueProviders(): Promise<void> {
                     : IntegrationSyncTrigger.SCHEDULER
             );
         }
-    } catch (error) {
-        console.error('[IntegrationScheduler] tick failed', error);
+    } catch (error: any) {
+        log.error('tick failed', {
+            message: error?.message,
+            stack: error?.stack,
+        });
     } finally {
         tickRunning = false;
     }

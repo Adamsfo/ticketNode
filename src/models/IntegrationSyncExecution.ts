@@ -17,6 +17,8 @@ export const IntegrationSyncExecutionStatus = {
     PARTIAL: 'PARTIAL',
     FAILED: 'FAILED',
     SKIPPED: 'SKIPPED',
+    /** Crash / restart / timeout / watchdog — execução não concluiu. */
+    ABORTED: 'ABORTED',
 } as const;
 
 export type IntegrationSyncExecutionStatusValue =

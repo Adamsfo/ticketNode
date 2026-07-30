@@ -16,6 +16,8 @@ interface IntegrationProviderStateAttributes {
     provider: string;
     status: IntegrationProviderRuntimeStatusValue | string;
     lastStartedAt?: Date | null;
+    /** Atualizado periodicamente enquanto o ciclo está vivo neste processo. */
+    heartbeatAt?: Date | null;
     lastFinishedAt?: Date | null;
     lastSuccessAt?: Date | null;
     lastErrorAt?: Date | null;
@@ -33,6 +35,7 @@ type Creation = Optional<
     | 'id'
     | 'status'
     | 'lastStartedAt'
+    | 'heartbeatAt'
     | 'lastFinishedAt'
     | 'lastSuccessAt'
     | 'lastErrorAt'
@@ -53,6 +56,7 @@ class IntegrationProviderState
     public provider!: string;
     public status!: IntegrationProviderRuntimeStatusValue | string;
     public lastStartedAt?: Date | null;
+    public heartbeatAt?: Date | null;
     public lastFinishedAt?: Date | null;
     public lastSuccessAt?: Date | null;
     public lastErrorAt?: Date | null;
@@ -83,6 +87,7 @@ class IntegrationProviderState
                     defaultValue: IntegrationProviderRuntimeStatus.IDLE,
                 },
                 lastStartedAt: { type: DataTypes.DATE, allowNull: true },
+                heartbeatAt: { type: DataTypes.DATE, allowNull: true },
                 lastFinishedAt: { type: DataTypes.DATE, allowNull: true },
                 lastSuccessAt: { type: DataTypes.DATE, allowNull: true },
                 lastErrorAt: { type: DataTypes.DATE, allowNull: true },

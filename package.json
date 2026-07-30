@@ -2,8 +2,11 @@
   "name": "nodeerp",
   "version": "1.0.0",
   "scripts": {
-    "test": "npm run test:suite-disponibilidade",
-    "test:suite-disponibilidade": "node --require ts-node/register/transpile-only --test src/services/suiteDisponibilidadeService.test.ts",
+    "test:sync-orchestrator": "node --require ts-node/register/transpile-only --test src/integrations/core/ProviderRunLifecycle.test.ts",
+    "test:guest-relink": "node --require ts-node/register/transpile-only --test src/integrations/hospedin/services/GuestUsuarioRelinkService.test.ts",
+    "test:hospedin-finance": "node --require ts-node/register/transpile-only --test src/integrations/hospedin/utils/hospedinOfficialFinance.test.ts",
+    "test:notification-policy": "node --require ts-node/register/transpile-only --test src/services/ReservationNotificationPolicy.test.ts",
+    "test": "npm run test:suite-disponibilidade && npm run test:sync-orchestrator && npm run test:guest-relink && npm run test:hospedin-finance && npm run test:notification-policy",
     "start": "node dist/server.js",
     "startdev": "nodemon dist/server.js",
     "build": "tsc",

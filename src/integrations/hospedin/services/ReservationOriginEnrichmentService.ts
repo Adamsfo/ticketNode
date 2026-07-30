@@ -15,7 +15,7 @@ export const INTEGRATION_PROVIDER_HOSPEDIN = 'HOSPEDIN';
 
 /**
  * Persiste metadados multi-provedor na reserva Jango após CREATE/UPDATE.
- * Não altera o financeiro oficial (valor_total / valor_pago).
+ * Também espelha o financeiro oficial quando origemReserva = HOSPEDIN.
  */
 export class ReservationOriginEnrichmentService {
     async enrichFromHospedinStaging(input: {
@@ -42,7 +42,8 @@ export class ReservationOriginEnrichmentService {
                 idExterno: reservationId || null,
                 codigoExterno: searchableCode,
                 canalVenda,
-                observacoes,
+                // Campo oficial da reserva — null quando Hospedin não envia nota.
+                observacoes: observacoes || null,
             },
             { where: { id: input.idReservaHospedagem } }
         );
@@ -53,6 +54,10 @@ export class ReservationOriginEnrichmentService {
             searchableCode
         );
         await this.upsertFinance(input.idReservaHospedagem, payload);
+        await this.applyOfficialFinanceIfHospedinOwned(
+            input.idReservaHospedagem,
+            payload
+        );
         await this.upsertPayload(
             input.idReservaHospedagem,
             reservationId,
@@ -77,6 +82,22 @@ export class ReservationOriginEnrichmentService {
             input.idReservaHospedagem,
             payload
         );
+
+        // Segurança: se docs trouxerem CPF válido e o hóspede ainda for técnico, promove.
+        try {
+            const { guestCpfReconcileService } = await import(
+                './GuestCpfReconcileService'
+            );
+            await guestCpfReconcileService.upgradeReservationFromDocuments(
+                input.idReservaHospedagem
+            );
+        } catch (err: any) {
+            HospedinLogger.warn('origin_enrichment:guest_cpf_upgrade_failed', {
+                correlation_id: input.correlationId,
+                id_reserva_hospedagem: input.idReservaHospedagem,
+                message: err?.message,
+            });
+        }
 
         HospedinLogger.info('origin_enrichment:applied', {
             correlation_id: input.correlationId,
@@ -231,6 +252,77 @@ export class ReservationOriginEnrichmentService {
         await ReservaOrigemFinanceira.create(values);
     }
 
+    /**
+     * Espelha total/recebido/saldo da Hospedin no financeiro oficial do Jango.
+     * Só se origemReserva = HOSPEDIN (ownership: não sobrescreve ATENDENTE/SITE/etc.).
+     */
+    private async applyOfficialFinanceIfHospedinOwned(
+        idReservaHospedagem: number,
+        payload: Record<string, unknown>
+    ): Promise<void> {
+        const { extractHospedinOfficialFinance } = await import(
+            '../utils/hospedinOfficialFinance'
+        );
+        const amounts = extractHospedinOfficialFinance(payload);
+        if (!amounts) return;
+
+        const hospedagem = await ReservaHospedagem.findByPk(idReservaHospedagem);
+        if (!hospedagem) return;
+
+        const origem = String((hospedagem as any).origemReserva || '').toUpperCase();
+        if (origem !== 'HOSPEDIN') {
+            HospedinLogger.debug(
+                'origin_enrichment:skip_official_finance_ownership',
+                {
+                    id_reserva_hospedagem: idReservaHospedagem,
+                    origem_reserva: origem || null,
+                }
+            );
+            return;
+        }
+
+        const patch = {
+            valorTotal: amounts.valorTotal,
+            valorPago: amounts.valorPago,
+            saldoPendente: amounts.saldoPendente,
+            preco: amounts.valorTotal,
+            taxaServico: 0,
+        };
+
+        const same =
+            Number(hospedagem.valorTotal) === amounts.valorTotal &&
+            Number(hospedagem.valorPago ?? 0) === amounts.valorPago &&
+            Number(hospedagem.saldoPendente ?? 0) === amounts.saldoPendente;
+
+        if (!same) {
+            await hospedagem.update(patch);
+            HospedinLogger.debug('origin_enrichment:official_finance_applied', {
+                id_reserva_hospedagem: idReservaHospedagem,
+                ...patch,
+            });
+        }
+
+        // Mantém linha da suíte alinhada ao total oficial (1 suíte típica Hospedin).
+        const suites = await ReservaSuite.findAll({
+            where: { idReservaHospedagem },
+            order: [['id', 'ASC']],
+        });
+        if (suites.length === 1) {
+            const suite = suites[0];
+            if (
+                Number(suite.valorTotal) !== amounts.valorTotal ||
+                Number(suite.preco) !== amounts.valorTotal
+            ) {
+                await suite.update({
+                    valorTotal: amounts.valorTotal,
+                    preco: amounts.valorTotal,
+                    taxaServico: 0,
+                    valorFinal: amounts.valorTotal,
+                });
+            }
+        }
+    }
+
     private async upsertPayload(
         idReservaHospedagem: number,
         externalId: string | null,
@@ -312,7 +404,7 @@ export class ReservationOriginEnrichmentService {
         idReservaHospede: number,
         source: Record<string, unknown>
     ): Promise<void> {
-            const docs: Array<{ tipo: string; numero: string }> = [];
+        const docs: Array<{ tipo: string; numero: string }> = [];
         const passport = asString(source.passport);
         if (passport) docs.push({ tipo: 'PASSPORT', numero: passport });
 
@@ -325,6 +417,23 @@ export class ReservationOriginEnrichmentService {
         const otherDoc = asString(source.document) || asString(source.documento);
         if (otherDoc && otherDoc !== passport && otherDoc !== identification) {
             docs.push({ tipo: 'OTHER', numero: otherDoc });
+        }
+
+        // CPF/SSN/identification válidos — também persiste tipo CPF canônico.
+        const { pickGuestCpf } = await import('../../../utils/guestCpf');
+        const picked = pickGuestCpf({
+            cpf: source.cpf,
+            ssn: source.ssn,
+            documento: source.documento,
+            identification: source.identification,
+            document: source.document,
+            passport: source.passport,
+        });
+        if (picked.assessment.status === 'valid') {
+            docs.push({
+                tipo: 'CPF',
+                numero: picked.assessment.formatted,
+            });
         }
 
         for (const doc of docs) {

@@ -50,22 +50,8 @@ function totalFromList<T>(
 }
 
 function logStep(step: HospedinTestStep): void {
-    const line = [
-        `[Hospedin:test]`,
-        step.success ? 'OK' : 'FAIL',
-        `| ${step.step}`,
-        step.method ? `| ${step.method}` : '',
-        step.url ? `| ${step.url}` : '',
-        step.status != null ? `| HTTP ${step.status}` : '',
-        step.detail ? `| ${step.detail}` : '',
-        step.error ? `| erro: ${step.error}` : '',
-    ]
-        .filter(Boolean)
-        .join(' ');
-    console.log(line);
-
     if (step.success) {
-        HospedinLogger.info(`test-step:ok:${step.step}`, {
+        HospedinLogger.debug(`test-step:ok:${step.step}`, {
             step: step.step,
             method: step.method,
             url: step.url,

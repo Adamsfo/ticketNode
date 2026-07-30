@@ -1,9 +1,7 @@
 import { Transaction } from 'sequelize';
 import connection from '../../../database';
 import { HospedinLogger } from '../logger/HospedinLogger';
-import {
-    HospedinDomainMappingError,
-} from '../mapper/HospedinReservationDomainMapper';
+import { HospedinDomainMappingError } from '../mapper/HospedinReservationDomainMapper';
 import type { ReservationExecutionContext } from '../sync/types';
 import type { ReservationDiffChange } from './ReservationDiffService';
 import {
@@ -14,6 +12,11 @@ import {
     reservationPatchBuilder,
     type ReservationPatch,
 } from './ReservationPatchBuilder';
+import {
+    desiredGuestsFromSnapshot,
+    loadDocumentosForHospede,
+    relinkHospedesFromDesired,
+} from './GuestUsuarioRelinkService';
 
 export type ReservationUpdateResult = {
     idReservaHospedagem: number;
@@ -23,7 +26,8 @@ export type ReservationUpdateResult = {
 
 /**
  * Aplica ReservationPatch no domínio Jango.
- * Não decide. Não lê DTO Hospedin. Sem sync financeiro.
+ * Em TODO UPDATE: reconcilia idUsuario a partir do CPF do payload/documentos
+ * (nunca deixa ReservaHospede no Usuário Técnico quando há CPF válido).
  */
 export class ReservationUpdateService {
     async updateFromHospedin(
@@ -48,6 +52,9 @@ export class ReservationUpdateService {
         );
         const { suiteTemConflito } = await import(
             '../../../services/reservaSuiteService'
+        );
+        const { guestResolverService } = await import(
+            '../../../services/GuestResolverService'
         );
 
         const hospedagem = await ReservaHospedagem.findByPk(idReservaHospedagem, {
@@ -110,12 +117,9 @@ export class ReservationUpdateService {
             ? reservationPatchBuilder.buildFromDiff(diff)
             : {};
 
-        let hospedesResolved = patch.hospedesReplace;
-        const { guestResolverService } = await import(
-            '../../../services/GuestResolverService'
-        );
+        // Resolve CPF já no replace (quando o Diff troca a lista de nomes).
         guestResolverService.clearCache();
-
+        let hospedesResolved = patch.hospedesReplace;
         if (patch.hospedesReplace?.length) {
             hospedesResolved = [];
             for (let i = 0; i < patch.hospedesReplace.length; i++) {
@@ -157,19 +161,7 @@ export class ReservationUpdateService {
             });
         }
 
-        // Sempre re-vincula Usuario (ex.: CPF passou a existir na Hospedin).
-        const linkChanges = await this.relinkGuestUsuarios({
-            hospedagem,
-            linha,
-            ReservaHospede,
-            desired,
-            reservationId: ctx.decision.reservationId,
-            correlationId: ctx.correlationId,
-            guestResolverService,
-            skipIfJustReplaced: Boolean(hospedesResolved?.length),
-            replacedHospedes: hospedesResolved,
-        });
-
+        // Documentos primeiro — CPF em IDENTIFICATION alimenta o relink.
         const { reservationOriginEnrichmentService } = await import(
             './ReservationOriginEnrichmentService'
         );
@@ -179,8 +171,35 @@ export class ReservationUpdateService {
             correlationId: ctx.correlationId,
         });
 
+        // Sempre reconcilia idUsuario (mesmo sem Diff de nomes / CPF só no UPDATE).
+        const linkChanges = await this.reconcileGuestUsersAfterEnrichment({
+            hospedagem,
+            linha,
+            ReservaHospede,
+            desired,
+            reservationId: ctx.decision.reservationId,
+            correlationId: ctx.correlationId,
+            guestResolverService,
+        });
+
+        // Rede de segurança: docs com CPF + ainda técnico.
+        try {
+            const { guestCpfReconcileService } = await import(
+                './GuestCpfReconcileService'
+            );
+            await guestCpfReconcileService.upgradeReservationFromDocuments(
+                idReservaHospedagem
+            );
+        } catch (err: any) {
+            HospedinLogger.warn('update:guest_cpf_upgrade_failed', {
+                correlation_id: ctx.correlationId,
+                reservation_id: ctx.decision.reservationId,
+                message: err?.message,
+            });
+        }
+
         if (!diff.hasChanges && !linkChanges.length) {
-            HospedinLogger.info('update:no_operational_changes', {
+            HospedinLogger.debug('update:no_operational_changes', {
                 correlation_id: ctx.correlationId,
                 reservation_id: ctx.decision.reservationId,
                 idReservaHospedagem,
@@ -193,7 +212,7 @@ export class ReservationUpdateService {
         }
 
         const changes = [...diff.changes, ...linkChanges];
-        HospedinLogger.info('update:applied', {
+        HospedinLogger.debug('update:applied', {
             correlation_id: ctx.correlationId,
             reservation_id: ctx.decision.reservationId,
             idReservaHospedagem,
@@ -208,10 +227,11 @@ export class ReservationUpdateService {
     }
 
     /**
-     * Atualiza ReservaHospede.idUsuario / ReservaHospedagem.idUsuario
-     * quando o CPF passa a ser válido (sai do usuário técnico).
+     * Único caminho obrigatório em todo UPDATE: CPF do desired + documentos
+     * → resolveGuest → atualiza ReservaHospede / titular.
+     * Usuário Técnico permanece no cadastro; só perde o vínculo.
      */
-    private async relinkGuestUsuarios(input: {
+    private async reconcileGuestUsersAfterEnrichment(input: {
         hospedagem: any;
         linha: any;
         ReservaHospede: any;
@@ -219,10 +239,7 @@ export class ReservationUpdateService {
         reservationId: number;
         correlationId: string;
         guestResolverService: typeof import('../../../services/GuestResolverService').guestResolverService;
-        skipIfJustReplaced: boolean;
-        replacedHospedes?: Array<{ idUsuario?: number | null; tipo?: string }> | null;
     }): Promise<ReservationDiffChange[]> {
-        const changes: ReservationDiffChange[] = [];
         const {
             hospedagem,
             linha,
@@ -233,115 +250,59 @@ export class ReservationUpdateService {
             guestResolverService,
         } = input;
 
-        let rows = ((linha.ReservaHospede || []) as any[]).slice();
-        if (input.skipIfJustReplaced && input.replacedHospedes?.length) {
-            let titularId: number | null = null;
-            for (const g of input.replacedHospedes) {
-                const tipo = String(g.tipo || '');
-                if (
-                    tipo.toLowerCase().includes('adulto') &&
-                    g.idUsuario != null &&
-                    titularId == null
-                ) {
-                    titularId = Number(g.idUsuario);
-                }
-            }
-            if (
-                titularId != null &&
-                Number(hospedagem.idUsuario) !== titularId
-            ) {
-                const beforeTitular = Number(hospedagem.idUsuario);
-                await hospedagem.update({ idUsuario: titularId });
-                changes.push({
-                    field: 'hospedagem.idUsuario',
-                    before: beforeTitular,
-                    after: titularId,
-                });
-            }
-            return changes;
+        const rows = await ReservaHospede.findAll({
+            where: { idReservaSuite: Number(linha.id) },
+            order: [['id', 'ASC']],
+        });
+
+        let desiredGuests = desiredGuestsFromSnapshot(desired);
+
+        // Se o payload não trouxe lista de hóspedes, reconcilia pelos rows
+        // existentes (nome/tipo do banco + CPF dos documentos).
+        if (!desiredGuests.length && rows.length) {
+            desiredGuests = rows.map((r: any) => ({
+                nome: String(r.nome || 'Hóspede'),
+                tipo: String(r.tipo || 'Adulto'),
+                dataNascimento: r.dataNascimento
+                    ? String(r.dataNascimento).slice(0, 10)
+                    : null,
+                cpf: null,
+                email: null,
+                telefone: null,
+            }));
         }
 
-        if (input.skipIfJustReplaced) {
-            rows = await ReservaHospede.findAll({
-                where: { idReservaSuite: Number(linha.id) },
-                order: [['id', 'ASC']],
-            });
-        }
+        if (!desiredGuests.length) return [];
 
-        const desiredGuests = desired.hospedes || [];
-        let titularId: number | null = null;
+        await hospedagem.reload();
 
-        for (let i = 0; i < desiredGuests.length; i++) {
-            const g = desiredGuests[i];
-            const row = rows[i];
-            const previousId = row?.idUsuario != null ? Number(row.idUsuario) : null;
-
-            const resolved = await guestResolverService.resolveGuest(
-                {
-                    nome: g.nome,
-                    tipo: g.tipo,
-                    dataNascimento: g.dataNascimento
-                        ? new Date(g.dataNascimento)
+        return relinkHospedesFromDesired({
+            rows: rows as any,
+            desiredGuests,
+            deps: {
+                guestResolverService,
+                loadDocumentos: loadDocumentosForHospede,
+                currentHospedagemIdUsuario:
+                    hospedagem.idUsuario != null
+                        ? Number(hospedagem.idUsuario)
                         : null,
-                    cpf: g.cpf ?? null,
-                    email: g.email ?? null,
-                    telefone: g.telefone ?? null,
+                updateHospedagemUsuario: async (idUsuario) => {
+                    await hospedagem.update({ idUsuario });
                 },
-                {
-                    reservationId,
-                    correlationId,
-                    previousIdUsuario: previousId,
-                }
-            );
-
-            if (
-                String(g.tipo).toLowerCase().includes('adulto') &&
-                titularId == null &&
-                !resolved.isTechnical
-            ) {
-                titularId = resolved.idUsuario;
-            } else if (
-                String(g.tipo).toLowerCase().includes('adulto') &&
-                titularId == null
-            ) {
-                titularId = resolved.idUsuario;
-            }
-
-            if (row && previousId !== resolved.idUsuario) {
-                await row.update({ idUsuario: resolved.idUsuario });
-                changes.push({
-                    field: 'hospede.idUsuario',
-                    before: previousId,
-                    after: resolved.idUsuario,
-                });
-                HospedinLogger.info('update:guest_usuario_relink', {
-                    reservation_id: reservationId,
-                    correlation_id: correlationId,
-                    hospede: g.nome,
-                    before: previousId,
-                    after: resolved.idUsuario,
-                    action: resolved.action,
-                });
-            }
-        }
-
-        if (titularId != null && Number(hospedagem.idUsuario) !== titularId) {
-            const beforeTitular = Number(hospedagem.idUsuario);
-            await hospedagem.update({ idUsuario: titularId });
-            changes.push({
-                field: 'hospedagem.idUsuario',
-                before: beforeTitular,
-                after: titularId,
-            });
-            HospedinLogger.info('update:titular_usuario_relink', {
-                reservation_id: reservationId,
-                correlation_id: correlationId,
-                before: beforeTitular,
-                after: titularId,
-            });
-        }
-
-        return changes;
+                reservationId,
+                correlationId,
+                onRelink: (info) => {
+                    HospedinLogger.debug('update:guest_usuario_relink', {
+                        reservation_id: reservationId,
+                        correlation_id: correlationId,
+                        hospede: info.hospedeNome,
+                        before: info.before,
+                        after: info.after,
+                        action: info.action,
+                    });
+                },
+            },
+        });
     }
 
     private async applyPatch(input: {

@@ -8,7 +8,23 @@ export type {
 export { computeBackoffMs } from './types';
 export { providerRegistry } from './ProviderRegistry';
 export { providerRunLock } from './ProviderRunLock';
-export { runProviderCycle } from './SyncRunOrchestrator';
+export {
+    runProviderCycle,
+    recoverStaleRunningProviders,
+    recoverDeadRuns,
+    isStaleRunning,
+    isProviderRunAlive,
+    STALE_RUNNING_MS,
+    HEARTBEAT_TTL_MS,
+    DEFAULT_MAX_RUN_MS,
+} from './SyncRunOrchestrator';
+export type { RunProviderResult } from './SyncRunOrchestrator';
+export { startRun, finishRun } from './ProviderRunLifecycle';
+export type {
+    ActiveRunHandle,
+    RunFinishKind,
+    FinishRunInput,
+} from './ProviderRunLifecycle';
 export {
     startIntegrationScheduler,
     stopIntegrationScheduler,

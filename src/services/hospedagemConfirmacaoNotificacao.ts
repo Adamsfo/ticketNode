@@ -9,6 +9,7 @@ import { enviarEmailCliente } from '../utils/resend';
 import { montarUrlPublicaReserva } from '../utils/siteUrl';
 import { enviarMensagemTextoZApi } from '../utils/zApiWhatsApp';
 import { toNumber } from '../utils/reservaSuiteUtils';
+import { shouldSendAutomaticConfirmation } from './ReservationNotificationPolicy';
 
 export { montarUrlPublicaReserva };
 
@@ -226,6 +227,19 @@ export async function notificarConfirmacaoHospedagem(
     idReservaHospedagem: number,
     idTransacao: number
 ): Promise<void> {
+    const origemRow = await ReservaHospedagem.findByPk(idReservaHospedagem, {
+        attributes: ['id', 'origemReserva'],
+    });
+    if (
+        !shouldSendAutomaticConfirmation(
+            origemRow?.origemReserva ?? null
+        )
+    ) {
+        // Origem externa (HOSPEDIN, providers futuros): não tenta envio
+        // e não registra falha de e-mail/WhatsApp.
+        return;
+    }
+
     const conteudo = await carregarConteudoConfirmacaoHospedagem(
         idReservaHospedagem,
         idTransacao

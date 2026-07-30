@@ -1,4 +1,5 @@
 import { Op } from 'sequelize';
+import { logger } from '../../utils/logger';
 import {
     IntegrationEntityType,
     IntegrationSyncState,
@@ -10,6 +11,8 @@ import { isTransientErrorCode } from './syncErrorClassification';
 let timer: ReturnType<typeof setInterval> | null = null;
 let running = false;
 
+const log = logger.child('SmartRetry');
+
 /**
  * Retry inteligente: a cada 15s processa entidades com next_retry_at vencido
  * e erro temporário (rede/timeout/indisponibilidade), sem esperar o ciclo do scheduler.
@@ -19,7 +22,7 @@ export function startEntitySmartRetryJob(): void {
     timer = setInterval(() => {
         void tickSmartRetries();
     }, 15_000);
-    console.log('[IntegrationSmartRetry] iniciado (tick 15s)');
+    log.info('Smart retry iniciado (tick 15s)');
 }
 
 export function stopEntitySmartRetryJob(): void {
@@ -53,12 +56,10 @@ async function tickSmartRetries(): Promise<void> {
         for (const state of due) {
             const code = String((state as any).error_code || '');
             if (code && !isTransientErrorCode(code)) {
-                // Limpa next_retry se não for mais transitório
                 await state.update({ next_retry_at: null } as any);
                 continue;
             }
             if (!code && state.sync_status === IntegrationSyncStatus.FAILED) {
-                // Sem código: só retenta se mensagem sugerir rede/timeout
                 const msg = String(state.last_error || '').toLowerCase();
                 if (
                     !msg.includes('timeout') &&
@@ -72,8 +73,8 @@ async function tickSmartRetries(): Promise<void> {
                 }
             }
 
-            console.log(
-                `[IntegrationSmartRetry] ${state.provider} #${state.external_id}`
+            log.debug(
+                `retry ${state.provider} #${state.external_id}`
             );
             await runEntitySync({
                 provider: String(state.provider),
@@ -81,8 +82,11 @@ async function tickSmartRetries(): Promise<void> {
                 trigger: 'SMART_RETRY',
             });
         }
-    } catch (error) {
-        console.error('[IntegrationSmartRetry] tick failed', error);
+    } catch (error: any) {
+        log.error('tick failed', {
+            message: error?.message,
+            stack: error?.stack,
+        });
     } finally {
         running = false;
     }

@@ -1,9 +1,11 @@
 import { where, fn, col } from 'sequelize';
 import { Usuario } from '../models/Usuario';
 import { TipoReservaHospede } from '../models/ReservaHospede';
-import { assessCpf, onlyDigits } from '../utils/cpf';
+import { onlyDigits } from '../utils/cpf';
+import { pickGuestCpf } from '../utils/guestCpf';
 import { HospedinLogger } from '../integrations/hospedin/logger/HospedinLogger';
 import { hospedinSyncLogService } from '../integrations/hospedin/services/HospedinSyncLogService';
+import { logger } from '../utils/logger';
 
 export type GuestResolveInput = {
     nome: string;
@@ -14,6 +16,11 @@ export type GuestResolveInput = {
     telefone?: string | null;
     /** guest_id Hospedin, quando conhecido */
     externalGuestId?: number | null;
+    /**
+     * Documentos já importados (ex.: ReservaHospedeDocumento).
+     * CPF válido neles tem prioridade antes de criar HÓSPEDE SEM CPF.
+     */
+    documentos?: Array<{ tipo?: string | null; numero?: string | null }> | null;
 };
 
 export type GuestResolveAction =
@@ -136,7 +143,11 @@ export class GuestResolverService {
         }
     ): Promise<GuestResolveResult> {
         const nome = String(input.nome || '').trim() || 'Hóspede';
-        const assessment = assessCpf(input.cpf);
+        const picked = pickGuestCpf({
+            cpf: input.cpf,
+            documents: input.documentos,
+        });
+        const assessment = picked.assessment;
         await this.ensureTechnicalUsers();
 
         if (assessment.status === 'valid') {
@@ -149,7 +160,16 @@ export class GuestResolverService {
                 externalGuestId: input.externalGuestId,
                 previousIdUsuario: meta?.previousIdUsuario,
             });
-            await this.logResolve(result, meta);
+            if (picked.source && picked.source !== 'cpf') {
+                logger.debug('guest_resolver:cpf_from_document', {
+                    source: picked.source,
+                    reservation_id: meta?.reservationId,
+                    nome,
+                });
+            }
+            await this.logResolve(result, meta, {
+                cpfSource: picked.source,
+            });
             return result;
         }
 
@@ -178,7 +198,10 @@ export class GuestResolverService {
             message:
                 'CPF inválido — usuário técnico HÓSPEDE CPF INVÁLIDO (HOSPEDIN) utilizado.',
         };
-        await this.logResolve(result, meta, { cpfRaw: assessment.raw });
+        await this.logResolve(result, meta, {
+            cpfRaw: assessment.raw,
+            cpfSource: picked.source,
+        });
         return result;
     }
 
@@ -355,9 +378,9 @@ export class GuestResolverService {
     private async logResolve(
         result: GuestResolveResult,
         meta?: { reservationId?: number; correlationId?: string },
-        extra?: { cpfRaw?: string }
+        extra?: { cpfRaw?: string; cpfSource?: string | null }
     ) {
-        HospedinLogger.info('guest_resolver', {
+        HospedinLogger.debug('guest_resolver', {
             action: result.action,
             idUsuario: result.idUsuario,
             cpf: result.cpf,
@@ -369,6 +392,22 @@ export class GuestResolverService {
             ...extra,
         });
 
+        if (result.isTechnical) {
+            if (result.action === 'TECHNICAL_CPF_INVALID') {
+                logger.warn(result.message, {
+                    reservation_id: meta?.reservationId,
+                    nome: result.nome,
+                    action: result.action,
+                });
+            } else {
+                logger.debug(result.message, {
+                    reservation_id: meta?.reservationId,
+                    nome: result.nome,
+                    action: result.action,
+                });
+            }
+        }
+
         await hospedinSyncLogService.write({
             operacao: 'guest_resolver',
             request: {
@@ -378,6 +417,7 @@ export class GuestResolverService {
                 correlation_id: meta?.correlationId ?? null,
                 cpf: result.cpf,
                 cpf_raw: extra?.cpfRaw ?? null,
+                cpf_source: extra?.cpfSource ?? null,
                 nome: result.nome,
                 is_technical: result.isTechnical,
             },

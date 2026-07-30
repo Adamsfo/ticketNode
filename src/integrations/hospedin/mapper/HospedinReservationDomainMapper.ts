@@ -9,6 +9,7 @@ import { HospedinReservationMapper } from '../mapper/HospedinReservationMapper';
 import { asDate, asNumber, asRecord, asString } from '../mapper/mapperHelpers';
 import type { ResolvedInternalSuite } from '../services/PlaceSuiteResolver';
 import type { ReservationDiffSnapshot } from '../services/ReservationDiffService';
+import { extractGuestCpfString } from '../../../utils/guestCpf';
 
 export const PAYLOAD_INCOMPLETE = 'PAYLOAD_INCOMPLETE';
 
@@ -369,12 +370,20 @@ function mapGuestRecord(
 
 function guestContactFields(row: Record<string, unknown>) {
     const contact = asRecord(row.contact);
-        const cpf =
-            asString(row.cpf) ||
-            asString(row.ssn) ||
-            asString(row.documento) ||
-            null;
-        // identification/passport são documentos — não usar como CPF.
+    // CPF explícito + documentos (identification etc.) — só usa doc se for CPF válido.
+    const cpf = extractGuestCpfString({
+        cpf: row.cpf,
+        ssn: row.ssn,
+        documento: row.documento,
+        identification: row.identification,
+        document: row.document,
+        passport: row.passport,
+        documents: Array.isArray(row.documents)
+            ? (row.documents as any[])
+            : Array.isArray(row.documentos)
+              ? (row.documentos as any[])
+              : null,
+    });
     const email = asString(row.email) || asString(contact.email) || null;
     const telefone =
         asString(row.phone) ||

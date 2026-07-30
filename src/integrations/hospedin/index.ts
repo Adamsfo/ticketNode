@@ -93,6 +93,15 @@ export type {
     HospedinTestStepName,
 } from './services/HospedinConnectivityTestService';
 
+export {
+    guestCpfReconcileService,
+    reconcileGuestCpfFromDocuments,
+} from './services/GuestCpfReconcileService';
+export type {
+    GuestCpfReconcileResult,
+    GuestCpfReconcileItem,
+} from './services/GuestCpfReconcileService';
+
 export { hospedinSyncProvider, HospedinSyncProvider } from './HospedinSyncProvider';
 
 /** @deprecated Não usar no MVP (403). */

@@ -17,6 +17,7 @@ export type OrigemReservaHospedagem =
     | 'ATENDENTE'
     | 'SITE' // legado em alguns ambientes
     | 'LINK_CLIENTE'
+    | 'JANGO'
     | 'BOOKING'
     | 'AIRBNB'
     | 'EXPEDIA'

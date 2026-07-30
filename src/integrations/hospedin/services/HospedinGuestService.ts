@@ -10,6 +10,7 @@ import {
     hospedinReservationService,
     HospedinReservationService,
 } from './HospedinReservationService';
+import { extractGuestCpfString } from '../../../utils/guestCpf';
 
 export type HospedinGuestDto = {
     guestId: number;
@@ -241,10 +242,18 @@ export async function enrichReservationDtoWithPrimaryGuest(
         type: 'adult',
         birth: guest.birth,
         email: guest.email,
-        cpf: guest.sourcePayload?.ssn || guest.sourcePayload?.cpf || null,
+        cpf: extractGuestCpfString({
+            cpf: guest.sourcePayload?.cpf,
+            ssn: guest.sourcePayload?.ssn,
+            documento: guest.sourcePayload?.documento,
+            identification: guest.sourcePayload?.identification,
+            document: guest.sourcePayload?.document,
+            passport: guest.sourcePayload?.passport,
+        }),
         ssn: guest.sourcePayload?.ssn ?? null,
         identification: guest.sourcePayload?.identification ?? null,
         passport: guest.sourcePayload?.passport ?? null,
+        document: guest.sourcePayload?.document ?? null,
         note: guest.sourcePayload?.note ?? null,
         phone: guest.sourcePayload?.contact
             ? (guest.sourcePayload.contact as any).phone

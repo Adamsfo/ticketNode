@@ -41,6 +41,32 @@ require('ts-node/register/transpile-only');
   assert(c.action === 'TECHNICAL_CPF_MISSING', 'missing action');
   assert(c.idUsuario === tech.missingId, 'missing id');
 
+  // CPF só nos documentos → não deve criar HÓSPEDE SEM CPF
+  const fromDoc = await guestResolverService.resolveGuest({
+    nome: 'Com Doc CPF',
+    tipo: TipoReservaHospede.Adulto,
+    cpf: null,
+    documentos: [{ tipo: 'IDENTIFICATION', numero: '529.982.247-25' }],
+  });
+  console.log('fromDoc', fromDoc.action, fromDoc.idUsuario, fromDoc.cpf);
+  assert(fromDoc.idUsuario !== tech.missingId, 'doc cpf not technical');
+  assert(
+    fromDoc.action === 'CREATED' ||
+      fromDoc.action === 'REUSED_BY_CPF' ||
+      fromDoc.action === 'UPGRADED_FROM_TECHNICAL',
+    'doc cpf action'
+  );
+
+  // RG (não CPF) em identification → continua SEM CPF (não CPF inválido)
+  const rgOnly = await guestResolverService.resolveGuest({
+    nome: 'So RG',
+    tipo: TipoReservaHospede.Adulto,
+    cpf: null,
+    documentos: [{ tipo: 'IDENTIFICATION', numero: '12.345.678-9' }],
+  });
+  assert(rgOnly.action === 'TECHNICAL_CPF_MISSING', 'rg is not invalid cpf');
+  assert(rgOnly.idUsuario === tech.missingId, 'rg uses missing tech');
+
   const c2 = await guestResolverService.resolveGuest({
     nome: 'Outro Sem Cpf',
     tipo: TipoReservaHospede.Adulto,

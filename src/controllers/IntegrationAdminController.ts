@@ -69,6 +69,8 @@ module.exports = {
 
     async reconcilePendencias(req: any, res: any, next: any) {
         try {
+            const { logger } = require('../utils/logger');
+            logger.info('Reconciliação de pendências iniciada');
             const provider = req.body?.provider
                 ? String(req.body.provider)
                 : req.query.provider
@@ -78,6 +80,7 @@ module.exports = {
                 provider,
                 limit: Number(req.body?.limit) || 5000,
             });
+            logger.info('Reconciliação de pendências finalizada', data);
             return res.status(200).json({ data });
         } catch (error) {
             next(error);
@@ -391,6 +394,37 @@ module.exports = {
                     webhookEnabled: updated.webhookEnabled,
                 },
             });
+        } catch (error) {
+            next(error);
+        }
+    },
+
+    /**
+     * Promove "HÓSPEDE SEM CPF" → Usuario real quando já existe CPF
+     * em ReservaHospedeDocumento (sem reimportar).
+     */
+    async reconcileGuestCpf(req: any, res: any, next: any) {
+        try {
+            const { logger } = require('../utils/logger');
+            const {
+                reconcileGuestCpfFromDocuments,
+            } = require('../integrations/hospedin/services/GuestCpfReconcileService');
+            logger.info('Reconciliação de CPF de hóspedes iniciada');
+            const data = await reconcileGuestCpfFromDocuments({
+                limit: Number(req.body?.limit) || 500,
+                dryRun: Boolean(req.body?.dryRun),
+                idReservaHospedagem:
+                    req.body?.idReservaHospedagem != null
+                        ? Number(req.body.idReservaHospedagem)
+                        : undefined,
+            });
+            logger.info('Reconciliação de CPF de hóspedes finalizada', {
+                scanned: data.scanned,
+                upgraded: data.upgraded,
+                skipped: data.skipped,
+                failures: data.failures,
+            });
+            return res.status(200).json({ data });
         } catch (error) {
             next(error);
         }
