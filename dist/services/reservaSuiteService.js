@@ -36,6 +36,7 @@ const hospedagemPagamentoRecepcao_1 = require("../utils/hospedagemPagamentoRecep
 const reservaSuiteUtils_1 = require("../utils/reservaSuiteUtils");
 const suiteDisponibilidadeService_1 = require("./suiteDisponibilidadeService");
 const hospedagemConfirmacaoNotificacao_1 = require("./hospedagemConfirmacaoNotificacao");
+const reservaObservacoesUtils_1 = require("../utils/reservaObservacoesUtils");
 const STATUS_RESERVA_SUITE_OCUPA = [
     ReservaSuite_1.StatusReservaSuite.AguardandoPagamento,
     ReservaSuite_1.StatusReservaSuite.Confirmada,
@@ -698,7 +699,10 @@ async function checkoutHospedagem(params) {
                 ? ReservaHospedagem_1.StatusReservaHospedagem.Confirmada
                 : ReservaHospedagem_1.StatusReservaHospedagem.AguardandoPagamento,
             dataConfirmacao: confirmaImediatamente ? agora : null,
-            observacoes: observacoes?.trim() || null,
+            ...(0, reservaObservacoesUtils_1.buildObservacoesFieldsForCreate)({
+                origemIntegracao: isIntegracao,
+                observacoes,
+            }),
             idTransacao: null,
             tokenPagamento,
             // Link externo: expira 18 min após a criação (createdAt / agora).

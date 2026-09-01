@@ -50,6 +50,13 @@ interface ReservaHospedagemAttributes {
     codigoExterno?: string | null;
     /** Canal comercial (Booking, Airbnb, Site…) — VARCHAR, não ENUM. */
     canalVenda?: string | null;
+    /**
+     * Indicador operacional: note da OTA sugere pagamento pela plataforma.
+     * Não quita automaticamente — só alerta o operador.
+     */
+    possivelPagamentoOta?: boolean;
+    /** Trecho do note que motivou a detecção. */
+    possivelPagamentoOtaTrecho?: string | null;
     idUsuarioCriacao?: number | null;
     status: StatusReservaHospedagem;
     idTransacao?: number | null;
@@ -64,6 +71,8 @@ interface ReservaHospedagemAttributes {
     dataHoraCheckoutRealizado?: Date | null;
     idUsuarioCheckout?: number | null;
     observacoes?: string | null;
+    observacaoImportada?: string | null;
+    observacaoOperador?: string | null;
 }
 
 interface ReservaHospedagemCreationAttributes
@@ -78,6 +87,8 @@ interface ReservaHospedagemCreationAttributes
         | 'dataHoraCheckoutRealizado'
         | 'idUsuarioCheckout'
         | 'observacoes'
+        | 'observacaoImportada'
+        | 'observacaoOperador'
         | 'valorPago'
         | 'saldoPendente'
         | 'formaPagamentoRecepcao'
@@ -87,7 +98,9 @@ interface ReservaHospedagemCreationAttributes
         | 'idExterno'
         | 'codigoExterno'
         | 'canalVenda'
-    | 'idUsuarioCriacao'
+        | 'possivelPagamentoOta'
+        | 'possivelPagamentoOtaTrecho'
+        | 'idUsuarioCriacao'
         | 'tokenPagamento'
         | 'expiraEm'
         | 'linkPagamentoEnviadoEm'
@@ -115,6 +128,8 @@ class ReservaHospedagem
     public idExterno?: string | null;
     public codigoExterno?: string | null;
     public canalVenda?: string | null;
+    public possivelPagamentoOta?: boolean;
+    public possivelPagamentoOtaTrecho?: string | null;
     public idUsuarioCriacao?: number | null;
     public status!: StatusReservaHospedagem;
     public idTransacao?: number | null;
@@ -127,6 +142,8 @@ class ReservaHospedagem
     public dataHoraCheckoutRealizado?: Date | null;
     public idUsuarioCheckout?: number | null;
     public observacoes?: string | null;
+    public observacaoImportada?: string | null;
+    public observacaoOperador?: string | null;
 
     static initialize(sequelize: Sequelize) {
         ReservaHospedagem.init({
@@ -210,6 +227,15 @@ class ReservaHospedagem
                 type: DataTypes.STRING(40),
                 allowNull: true,
             },
+            possivelPagamentoOta: {
+                type: DataTypes.BOOLEAN,
+                allowNull: false,
+                defaultValue: false,
+            },
+            possivelPagamentoOtaTrecho: {
+                type: DataTypes.TEXT,
+                allowNull: true,
+            },
             idUsuarioCriacao: {
                 type: DataTypes.INTEGER,
                 allowNull: true,
@@ -261,6 +287,14 @@ class ReservaHospedagem
                 references: { model: Usuario, key: 'id' },
             },
             observacoes: {
+                type: DataTypes.TEXT,
+                allowNull: true,
+            },
+            observacaoImportada: {
+                type: DataTypes.TEXT,
+                allowNull: true,
+            },
+            observacaoOperador: {
                 type: DataTypes.TEXT,
                 allowNull: true,
             },

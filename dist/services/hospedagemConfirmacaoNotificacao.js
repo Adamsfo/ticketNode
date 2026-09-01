@@ -22,6 +22,7 @@ const siteUrl_1 = require("../utils/siteUrl");
 Object.defineProperty(exports, "montarUrlPublicaReserva", { enumerable: true, get: function () { return siteUrl_1.montarUrlPublicaReserva; } });
 const zApiWhatsApp_1 = require("../utils/zApiWhatsApp");
 const reservaSuiteUtils_1 = require("../utils/reservaSuiteUtils");
+const ReservationNotificationPolicy_1 = require("./ReservationNotificationPolicy");
 function formatarDataHospedagem(data) {
     return (0, date_fns_tz_1.formatInTimeZone)(data, 'America/Cuiaba', 'dd/MM/yyyy HH:mm');
 }
@@ -161,6 +162,14 @@ async function registrarFalhaEnvioConfirmacao(conteudo, canal, error) {
     }
 }
 async function notificarConfirmacaoHospedagem(idReservaHospedagem, idTransacao) {
+    const origemRow = await ReservaHospedagem_1.ReservaHospedagem.findByPk(idReservaHospedagem, {
+        attributes: ['id', 'origemReserva'],
+    });
+    if (!(0, ReservationNotificationPolicy_1.shouldSendAutomaticConfirmation)(origemRow?.origemReserva ?? null)) {
+        // Origem externa (HOSPEDIN, providers futuros): não tenta envio
+        // e não registra falha de e-mail/WhatsApp.
+        return;
+    }
     const conteudo = await carregarConteudoConfirmacaoHospedagem(idReservaHospedagem, idTransacao);
     if (!conteudo) {
         console.error(`Conteúdo de notificação não encontrado para reserva ${idReservaHospedagem}.`);

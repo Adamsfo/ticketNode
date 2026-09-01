@@ -151,6 +151,14 @@ class ReservaHospedagem extends sequelize_1.Model {
                 type: sequelize_1.DataTypes.TEXT,
                 allowNull: true,
             },
+            observacaoImportada: {
+                type: sequelize_1.DataTypes.TEXT,
+                allowNull: true,
+            },
+            observacaoOperador: {
+                type: sequelize_1.DataTypes.TEXT,
+                allowNull: true,
+            },
         }, {
             sequelize,
             modelName: 'ReservaHospedagem',

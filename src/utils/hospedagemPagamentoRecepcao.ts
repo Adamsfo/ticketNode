@@ -12,8 +12,24 @@ export const FORMAS_PAGAMENTO_RECEPCAO: FormaPagamentoRecepcao[] = [
     FormaPagamentoRecepcaoValor.CartaoDebito,
     FormaPagamentoRecepcaoValor.Transferencia,
     FormaPagamentoRecepcaoValor.LinkPagamento,
+    FormaPagamentoRecepcaoValor.Antecipado,
+    FormaPagamentoRecepcaoValor.RecebidoOta,
     FormaPagamentoRecepcaoValor.Outro,
 ];
+
+/** Formas que NÃO entram no caixa diário / fechamento do operador. */
+export const FORMAS_PAGAMENTO_FORA_DO_CAIXA: FormaPagamentoRecepcao[] = [
+    FormaPagamentoRecepcaoValor.RecebidoOta,
+];
+
+export function isFormaPagamentoForaDoCaixa(
+    forma: string | null | undefined
+): boolean {
+    return (
+        typeof forma === 'string' &&
+        (FORMAS_PAGAMENTO_FORA_DO_CAIXA as string[]).includes(forma)
+    );
+}
 
 export function isFormaPagamentoRecepcao(
     value: unknown
@@ -50,6 +66,10 @@ export function labelFormaPagamentoRecepcao(
             return 'Transferência';
         case FormaPagamentoRecepcaoValor.LinkPagamento:
             return 'Link de Pagamento';
+        case FormaPagamentoRecepcaoValor.Antecipado:
+            return 'Antecipado';
+        case FormaPagamentoRecepcaoValor.RecebidoOta:
+            return 'Recebido pela OTA';
         case FormaPagamentoRecepcaoValor.Outro:
             return 'Outro';
         default:
@@ -146,4 +166,52 @@ export function parsePagamentoRecepcao(
 
 export function formatarMoedaHistorico(valor: number): string {
     return `R$ ${roundMoney(valor).toFixed(2).replace('.', ',')}`;
+}
+
+/**
+ * Agrupa pagamentos da reserva para relatórios:
+ * - totalCaixa: formas que entram no caixa do hotel
+ * - totalRecebidoOta: informativo (RECEBIDO_OTA), nunca soma no caixa
+ */
+export function resumirPagamentosHospedagemPorCaixa(
+    pagamentos: Array<{ valor: number; formaPagamento: string }>
+): {
+    totalCaixa: number;
+    totalRecebidoOta: number;
+    porFormaCaixa: Array<{ forma: string; label: string; total: number }>;
+    porFormaOta: Array<{ forma: string; label: string; total: number }>;
+} {
+    const mapaCaixa = new Map<string, number>();
+    const mapaOta = new Map<string, number>();
+    let totalCaixa = 0;
+    let totalRecebidoOta = 0;
+
+    for (const p of pagamentos) {
+        const valor = roundMoney(Number(p.valor) || 0);
+        const forma = String(p.formaPagamento || 'Outro');
+        if (isFormaPagamentoForaDoCaixa(forma)) {
+            totalRecebidoOta = roundMoney(totalRecebidoOta + valor);
+            mapaOta.set(forma, roundMoney((mapaOta.get(forma) || 0) + valor));
+        } else {
+            totalCaixa = roundMoney(totalCaixa + valor);
+            mapaCaixa.set(
+                forma,
+                roundMoney((mapaCaixa.get(forma) || 0) + valor)
+            );
+        }
+    }
+
+    const toList = (mapa: Map<string, number>) =>
+        [...mapa.entries()].map(([forma, total]) => ({
+            forma,
+            label: labelFormaPagamentoRecepcao(forma),
+            total,
+        }));
+
+    return {
+        totalCaixa,
+        totalRecebidoOta,
+        porFormaCaixa: toList(mapaCaixa),
+        porFormaOta: toList(mapaOta),
+    };
 }

@@ -37,6 +37,7 @@ import { IntegrationProviderConfigInit } from '../models/IntegrationProviderConf
 import { IntegrationProviderStateInit } from '../models/IntegrationProviderState';
 import { IntegrationSyncExecutionInit } from '../models/IntegrationSyncExecution';
 import { IntegrationEntitySyncEventInit } from '../models/IntegrationEntitySyncEvent';
+import { HospedagemRefreshStateInit } from '../models/HospedagemRefreshState';
 const ConfigIniciais = require('./ConfigIniciais')
 const FuncaoSistema = require('./FuncaoSistema')
 
@@ -90,6 +91,7 @@ const connection = new Sequelize(dbConfig);
     HospedinPlaceSuiteMapInit(connection)
     UsuarioMetodoPagamentoInit(connection)
     VisitasInit(connection)
+    HospedagemRefreshStateInit(connection)
 
     // Sincronizando os modelos com o banco de dados        
     // await connection.sync();

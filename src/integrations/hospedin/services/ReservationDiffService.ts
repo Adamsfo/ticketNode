@@ -1,4 +1,6 @@
+import { formatInTimeZone } from 'date-fns-tz';
 import type { HospedeCheckoutItem } from '../../../services/reservaSuiteService';
+import { TZ_HOSPEDAGEM } from '../../../utils/reservaSuiteUtils';
 
 export type ReservationDiffChange = {
     field: string;
@@ -33,6 +35,12 @@ export type ReservationDiffResult = {
 function dayKey(d: Date | null | undefined): string | null {
     if (!d || !(d instanceof Date) || Number.isNaN(d.getTime())) return null;
     return d.toISOString().slice(0, 10);
+}
+
+/** Data+hora no fuso da pousada — detecta troca de horário padrão (ex.: 14:00 → 16:00). */
+function periodKey(d: Date | null | undefined): string | null {
+    if (!d || !(d instanceof Date) || Number.isNaN(d.getTime())) return null;
+    return formatInTimeZone(d, TZ_HOSPEDAGEM, "yyyy-MM-dd'T'HH:mm");
 }
 
 function normObs(v: string | null | undefined): string | null {
@@ -72,18 +80,18 @@ export class ReservationDiffService {
     ): ReservationDiffResult {
         const changes: ReservationDiffChange[] = [];
 
-        if (dayKey(before.checkin) !== dayKey(after.checkin)) {
+        if (periodKey(before.checkin) !== periodKey(after.checkin)) {
             changes.push({
                 field: 'checkin',
-                before: dayKey(before.checkin),
-                after: dayKey(after.checkin),
+                before: periodKey(before.checkin),
+                after: periodKey(after.checkin),
             });
         }
-        if (dayKey(before.checkout) !== dayKey(after.checkout)) {
+        if (periodKey(before.checkout) !== periodKey(after.checkout)) {
             changes.push({
                 field: 'checkout',
-                before: dayKey(before.checkout),
-                after: dayKey(after.checkout),
+                before: periodKey(before.checkout),
+                after: periodKey(after.checkout),
             });
         }
         if (Number(before.idEventoSuite) !== Number(after.idEventoSuite)) {

@@ -31,7 +31,7 @@ export type ImportReservationsOptions = {
  * Não cria/altera ReservaHospedagem nem chama services do Jango.
  *
  * Incremental (padrão): após listar todas as páginas, descarta reservas com
- * check-in passado (mantém só check_in >= hoje) antes de fetchDetails /
+ * check-in anterior a (hoje - 7 dias) antes de fetchDetails /
  * guest enrich / upsert / validate / sync.
  *
  * Full: ignora o filtro e processa absolutamente todas.
@@ -54,7 +54,7 @@ export async function importHospedinReservations(
             fetchDetails,
             mode,
             todayStart: window.todayStart.toISOString(),
-            filter: 'check_in >= today',
+            filter: 'check_in >= today-7d',
         });
 
         let dtos = await hospedinReservationService.listAllReservations(
@@ -97,7 +97,7 @@ export async function importHospedinReservations(
                 fetchedFromApi,
                 discarded,
                 remaining: dtos.length,
-                reason: 'check_in < today',
+                reason: 'check_in < today-7d',
             });
         }
 
@@ -196,7 +196,7 @@ export async function importHospedinReservations(
                 accountId,
                 fetchDetails,
                 mode,
-                filter: mode === 'incremental' ? 'check_in >= today' : null,
+                filter: mode === 'incremental' ? 'check_in >= today-7d' : null,
             },
             response: {
                 fetched: fetchedFromApi,

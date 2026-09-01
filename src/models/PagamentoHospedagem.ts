@@ -11,6 +11,13 @@ export const FormaPagamentoRecepcaoValor = {
     Transferencia: 'Transferencia',
     /** Registro de pagamento já feito via link externo (MP, Stone, WhatsApp, etc.). */
     LinkPagamento: 'LinkPagamento',
+    /** Valor já recebido pela OTA (Hospedin/Booking/etc.) — lançamento manual do operador. */
+    Antecipado: 'Antecipado',
+    /**
+     * Recebido pela plataforma OTA (Booking/Expedia/etc.).
+     * Quita a reserva no Jango, mas NÃO entra no caixa do hotel.
+     */
+    RecebidoOta: 'RECEBIDO_OTA',
     Outro: 'Outro',
 } as const;
 

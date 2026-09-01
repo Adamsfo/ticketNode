@@ -17,6 +17,7 @@ import {
     loadDocumentosForHospede,
     relinkHospedesFromDesired,
 } from './GuestUsuarioRelinkService';
+import { applyObservacaoImportadaUpdate } from '../../../utils/reservaObservacoesUtils';
 
 export type ReservationUpdateResult = {
     idReservaHospedagem: number;
@@ -100,7 +101,10 @@ export class ReservationUpdateService {
                 ? new Date(hospedagem.checkout)
                 : null,
             idEventoSuite: Number(linha.idEventoSuite) || null,
-            observacoes: (hospedagem as any).observacoes ?? null,
+            observacoes:
+                (hospedagem as any).observacaoImportada ??
+                (hospedagem as any).observacoes ??
+                null,
             adultos: Number(linha.adultos || 0),
             criancas: Number(linha.criancas || 0),
             hospedes: hospedesAtuais.map((h) => ({
@@ -218,6 +222,13 @@ export class ReservationUpdateService {
             idReservaHospedagem,
             changes,
         });
+
+        if (diff.hasChanges) {
+            const { incrementarHospedagemRefreshVersion } = await import(
+                '../../../services/hospedagemRefreshVersionService'
+            );
+            await incrementarHospedagemRefreshVersion();
+        }
 
         return {
             idReservaHospedagem,
@@ -373,7 +384,15 @@ export class ReservationUpdateService {
                 hospedagemPatch.noites = noites;
             }
             if (patch.observacoes !== undefined) {
-                hospedagemPatch.observacoes = patch.observacoes;
+                const operadorAtual =
+                    (hospedagem as any).observacaoOperador ?? null;
+                Object.assign(
+                    hospedagemPatch,
+                    applyObservacaoImportadaUpdate(
+                        patch.observacoes,
+                        operadorAtual
+                    )
+                );
             }
             if (Object.keys(hospedagemPatch).length) {
                 await hospedagem.update(hospedagemPatch, { transaction: t });

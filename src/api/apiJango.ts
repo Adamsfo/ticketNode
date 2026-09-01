@@ -130,9 +130,15 @@ const PdvApiJango = {
     id_caixa: string,
     valor: number,
     id_forma_pagamento: number,
-    identificadorUnico: string | number
+    identificadorUnico: string | number,
+    /** Quando informado (hospedagem), substitui o padrão "Ingressos …". */
+    descricaoCustom?: string | null
   ) => {
-    const descricao = `Ingressos ${identificadorUnico}`.replace(/'/g, "''");
+    const descricao = (
+      descricaoCustom && String(descricaoCustom).trim()
+        ? String(descricaoCustom).trim()
+        : `Ingressos ${identificadorUnico}`
+    ).replace(/'/g, "''");
 
     try {
       const existentes = await apiFetchGet(

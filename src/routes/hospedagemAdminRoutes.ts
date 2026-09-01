@@ -6,6 +6,11 @@ const HospedagemAdminController = require('../controllers/HospedagemAdminControl
 
 // Endpoints oficiais
 router.get(
+    '/hospedagem/refresh-version',
+    authenticate,
+    HospedagemAdminController.refreshVersion
+);
+router.get(
     '/hospedagem/reservas',
     authenticate,
     HospedagemAdminController.listarReservas
@@ -56,8 +61,18 @@ router.post(
     authenticate,
     HospedagemAdminController.alterarPeriodo
 );
+router.patch(
+    '/hospedagem/reservas/:id/observacoes',
+    authenticate,
+    HospedagemAdminController.atualizarObservacoes
+);
 
 // Alias legado (mesma lógica)
+router.get(
+    '/hospedagem-admin/refresh-version',
+    authenticate,
+    HospedagemAdminController.refreshVersion
+);
 router.get(
     '/hospedagem-admin/reservas',
     authenticate,
@@ -107,6 +122,11 @@ router.post(
     '/hospedagem-admin/reservas/:id/alterar-periodo',
     authenticate,
     HospedagemAdminController.alterarPeriodo
+);
+router.patch(
+    '/hospedagem-admin/reservas/:id/observacoes',
+    authenticate,
+    HospedagemAdminController.atualizarObservacoes
 );
 router.get(
     '/hospedagem-admin/suites',

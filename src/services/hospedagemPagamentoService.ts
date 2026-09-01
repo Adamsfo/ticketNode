@@ -15,8 +15,12 @@ import {
     ReservaHospedagem,
     StatusReservaHospedagem,
 } from '../models/ReservaHospedagem';
+import { ReservaSuite } from '../models/ReservaSuite';
+import { ReservaHospede } from '../models/ReservaHospede';
+import { EventoSuite } from '../models/EventoSuite';
 import {
     PagamentoHospedagem,
+    FormaPagamentoRecepcaoValor,
     type FormaPagamentoRecepcao,
 } from '../models/PagamentoHospedagem';
 import {
@@ -42,6 +46,115 @@ import {
     type PagamentoRecepcaoInput,
 } from '../utils/hospedagemPagamentoRecepcao';
 import { obterReservaAdminDetalhe } from './hospedagemAdminService';
+import apiJango from '../api/apiJango';
+
+/** id_forma_pagamento no legado Firebird para recebimento OTA antecipado. */
+const ID_FORMA_PAGAMENTO_CAIXA_ANTECIPADO = 32;
+
+function primeiroNome(nomeCompleto: string | null | undefined): string {
+    const parte = String(nomeCompleto || '')
+        .trim()
+        .split(/\s+/)
+        .find((p) => p.length > 0);
+    return parte || '—';
+}
+
+/**
+ * Descrição do caixa legado (hospedagem):
+ * <codigoExterno|id> - <suíte> - <primeiro nome>
+ * Reutiliza ReservaHospedagem.codigoExterno (ex.: HO:001200).
+ */
+async function montarDescricaoCaixaHospedagem(
+    idPagamentoHospedagem: string | number
+): Promise<string> {
+    const pagamento = await PagamentoHospedagem.findByPk(
+        Number(idPagamentoHospedagem),
+        { attributes: ['id', 'idReservaHospedagem'] }
+    );
+    if (!pagamento) {
+        return `Hospedagem ${idPagamentoHospedagem}`;
+    }
+
+    const reserva = (await ReservaHospedagem.findByPk(
+        pagamento.idReservaHospedagem,
+        {
+            attributes: ['id', 'codigoExterno'],
+            include: [
+                {
+                    model: Usuario,
+                    as: 'Usuario',
+                    attributes: ['nomeCompleto'],
+                    required: false,
+                },
+                {
+                    model: ReservaSuite,
+                    as: 'ReservaSuite',
+                    attributes: ['id'],
+                    required: false,
+                    include: [
+                        {
+                            model: EventoSuite,
+                            as: 'EventoSuite',
+                            attributes: ['nome'],
+                            required: false,
+                        },
+                        {
+                            model: ReservaHospede,
+                            as: 'ReservaHospede',
+                            attributes: ['nome'],
+                            required: false,
+                        },
+                    ],
+                },
+            ],
+        }
+    )) as
+        | (ReservaHospedagem & {
+              Usuario?: { nomeCompleto?: string | null } | null;
+              ReservaSuite?: Array<{
+                  EventoSuite?: { nome?: string | null } | null;
+                  ReservaHospede?: Array<{ nome?: string | null }>;
+              }>;
+          })
+        | null;
+
+    if (!reserva) {
+        return `Hospedagem ${pagamento.idReservaHospedagem}`;
+    }
+
+    const codigo =
+        String(reserva.codigoExterno || '').trim() || String(reserva.id);
+    const suiteNome =
+        String(reserva.ReservaSuite?.[0]?.EventoSuite?.nome || '').trim() ||
+        'Suíte';
+    const nomeHospede =
+        reserva.Usuario?.nomeCompleto ||
+        reserva.ReservaSuite?.[0]?.ReservaHospede?.[0]?.nome ||
+        null;
+
+    return `${codigo} - ${suiteNome} - ${primeiroNome(nomeHospede)}`;
+}
+
+/**
+ * Lança no caixa legado (Firebird) um recebimento Antecipado.
+ * Não altera regras financeiras do Jango — apenas espelha no PDV.
+ */
+export async function lancarAntecipadoNoCaixaLegado(
+    valor: number,
+    identificadorUnico: string | number
+): Promise<void> {
+    const descricao = await montarDescricaoCaixaHospedagem(identificadorUnico);
+    const caixa = await apiJango().getCaixa();
+    if (caixa?.[0]) {
+        await apiJango().inseriCaixaItem(
+            caixa[0].id_caixa,
+            Number(valor) || 0,
+            ID_FORMA_PAGAMENTO_CAIXA_ANTECIPADO,
+            identificadorUnico,
+            descricao
+        );
+    }
+}
 
 /** Mesmo token/env do PagamentoPDV — sem alterar o controller do PDV. */
 const SuperTefBearerToken = process.env.SUPERTEF_BEARER_TOKEN || '';
@@ -328,8 +441,10 @@ export async function registrarPagamentoHospedagem(params: {
     const novoValorPago = roundMoney(atual.valorPago + pagamento.valor);
     const novoSaldo = calcularSaldoPendente(atual.valorTotal, novoValorPago);
 
+    let idPagamentoCriado: number | null = null;
+
     await connection.transaction(async (t: Transaction) => {
-        await PagamentoHospedagem.create(
+        const criado = await PagamentoHospedagem.create(
             {
                 idReservaHospedagem: reserva.id,
                 valor: pagamento.valor,
@@ -341,6 +456,7 @@ export async function registrarPagamentoHospedagem(params: {
             },
             { transaction: t }
         );
+        idPagamentoCriado = Number(criado.id);
 
         await reserva.update(
             {
@@ -353,6 +469,18 @@ export async function registrarPagamentoHospedagem(params: {
             { transaction: t }
         );
     });
+
+    if (
+        pagamento.formaPagamento === FormaPagamentoRecepcaoValor.Antecipado &&
+        idPagamentoCriado
+    ) {
+        await lancarAntecipadoNoCaixaLegado(pagamento.valor, idPagamentoCriado);
+    }
+
+    const { incrementarHospedagemRefreshVersion } = await import(
+        './hospedagemRefreshVersionService'
+    );
+    await incrementarHospedagemRefreshVersion();
 
     return {
         reserva: await obterReservaAdminDetalhe(idReservaHospedagem, idUsuario),
@@ -409,10 +537,12 @@ export async function receberSaldoManual(params: {
     if (
         pagamento.formaPagamento !== 'Transferencia' &&
         pagamento.formaPagamento !== 'LinkPagamento' &&
+        pagamento.formaPagamento !== 'Antecipado' &&
+        pagamento.formaPagamento !== 'RECEBIDO_OTA' &&
         pagamento.formaPagamento !== 'Outro'
     ) {
         throw new CustomError(
-            'Este endpoint aceita apenas Transferência, Link de Pagamento ou Outro.',
+            'Este endpoint aceita apenas Transferência, Link de Pagamento, Antecipado, Recebido pela OTA ou Outro.',
             400,
             ''
         );

@@ -10,13 +10,14 @@
  * - Parte 5: Agenda via `montarCalendarioMes` (`calcularDisponibilidadeSuite` +
  *   `classificarReservaNoDia` para eventos/barras).
  * - Parte 7: Check-in / Check-out sheet via `obterReservaAdminDetalhe.disponibilidade`
- *   (`podeCheckin` / `podeCheckout` só quando `dataSelecionada === hoje`, matriz §7).
+ *   (`podeCheckin` / `podeCheckout` pelo ciclo de vida da reserva; agenda `D <= hoje`).
  */
 
 import { formatInTimeZone, fromZonedTime } from 'date-fns-tz';
 import { endOfDay, startOfDay } from 'date-fns';
 import {
     intervalosConflitam,
+    normalizarPeriodoHospedagem,
     periodosHospedagemConflitam,
     reservaTemCheckinNaDataCivil,
 } from '../utils/reservaSuiteUtils';
@@ -126,6 +127,7 @@ type ReservaNorm = {
     status: StatusReservaDisponibilidade;
     checkin: Date;
     checkout: Date;
+    dataHoraCheckinReal: Date | null;
     dataHoraCheckoutRealizado: Date | null;
     saldoPendente: number;
 };
@@ -178,12 +180,18 @@ function statusOcupa(status: StatusReservaDisponibilidade): boolean {
 }
 
 function normalizarReserva(r: ReservaDisponibilidadeInput): ReservaNorm {
+    const periodo = normalizarPeriodoHospedagem(r.checkin, r.checkout, {
+        origemReserva: r.origemReserva,
+    });
     return {
         raw: r,
         id: r.id,
         status: r.status,
-        checkin: asDate(r.checkin),
-        checkout: asDate(r.checkout),
+        checkin: periodo.checkin ?? asDate(r.checkin),
+        checkout: periodo.checkout ?? asDate(r.checkout),
+        dataHoraCheckinReal: r.dataHoraCheckinReal
+            ? asDate(r.dataHoraCheckinReal)
+            : null,
         dataHoraCheckoutRealizado: r.dataHoraCheckoutRealizado
             ? asDate(r.dataHoraCheckoutRealizado)
             : null,
@@ -526,30 +534,39 @@ export function calcularDisponibilidadeSuite(
     const apareceEmSuitesLivres = podeReservar;
 
     /**
-     * Ações operacionais (matriz §7) — só no dia corrente (`D === hoje`).
-     * Check-in: Confirmada, D ≥ dia do CI, saldo ok; negado no dia do CO sem entrada.
-     * Badge de noite intermediária permanece Reservada (não vira Check-in hoje).
+     * Ações operacionais — ciclo de vida (Confirmada → Hospedada → finalizada).
+     * Não exige `D === hoje`; bloqueia apenas data futura da agenda (`D > hoje`).
+     * Check-in: Confirmada, sem entrada real, D ≥ dia do CI, saldo ok.
+     * Check-out: Hospedada, sem saída real; badge de ocupação do dia.
      */
     const dataCi = reservaAtual ? dataCivil(reservaAtual.checkin) : null;
-    const confirmadaSemEntradaNoCheckout =
-        Boolean(reservaAtual) &&
-        reservaAtual!.status === 'Confirmada' &&
-        checkoutHoje;
+    const agendaNaoFutura = dataSelecionada <= hoje;
+    const checkinJaRealizado = Boolean(
+        reservaAtual &&
+            (reservaAtual.status === 'Hospedada' ||
+                reservaAtual.dataHoraCheckinReal)
+    );
+    const checkoutJaRealizado = Boolean(
+        reservaAtual &&
+            (reservaAtual.status === 'CheckOutRealizado' ||
+                reservaAtual.dataHoraCheckoutRealizado)
+    );
 
     const podeCheckin = Boolean(
         reservaAtual &&
+            agendaNaoFutura &&
             reservaAtual.status === 'Confirmada' &&
-            dataSelecionada === hoje &&
+            !checkinJaRealizado &&
             dataCi != null &&
             dataCi <= dataSelecionada &&
-            !confirmadaSemEntradaNoCheckout &&
             reservaAtual.saldoPendente <= 0.009
     );
 
     const podeCheckout = Boolean(
         reservaAtual &&
+            agendaNaoFutura &&
             reservaAtual.status === 'Hospedada' &&
-            dataSelecionada === hoje &&
+            !checkoutJaRealizado &&
             (badge === 'HOSPEDADA' || badge === 'CHECKOUT_HOJE')
     );
 
@@ -646,9 +663,9 @@ export function calcularDisponibilidadeSuite(
 }
 
 /**
- * Ações §7 para uma reserva em foco (ex.: modal aberto por reservaId).
- * Mesmas regras de `podeCheckin` / `podeCheckout` do card, aplicadas à reserva
- * escolhida — não altera o badge da suíte no dia.
+ * Ações operacionais para uma reserva em foco (ex.: modal aberto por reservaId).
+ * Ciclo de vida: Confirmada → check-in; Hospedada → check-out; finalizada → nenhuma.
+ * Agenda: permite D ≤ hoje (retroativo); bloqueia D futuro. Não exige D === hoje.
  */
 export function calcularAcoesOperacionaisDaReserva(params: {
     reserva: Pick<
@@ -674,27 +691,31 @@ export function calcularAcoesOperacionaisDaReserva(params: {
         saldoPendente: params.reserva.saldoPendente ?? 0,
     });
 
-    if (params.dataSelecionada !== params.hoje) {
+    if (
+        r.status === 'CheckOutRealizado' ||
+        Boolean(r.dataHoraCheckoutRealizado)
+    ) {
+        return { podeCheckin: false, podeCheckout: false };
+    }
+
+    // Data futura na agenda: sem ações (check-in/out não antecipam o calendário).
+    if (params.dataSelecionada > params.hoje) {
         return { podeCheckin: false, podeCheckout: false };
     }
 
     const dataCi = dataCivil(r.checkin);
-    const dataCo = dataCivil(r.checkout);
-    const confirmadaSemEntradaNoCheckout =
-        r.status === 'Confirmada' && dataCo === params.dataSelecionada;
+    const checkinJaRealizado =
+        r.status === 'Hospedada' || Boolean(r.dataHoraCheckinReal);
 
     const podeCheckin = Boolean(
         r.status === 'Confirmada' &&
+            !checkinJaRealizado &&
             dataCi <= params.dataSelecionada &&
-            !confirmadaSemEntradaNoCheckout &&
             r.saldoPendente <= 0.009
     );
 
-    const cobreDia = reservaCobreDiaCivil(r, params.dataSelecionada);
     const podeCheckout = Boolean(
-        r.status === 'Hospedada' &&
-            cobreDia &&
-            !r.dataHoraCheckoutRealizado
+        r.status === 'Hospedada' && !r.dataHoraCheckoutRealizado
     );
 
     return { podeCheckin, podeCheckout };

@@ -308,7 +308,7 @@ describe('SuiteDisponibilidadeService — regressão matriz §8', () => {
         assert.equal(r.checkinHoje, false);
         assert.equal(r.podeReservar, false);
         assert.equal(r.agendaOcupada, true);
-        assert.equal(r.podeCheckin, false); // D futuro ≠ hoje
+        assert.equal(r.podeCheckin, false); // D agenda futuro (> hoje)
     });
 
     it('R-10b: noite intermediária Confirmada no dia atual → Reservada + check-in atrasado (§7)', () => {
@@ -481,7 +481,7 @@ describe('SuiteDisponibilidadeService — regressão matriz §8', () => {
         assert.equal(r.podeCheckin, false);
     });
 
-    it('Confirmada no dia do CO sem entrada → sem check-in (§7)', () => {
+    it('Confirmada no dia do CO sem entrada → check-in pelo ciclo de vida', () => {
         const r = calcularDisponibilidadeSuite({
             idEventoSuite: 1,
             dataSelecionada: '2026-07-29',
@@ -496,6 +496,65 @@ describe('SuiteDisponibilidadeService — regressão matriz §8', () => {
             ],
         });
         assert.equal(r.badge, 'CHECKOUT_HOJE');
+        assert.equal(r.podeCheckin, true);
+        assert.equal(r.podeCheckout, false);
+    });
+
+    it('Check-in em dia passado da agenda (retroativo) com Confirmada', () => {
+        const r = calcularDisponibilidadeSuite({
+            idEventoSuite: 1,
+            dataSelecionada: '2026-07-28',
+            hoje: '2026-07-30',
+            reservas: [
+                reserva({
+                    id: 10,
+                    status: 'Confirmada',
+                    checkin: cuiaba('2026-07-28', '16:00'),
+                    checkout: cuiaba('2026-07-29', '13:00'),
+                }),
+            ],
+        });
+        assert.equal(r.badge, 'CHECKIN_HOJE');
+        assert.equal(r.podeCheckin, true);
+        assert.equal(r.podeCheckout, false);
+    });
+
+    it('Hospedada em dia passado da agenda → pode check-out', () => {
+        const r = calcularDisponibilidadeSuite({
+            idEventoSuite: 1,
+            dataSelecionada: '2026-07-28',
+            hoje: '2026-07-30',
+            reservas: [
+                reserva({
+                    id: 10,
+                    status: 'Hospedada',
+                    checkin: cuiaba('2026-07-28', '16:00'),
+                    checkout: cuiaba('2026-07-29', '13:00'),
+                    dataHoraCheckinReal: cuiaba('2026-07-28', '16:10'),
+                }),
+            ],
+        });
+        assert.equal(r.badge, 'HOSPEDADA');
+        assert.equal(r.podeCheckin, false);
+        assert.equal(r.podeCheckout, true);
+    });
+
+    it('CheckOutRealizado → sem check-in/out', () => {
+        const r = calcularDisponibilidadeSuite({
+            idEventoSuite: 1,
+            dataSelecionada: '2026-07-29',
+            hoje: '2026-07-29',
+            reservas: [
+                reserva({
+                    id: 10,
+                    status: 'CheckOutRealizado',
+                    checkin: cuiaba('2026-07-28', '16:00'),
+                    checkout: cuiaba('2026-07-29', '13:00'),
+                    dataHoraCheckinReal: cuiaba('2026-07-28', '16:10'),
+                    dataHoraCheckoutRealizado: cuiaba('2026-07-29', '11:00'),
+                }),
+            ],
+        });
         assert.equal(r.podeCheckin, false);
         assert.equal(r.podeCheckout, false);
     });

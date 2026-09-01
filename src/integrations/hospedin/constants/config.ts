@@ -31,7 +31,7 @@ export type HospedinConfig = {
      */
     syncUserId: number | null;
     /**
-     * @deprecated Incremental usa apenas check_in >= hoje.
+     * @deprecated Incremental usa check_in >= (hoje - 7 dias).
      * Mantido por compatibilidade de env; não afeta o filtro operacional.
      */
     historicalSyncDays: number;

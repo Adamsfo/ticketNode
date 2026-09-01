@@ -1,7 +1,14 @@
 export type HospedinSyncMode = 'incremental' | 'full';
 
+/** Dias retroativos inclusos na janela incremental (check_in >= hoje - N). */
+export const OPERATIONAL_SYNC_LOOKBACK_DAYS = 7;
+
 export type OperationalSyncWindow = {
-    /** Início do dia corrente (local). */
+    /**
+     * Início da janela operacional (local):
+     * início do dia de (hoje - OPERATIONAL_SYNC_LOOKBACK_DAYS).
+     * Sem limite superior — reservas futuras entram normalmente.
+     */
     todayStart: Date;
 };
 
@@ -29,14 +36,18 @@ export function parseHospedinSyncMode(
 export function getOperationalSyncWindow(
     now: Date = new Date()
 ): OperationalSyncWindow {
-    const todayStart = new Date(now);
-    todayStart.setHours(0, 0, 0, 0);
-    return { todayStart };
+    const windowStart = new Date(now);
+    windowStart.setHours(0, 0, 0, 0);
+    windowStart.setDate(
+        windowStart.getDate() - OPERATIONAL_SYNC_LOOKBACK_DAYS
+    );
+    return { todayStart: windowStart };
 }
 
 /**
  * Janela operacional (incremental):
- * somente check_in >= início do dia corrente.
+ * check_in >= (hoje - 7 dias) às 00:00:00 local.
+ * Sem teto futuro — qualquer check-in a partir dessa data entra.
  *
  * Sem check-in válido → fora da janela (descartada no incremental).
  * O parâmetro checkout é ignorado (mantido na assinatura por compatibilidade).

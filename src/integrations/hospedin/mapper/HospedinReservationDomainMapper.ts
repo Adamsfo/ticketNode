@@ -10,6 +10,7 @@ import { asDate, asNumber, asRecord, asString } from '../mapper/mapperHelpers';
 import type { ResolvedInternalSuite } from '../services/PlaceSuiteResolver';
 import type { ReservationDiffSnapshot } from '../services/ReservationDiffService';
 import { extractGuestCpfString } from '../../../utils/guestCpf';
+import { normalizarPeriodoHospedagem } from '../../../utils/reservaSuiteUtils';
 
 export const PAYLOAD_INCOMPLETE = 'PAYLOAD_INCOMPLETE';
 
@@ -68,7 +69,19 @@ export const HospedinReservationDomainMapper = {
             );
         }
 
-        if (dto.checkout.getTime() <= dto.checkin.getTime()) {
+        const periodo = normalizarPeriodoHospedagem(
+            dto.checkin,
+            dto.checkout,
+            { origemReserva: 'HOSPEDIN' }
+        );
+        if (!periodo.checkin || !periodo.checkout) {
+            throw new HospedinDomainMappingError(
+                'check_in/check_out ausentes no staging Hospedin.',
+                PAYLOAD_INCOMPLETE
+            );
+        }
+
+        if (periodo.checkout.getTime() <= periodo.checkin.getTime()) {
             throw new HospedinDomainMappingError(
                 'checkout deve ser posterior ao checkin.',
                 PAYLOAD_INCOMPLETE
@@ -117,8 +130,8 @@ export const HospedinReservationDomainMapper = {
 
         return {
             idEvento: input.resolvedSuite.idEvento,
-            checkin: dto.checkin,
-            checkout: dto.checkout,
+            checkin: periodo.checkin,
+            checkout: periodo.checkout,
             externalReservationId: dto.reservationId,
             observacoes,
             suites: [
@@ -151,6 +164,18 @@ export const HospedinReservationDomainMapper = {
             );
         }
 
+        const periodo = normalizarPeriodoHospedagem(
+            dto.checkin,
+            dto.checkout,
+            { origemReserva: 'HOSPEDIN' }
+        );
+        if (!periodo.checkin || !periodo.checkout) {
+            throw new HospedinDomainMappingError(
+                'check_in/check_out ausentes no staging Hospedin.',
+                PAYLOAD_INCOMPLETE
+            );
+        }
+
         const guests = extractGuests(payload);
         const adultosPayload = asNumber(payload.adults) ?? asNumber(payload.adultos);
         const criancasPayload =
@@ -164,8 +189,8 @@ export const HospedinReservationDomainMapper = {
             Number(criancasPayload || 0);
 
         return {
-            checkin: dto.checkin,
-            checkout: dto.checkout,
+            checkin: periodo.checkin,
+            checkout: periodo.checkout,
             idEventoSuite: input.resolvedSuite.idEventoSuite,
             observacoes: buildObservacoes(dto, payload),
             adultos,

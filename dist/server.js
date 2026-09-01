@@ -6,6 +6,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 require('dotenv').config();
 const express_1 = __importDefault(require("express"));
 const http_1 = __importDefault(require("http")); // Importa o http para criar um servidor HTTP
+const logger_1 = require("./utils/logger");
 const authRoutes = require('./routes/authRoutes');
 const usuarioRoutes = require('./routes/usuarioRoutes');
 const cidadeRoutes = require('./routes/cidadeRoutes');
@@ -31,6 +32,28 @@ const integrationAdminRoutes = require('./routes/integrationAdminRoutes');
 const reservaHospedagemJobs_1 = require("./jobs/reservaHospedagemJobs");
 const integrationSyncJobs_1 = require("./jobs/integrationSyncJobs");
 const uploadStorage_1 = require("./utils/uploadStorage");
+/**
+ * Silencia console.log legado fora de DEBUG.
+ * Preferir `logger.*` em código novo.
+ */
+if (!(0, logger_1.isLogEnabled)('DEBUG')) {
+    // eslint-disable-next-line no-console
+    console.log = (...args) => {
+        logger_1.logger.debug(args.map(String).join(' '));
+    };
+    // eslint-disable-next-line no-console
+    console.debug = (...args) => {
+        logger_1.logger.debug(args.map(String).join(' '));
+    };
+    // eslint-disable-next-line no-console
+    console.info = (...args) => {
+        logger_1.logger.debug(args.map(String).join(' '));
+    };
+    // eslint-disable-next-line no-console
+    console.table = () => undefined;
+    // eslint-disable-next-line no-console
+    console.dir = () => undefined;
+}
 // Inicializa o banco de dados
 require('./database/index');
 const cors = require('cors');
@@ -98,7 +121,7 @@ server.post('/upload', async (req, res) => {
             ? 400
             : 500;
         if (status === 500)
-            console.error('[upload]', err);
+            logger_1.logger.error('upload falhou', err);
         return res.status(status).json({
             status: status === 400 ? 'fail' : 'error',
             message,
@@ -110,7 +133,7 @@ const httpServer = http_1.default.createServer(server);
 // Define a porta a partir do arquivo de configuração e inicia o servidor
 const PORT = process.env.PORT || 9000; // Define a porta padrão como 9000 se não estiver no .env
 httpServer.listen(PORT, () => {
-    console.log(`Servidor rodando no endereço: ${process.env.BASE || `http://localhost:${PORT}`} e porta ${PORT}`);
+    logger_1.logger.info(`API iniciada em ${process.env.BASE || `http://localhost:${PORT}`} (porta ${PORT})`);
     (0, reservaHospedagemJobs_1.iniciarJobsReservaHospedagem)();
     void (0, integrationSyncJobs_1.iniciarJobsIntegracaoSync)();
 });

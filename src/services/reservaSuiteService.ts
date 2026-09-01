@@ -65,6 +65,7 @@ import {
     notificarConfirmacaoHospedagem,
     notificarLinkPagamentoHospedagem,
 } from './hospedagemConfirmacaoNotificacao';
+import { buildObservacoesFieldsForCreate } from '../utils/reservaObservacoesUtils';
 
 const STATUS_RESERVA_SUITE_OCUPA = [
     StatusReservaSuite.AguardandoPagamento,
@@ -276,6 +277,13 @@ export async function cancelarReservasExpiradas(): Promise<number> {
         quantidade += 1;
     }
 
+    if (quantidade > 0) {
+        const { incrementarHospedagemRefreshVersion } = await import(
+            './hospedagemRefreshVersionService'
+        );
+        await incrementarHospedagemRefreshVersion();
+    }
+
     return quantidade;
 }
 
@@ -373,6 +381,11 @@ export async function cancelarReservaHospedagem(
             );
         }
     });
+
+    const { incrementarHospedagemRefreshVersion } = await import(
+        './hospedagemRefreshVersionService'
+    );
+    await incrementarHospedagemRefreshVersion();
 }
 
 /** Mapeia tipo/gateway da Transacao para a forma usada no financeiro da recepção. */
@@ -561,6 +574,11 @@ export async function confirmarHospedagem(idTransacao: number): Promise<void> {
         );
     });
 
+    const { incrementarHospedagemRefreshVersion } = await import(
+        './hospedagemRefreshVersionService'
+    );
+    await incrementarHospedagemRefreshVersion();
+
     console.log('Hospedagem confirmada', {
         idReserva: hospedagem.id,
         idTransacao,
@@ -677,8 +695,21 @@ export async function calcularCotacao(params: {
     checkout: Date;
     adultos: number;
     criancas: number;
+    /**
+     * Capacidade min/max da suíte.
+     * Default true (site / cotação pública).
+     * false = recepção, Hospedin e fluxos internos (não bloqueia).
+     */
+    validarCapacidadeHospedes?: boolean;
 }) {
-    const { idEventoSuite, checkin, checkout, adultos, criancas } = params;
+    const {
+        idEventoSuite,
+        checkin,
+        checkout,
+        adultos,
+        criancas,
+        validarCapacidadeHospedes = true,
+    } = params;
 
     const suite = await EventoSuite.findByPk(idEventoSuite);
     if (!suite) {
@@ -690,8 +721,49 @@ export async function calcularCotacao(params: {
     }
 
     const noites = calcularNoitesHotelaria(checkin, checkout);
-    calcularExtrasPousada(adultos, criancas, suite.qtdeMinimaPessoas, suite.qtdeMaximaPessoas);
-    const totais = calcularTotaisSuitePousada(suite, adultos, criancas, noites);
+    if (validarCapacidadeHospedes) {
+        calcularExtrasPousada(
+            adultos,
+            criancas,
+            suite.qtdeMinimaPessoas,
+            suite.qtdeMaximaPessoas
+        );
+    }
+    let totais = calcularTotaisSuitePousada(suite, adultos, criancas, noites);
+    if (!totais && !validarCapacidadeHospedes && noites >= 1) {
+        // Fora da capacidade: preço base da suíte sem adicionais (não bloqueia).
+        const min = suite.qtdeMinimaPessoas ?? 1;
+        const max = suite.qtdeMaximaPessoas ?? min;
+        const precoDiaria = toNumber(suite.preco);
+        const taxaDiaria = toNumber(suite.taxaServico);
+        const valorDiaria = toNumber(suite.valor);
+        const suitePreco = roundMoney(precoDiaria * noites);
+        const suiteTaxa = roundMoney(taxaDiaria * noites);
+        const suiteValor = roundMoney(valorDiaria * noites);
+        totais = {
+            min,
+            max,
+            total: adultos + criancas,
+            adultosIncluidos: Math.min(adultos, min),
+            criancasIncluidas: 0,
+            adultosExtras: 0,
+            criancasExtras: 0,
+            valorAdultoExtra: 150,
+            valorCriancaExtra: 120,
+            precoDiaria,
+            taxaDiaria,
+            valorDiaria,
+            suitePreco,
+            suiteTaxa,
+            suiteValor,
+            extraAdultoValor: 0,
+            extraCriancaValor: 0,
+            precoTotal: suitePreco,
+            taxaServicoTotal: suiteTaxa,
+            valorTotal: roundMoney(suitePreco + suiteTaxa),
+            temExtras: false,
+        };
+    }
     if (!totais) {
         throw new CustomError('Não foi possível calcular a cotação da suíte.', 400, '');
     }
@@ -882,14 +954,15 @@ export async function checkoutHospedagem(params: {
         );
     }
 
-    // Reserva pública: janela oficial 16:00–19:00 / 08:00–13:00
-    // Recepção: qualquer horário; se hoje, check-in deve ser > agora
-    if (!isRecepcao) {
+    // Site (origem online): janela oficial, data e capacidade.
+    // Recepção / Hospedin / internos: não aplicam essas validações.
+    const isReservaSite = origem === 'online';
+    if (isReservaSite) {
         validarHorarioCheckinHospedagem(checkin);
         validarHorarioCheckoutHospedagem(checkout);
+        validarCheckinNaoEmDataPassada(checkin);
+        validarCheckinPosteriorAoAgoraSeHoje(checkin);
     }
-    validarCheckinNaoEmDataPassada(checkin);
-    validarCheckinPosteriorAoAgoraSeHoje(checkin);
 
     const noites = calcularNoitesHotelaria(checkin, checkout);
     const cotacoes: { item: SuiteCheckoutItem; cotacao: Awaited<ReturnType<typeof calcularCotacao>> }[] =
@@ -902,6 +975,7 @@ export async function checkoutHospedagem(params: {
             checkout,
             adultos: item.adultos,
             criancas: item.criancas,
+            validarCapacidadeHospedes: isReservaSite,
         });
 
         if (cotacao.idEvento !== idEvento) {
@@ -1020,6 +1094,8 @@ export async function checkoutHospedagem(params: {
 
     const tokenPagamento = isLinkCliente ? gerarTokenPagamentoReserva() : null;
 
+    let idPagamentoAntecipadoCriado: number | null = null;
+
     const mapTipoPagamentoTransacao = (
         forma?: string | null
     ): TipoPagamento | undefined => {
@@ -1079,7 +1155,10 @@ export async function checkoutHospedagem(params: {
                     ? StatusReservaHospedagem.Confirmada
                     : StatusReservaHospedagem.AguardandoPagamento,
                 dataConfirmacao: confirmaImediatamente ? agora : null,
-                observacoes: observacoes?.trim() || null,
+                ...buildObservacoesFieldsForCreate({
+                    origemIntegracao: isIntegracao,
+                    observacoes,
+                }),
                 idTransacao: null,
                 tokenPagamento,
                 // Link externo: expira 18 min após a criação (createdAt / agora).
@@ -1196,7 +1275,7 @@ export async function checkoutHospedagem(params: {
         }
 
         if (confirmaImediatamente && valorPagoRecepcao > 0 && pagamento) {
-            await PagamentoHospedagem.create(
+            const pagCriado = await PagamentoHospedagem.create(
                 {
                     idReservaHospedagem: hospedagem.id,
                     valor: valorPagoRecepcao,
@@ -1208,6 +1287,9 @@ export async function checkoutHospedagem(params: {
                 },
                 { transaction: t }
             );
+            if (pagamento.formaPagamento === 'Antecipado') {
+                idPagamentoAntecipadoCriado = Number(pagCriado.id);
+            }
         }
 
         const linhasDescontoHistorico = suitesComTotais
@@ -1270,6 +1352,20 @@ export async function checkoutHospedagem(params: {
         };
     });
 
+    if (
+        idPagamentoAntecipadoCriado &&
+        pagamento?.formaPagamento === 'Antecipado' &&
+        valorPagoRecepcao > 0
+    ) {
+        const { lancarAntecipadoNoCaixaLegado } = await import(
+            './hospedagemPagamentoService'
+        );
+        await lancarAntecipadoNoCaixaLegado(
+            valorPagoRecepcao,
+            idPagamentoAntecipadoCriado
+        );
+    }
+
     if (confirmaImediatamente && resultado.hospedagem.idTransacao) {
         try {
             await notificarConfirmacaoHospedagem(
@@ -1294,6 +1390,11 @@ export async function checkoutHospedagem(params: {
             );
         }
     }
+
+    const { incrementarHospedagemRefreshVersion } = await import(
+        './hospedagemRefreshVersionService'
+    );
+    await incrementarHospedagemRefreshVersion();
 
     return resultado;
 }

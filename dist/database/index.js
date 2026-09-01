@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 const Sequelize = require('sequelize');
 const dbConfig = require('../config/database');
+const logger_1 = require("../utils/logger");
 const Empresa_1 = require("../models/Empresa");
 const Usuario_1 = require("../models/Usuario");
 const Cidade_1 = require("../models/Cidade");
@@ -45,7 +46,7 @@ const connection = new Sequelize(dbConfig);
     try {
         // Autenticação da conexão
         await connection.authenticate();
-        console.log('Conectado no banco de dados!');
+        logger_1.logger.info('Conectado no banco de dados');
         // ContaAPagarInit(connection)
         // ContaAReceberInit(connection)
         // ContaBancariaInit(connection)
@@ -95,7 +96,10 @@ const connection = new Sequelize(dbConfig);
         // await ConfigIniciais.configUsuario();
     }
     catch (error) {
-        console.error('Banco de dados não conectado:', error);
+        logger_1.logger.error('Banco de dados não conectado', {
+            message: error?.message,
+            stack: error?.stack,
+        });
     }
 })();
 exports.default = connection;

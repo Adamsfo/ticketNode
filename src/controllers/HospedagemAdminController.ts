@@ -11,16 +11,31 @@ import {
     reenviarLinkPagamentoReservaAdmin,
     trocarSuiteReservaAdmin,
     alterarPeriodoReservaAdmin,
+    atualizarObservacoesReservaAdmin,
 } from '../services/hospedagemAdminService';
 import { parseSuitesCheckout } from '../services/reservaSuiteService';
 import { parseDateTimeParam } from '../utils/reservaSuiteUtils';
 import { parsePagamentoRecepcao } from '../utils/hospedagemPagamentoRecepcao';
+import { obterHospedagemRefreshVersion } from '../services/hospedagemRefreshVersionService';
 
 /**
  * Administração de reservas de hospedagem (produtor / admin).
  */
 
 module.exports = {
+    async refreshVersion(req: any, res: any, next: any) {
+        try {
+            const idUsuario = Number(req.user?.id);
+            if (!idUsuario) {
+                throw new CustomError('Usuário não autenticado.', 401, '');
+            }
+            const data = await obterHospedagemRefreshVersion();
+            return res.status(200).json({ data });
+        } catch (error) {
+            next(error);
+        }
+    },
+
     async listarReservas(req: any, res: any, next: any) {
         try {
             const idUsuario = Number(req.user?.id);
@@ -83,7 +98,18 @@ module.exports = {
                 throw new CustomError('id da reserva é obrigatório.', 400, '');
             }
 
-            const data = await realizarCheckinAdmin(idReserva, idUsuario);
+            const rawDataHora =
+                req.body?.dataHora ?? req.body?.dataHoraCheckin ?? null;
+            const dataHoraCheckin =
+                rawDataHora != null && rawDataHora !== ''
+                    ? parseDateTimeParam(rawDataHora, 'dataHora')
+                    : null;
+
+            const data = await realizarCheckinAdmin(
+                idReserva,
+                idUsuario,
+                dataHoraCheckin
+            );
             return res.status(200).json({
                 success: true,
                 message: 'Check-in realizado com sucesso.',
@@ -106,7 +132,18 @@ module.exports = {
                 throw new CustomError('id da reserva é obrigatório.', 400, '');
             }
 
-            const data = await realizarCheckoutAdmin(idReserva, idUsuario);
+            const rawDataHora =
+                req.body?.dataHora ?? req.body?.dataHoraCheckout ?? null;
+            const dataHoraCheckout =
+                rawDataHora != null && rawDataHora !== ''
+                    ? parseDateTimeParam(rawDataHora, 'dataHora')
+                    : null;
+
+            const data = await realizarCheckoutAdmin(
+                idReserva,
+                idUsuario,
+                dataHoraCheckout
+            );
             return res.status(200).json({
                 success: true,
                 message: 'Check-out realizado.',
@@ -343,6 +380,40 @@ module.exports = {
             return res.status(200).json({
                 success: true,
                 message: 'Período da reserva alterado com sucesso.',
+                data,
+            });
+        } catch (error) {
+            next(error);
+        }
+    },
+
+    async atualizarObservacoes(req: any, res: any, next: any) {
+        try {
+            const idUsuario = Number(req.user?.id);
+            const idReserva = Number(req.params.id);
+            if (!idUsuario) {
+                throw new CustomError('Usuário não autenticado.', 401, '');
+            }
+            if (!idReserva) {
+                throw new CustomError('id da reserva é obrigatório.', 400, '');
+            }
+            if (req.body?.observacoes === undefined) {
+                throw new CustomError(
+                    'observacoes é obrigatório no corpo da requisição.',
+                    400,
+                    ''
+                );
+            }
+
+            const data = await atualizarObservacoesReservaAdmin(
+                idReserva,
+                idUsuario,
+                String(req.body.observacoes)
+            );
+
+            return res.status(200).json({
+                success: true,
+                message: 'Observações salvas.',
                 data,
             });
         } catch (error) {

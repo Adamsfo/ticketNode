@@ -10,6 +10,8 @@ import type { HospedinReservation } from '../../../models/HospedinReservation';
 import { asNumber, asRecord, asString } from '../mapper/mapperHelpers';
 import { HospedinReservationDomainMapper } from '../mapper/HospedinReservationDomainMapper';
 import { HospedinLogger } from '../logger/HospedinLogger';
+import { applyObservacaoImportadaUpdate } from '../../../utils/reservaObservacoesUtils';
+import { detectPossivelPagamentoOta } from '../../../utils/detectPossivelPagamentoOta';
 
 export const INTEGRATION_PROVIDER_HOSPEDIN = 'HOSPEDIN';
 
@@ -37,13 +39,34 @@ export class ReservationOriginEnrichmentService {
                 input.staging
             );
 
+        const reservaAtual = await ReservaHospedagem.findByPk(
+            input.idReservaHospedagem,
+            { attributes: ['observacaoOperador'] }
+        );
+        const operadorAtual =
+            (reservaAtual as ReservaHospedagem & {
+                observacaoOperador?: string | null;
+            } | null)?.observacaoOperador ?? null;
+        const observacoesCampos = applyObservacaoImportadaUpdate(
+            observacoes || null,
+            operadorAtual
+        );
+
+        const noteBruto =
+            asString(payload.note) ||
+            observacoesCampos.observacaoImportada ||
+            observacoes ||
+            null;
+        const deteccaoOta = detectPossivelPagamentoOta(noteBruto);
+
         await ReservaHospedagem.update(
             {
                 idExterno: reservationId || null,
                 codigoExterno: searchableCode,
                 canalVenda,
-                // Campo oficial da reserva — null quando Hospedin não envia nota.
-                observacoes: observacoes || null,
+                possivelPagamentoOta: deteccaoOta.matched,
+                possivelPagamentoOtaTrecho: deteccaoOta.trecho,
+                ...observacoesCampos,
             },
             { where: { id: input.idReservaHospedagem } }
         );
@@ -105,6 +128,7 @@ export class ReservationOriginEnrichmentService {
             id_externo: reservationId,
             codigo_externo: searchableCode,
             canal_venda: canalVenda,
+            possivel_pagamento_ota: deteccaoOta.matched,
         });
     }
 

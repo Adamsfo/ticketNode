@@ -23,6 +23,7 @@ import {
     calcularExtrasPousada,
     toNumber,
     calcularNoitesHotelaria,
+    normalizarPeriodoHospedagem,
 } from '../utils/reservaSuiteUtils';
 import {
     calcularDisponibilidadeSuite,
@@ -35,8 +36,14 @@ import {
 } from './suiteDisponibilidadeService';
 import {
     calcularSaldoPendente,
+    isFormaPagamentoForaDoCaixa,
     labelFormaPagamentoRecepcao,
+    resumirPagamentosHospedagemPorCaixa,
 } from '../utils/hospedagemPagamentoRecepcao';
+import {
+    detectPossivelPagamentoOta,
+    labelCanalVendaOta,
+} from '../utils/detectPossivelPagamentoOta';
 import {
     montarUrlPublicaReserva,
     notificarLinkPagamentoHospedagem,
@@ -49,6 +56,10 @@ import {
     ReservaPeriodoMovimentacao,
     TipoMovimentacaoPeriodo,
 } from '../models/ReservaPeriodoMovimentacao';
+import {
+    mergeReservaObservacoes,
+    splitOperadorFromTextoCompleto,
+} from '../utils/reservaObservacoesUtils';
 
 function resolverOrigemReserva(
     reserva: ReservaHospedagem & {
@@ -523,13 +534,19 @@ function mapearResumoLista(reserva: ReservaComIncludes) {
         financeiro.valorPago > 0
     );
 
+    const periodo = normalizarPeriodoHospedagem(
+        reserva.checkin,
+        reserva.checkout,
+        { origemReserva }
+    );
+
     return {
         idReservaHospedagem: reserva.id,
         numeroReserva: reserva.id,
         status,
         statusOriginal: reserva.status,
-        checkin: reserva.checkin,
-        checkout: reserva.checkout,
+        checkin: periodo.checkin ?? reserva.checkin,
+        checkout: periodo.checkout ?? reserva.checkout,
         noites: reserva.noites,
         valorTotal: toNumber(reserva.valorTotal),
         valorPago: financeiro.valorPago,
@@ -904,12 +921,24 @@ export async function obterReservaAdminDetalhe(
             dataPagamento: row.dataPagamento,
             formaPagamento: row.formaPagamento,
             formaPagamentoLabel: labelFormaPagamentoRecepcao(row.formaPagamento),
+            /** false = informativo OTA; não entra no caixa do hotel. */
+            contaNoCaixa: !isFormaPagamentoForaDoCaixa(row.formaPagamento),
+            categoriaFinanceira: isFormaPagamentoForaDoCaixa(row.formaPagamento)
+                ? 'Recebido pela OTA'
+                : 'Caixa',
             comprovante: row.comprovante ?? null,
             observacao: row.observacao ?? null,
             idUsuario: row.idUsuario,
             usuario: row.Usuario?.nomeCompleto ?? null,
         };
     });
+
+    const resumoPagamentosCaixa = resumirPagamentosHospedagemPorCaixa(
+        pagamentos.map((p) => ({
+            valor: p.valor,
+            formaPagamento: String(p.formaPagamento),
+        }))
+    );
 
     const movimentacoes = await ReservaSuiteMovimentacao.findAll({
         where: { idReservaHospedagem: reserva.id },
@@ -1287,6 +1316,35 @@ export async function obterReservaAdminDetalhe(
     const canalVenda =
         (reserva as ReservaHospedagem).canalVenda ?? null;
 
+    const observacaoImportada =
+        (reserva as ReservaHospedagem & {
+            observacaoImportada?: string | null;
+        }).observacaoImportada ?? null;
+    const observacoesLegado =
+        (reserva as ReservaHospedagem & {
+            observacoes?: string | null;
+        }).observacoes ?? null;
+
+    const flagOtaPersistida = Boolean(
+        (reserva as ReservaHospedagem & {
+            possivelPagamentoOta?: boolean;
+        }).possivelPagamentoOta
+    );
+    const trechoOtaPersistido =
+        (reserva as ReservaHospedagem & {
+            possivelPagamentoOtaTrecho?: string | null;
+        }).possivelPagamentoOtaTrecho ?? null;
+    const deteccaoOtaFallback = !flagOtaPersistida
+        ? detectPossivelPagamentoOta(
+              observacaoImportada || observacoesLegado || ''
+          )
+        : null;
+    const possivelPagamentoOta =
+        flagOtaPersistida || Boolean(deteccaoOtaFallback?.matched);
+    const possivelPagamentoOtaTrecho =
+        trechoOtaPersistido || deteccaoOtaFallback?.trecho || null;
+    const canalVendaLabel = labelCanalVendaOta(canalVenda);
+
     const deveCarregarOrigemIntegracao =
         String(origemReserva).toUpperCase() === 'HOSPEDIN' ||
         Boolean(idExterno) ||
@@ -1309,11 +1367,18 @@ export async function obterReservaAdminDetalhe(
 
     // Ações do modal seguem a reserva em foco (reservaId), não só o badge da suíte.
     const hojeOp = formatInTimeZone(new Date(), TZ, 'yyyy-MM-dd');
+    const periodoFoco = normalizarPeriodoHospedagem(
+        reserva.checkin,
+        reserva.checkout,
+        { origemReserva }
+    );
+    const checkinNorm = periodoFoco.checkin ?? new Date(reserva.checkin);
+    const checkoutNorm = periodoFoco.checkout ?? new Date(reserva.checkout);
     const acoesFoco = calcularAcoesOperacionaisDaReserva({
         reserva: {
             status: reserva.status as StatusReservaDisponibilidade,
-            checkin: reserva.checkin,
-            checkout: reserva.checkout,
+            checkin: checkinNorm,
+            checkout: checkoutNorm,
             saldoPendente,
             dataHoraCheckinReal,
             dataHoraCheckoutRealizado,
@@ -1340,8 +1405,8 @@ export async function obterReservaAdminDetalhe(
         numeroReserva: reserva.id,
         status,
         statusOriginal: reserva.status,
-        checkin: reserva.checkin,
-        checkout: reserva.checkout,
+        checkin: checkinNorm,
+        checkout: checkoutNorm,
         noites: reserva.noites,
         preco: toNumber(reserva.preco),
         taxaServico: toNumber(reserva.taxaServico),
@@ -1365,6 +1430,9 @@ export async function obterReservaAdminDetalhe(
         idExterno,
         codigoExterno,
         canalVenda,
+        canalVendaLabel,
+        possivelPagamentoOta,
+        possivelPagamentoOtaTrecho,
         origemIntegracao,
         syncIntegracao: await (async () => {
             const { getSyncStateByInternalId } = await import(
@@ -1395,9 +1463,26 @@ export async function obterReservaAdminDetalhe(
                 idUsuarioCheckout?: number | null;
             }).idUsuarioCheckout ?? null,
         observacoes:
+            mergeReservaObservacoes(
+                (reserva as ReservaHospedagem & {
+                    observacaoImportada?: string | null;
+                }).observacaoImportada ?? null,
+                (reserva as ReservaHospedagem & {
+                    observacaoOperador?: string | null;
+                }).observacaoOperador ?? null
+            ) ||
             (reserva as ReservaHospedagem & {
                 observacoes?: string | null;
-            }).observacoes ?? null,
+            }).observacoes ||
+            null,
+        observacaoImportada:
+            (reserva as ReservaHospedagem & {
+                observacaoImportada?: string | null;
+            }).observacaoImportada ?? null,
+        observacaoOperador:
+            (reserva as ReservaHospedagem & {
+                observacaoOperador?: string | null;
+            }).observacaoOperador ?? null,
         idTransacao: reserva.idTransacao ?? null,
         tokenPagamento: reserva.tokenPagamento ?? null,
         linkPagamento: reserva.tokenPagamento
@@ -1417,6 +1502,7 @@ export async function obterReservaAdminDetalhe(
             : null,
         suites,
         pagamentos,
+        resumoPagamentosCaixa,
         movimentacoesSuite,
         movimentacoesPeriodo,
         pagamento: transacao,
@@ -1535,16 +1621,19 @@ function montarEventoAgenda(
     const dataHoraCheckoutRealizado =
         (rh as ReservaHospedagem & { dataHoraCheckoutRealizado?: Date | null })
             ?.dataHoraCheckoutRealizado ?? null;
+    const periodo = periodoReservaNormalizado(
+        rh as ReservaHospedagem & { origemReserva?: string | null }
+    );
+    const checkin = periodo.checkin ?? new Date(rh.checkin);
+    const checkout = periodo.checkout ?? new Date(rh.checkout);
     return {
         tipo,
         idReservaHospedagem: rh.id,
         idEventoSuite: item.idEventoSuite,
         suiteNome,
-        inicio: new Date(rh.checkin).toISOString(),
+        inicio: checkin.toISOString(),
         // Barra termina no check-out real quando já foi feito
-        fim: new Date(
-            dataHoraCheckoutRealizado ?? rh.checkout
-        ).toISOString(),
+        fim: new Date(dataHoraCheckoutRealizado ?? checkout).toISOString(),
         status: rh.status,
         responsavel: rh.Usuario?.nomeCompleto ?? null,
         dataHoraCheckinReal: dataHoraCheckinReal
@@ -1753,11 +1842,14 @@ function reservasParaDisponibilidade(
                 Pagamentos?: Array<{ valor?: number }>;
             }
         );
+        const periodo = periodoReservaNormalizado(
+            rh as ReservaHospedagem & { origemReserva?: string | null }
+        );
         out.push({
             id: rh.id,
             status: rh.status as StatusReservaDisponibilidade,
-            checkin: rh.checkin,
-            checkout: rh.checkout,
+            checkin: periodo.checkin ?? rh.checkin,
+            checkout: periodo.checkout ?? rh.checkout,
             dataHoraCheckinReal:
                 (rh as ReservaHospedagem & { dataHoraCheckinReal?: Date | null })
                     .dataHoraCheckinReal ?? null,
@@ -1907,6 +1999,12 @@ function mapearCardSuiteOperacional(
 
     const statusOperacional = badgeParaStatusOperacional(disp.badge);
 
+    const periodoCard = rh
+        ? periodoReservaNormalizado(
+              rh as ReservaHospedagem & { origemReserva?: string | null }
+          )
+        : { checkin: null, checkout: null };
+
     const entrada = disp.reservaEntradaNaData;
     let proximaReservaResumo: {
         id: number;
@@ -1961,8 +2059,8 @@ function mapearCardSuiteOperacional(
         botaoPrincipal: disp.botaoPrincipal,
         responsavel: rh?.Usuario?.nomeCompleto ?? null,
         telefone: rh?.Usuario?.telefone ?? null,
-        checkin: rh?.checkin ?? null,
-        checkout: rh?.checkout ?? null,
+        checkin: periodoCard.checkin ?? rh?.checkin ?? null,
+        checkout: periodoCard.checkout ?? rh?.checkout ?? null,
         dataHoraCheckinReal,
         adultos: reservaSuite ? Number(reservaSuite.adultos || 0) : 0,
         criancas: reservaSuite ? Number(reservaSuite.criancas || 0) : 0,
@@ -2038,6 +2136,17 @@ function formatDataCurtaCuiaba(d: Date | string): string {
         TZ,
         'dd/MM'
     );
+}
+
+/** Período da reserva com horários padrão do PMS quando ausentes / Hospedin. */
+function periodoReservaNormalizado(rh: {
+    checkin?: Date | string | null;
+    checkout?: Date | string | null;
+    origemReserva?: string | null;
+}): { checkin: Date | null; checkout: Date | null } {
+    return normalizarPeriodoHospedagem(rh.checkin, rh.checkout, {
+        origemReserva: rh.origemReserva ?? null,
+    });
 }
 
 async function carregarReservasSuitesOperacionais(
@@ -2323,10 +2432,34 @@ export async function obterSituacaoSuite(
     return suite;
 }
 
+/**
+ * Data/hora real da operação (check-in/out).
+ * Sem valor → agora. Com valor → não pode ser futuro (tolera 60s de skew).
+ */
+function resolverDataHoraOperacaoRetroativa(
+    informada: Date | null | undefined,
+    rotulo: string
+): Date {
+    const agora = new Date();
+    if (informada == null) return agora;
+    if (Number.isNaN(informada.getTime())) {
+        throw new CustomError(`Data/hora de ${rotulo} inválida.`, 400, '');
+    }
+    if (informada.getTime() > agora.getTime() + 60_000) {
+        throw new CustomError(
+            `Não é permitido informar data/hora futura no ${rotulo}.`,
+            400,
+            ''
+        );
+    }
+    return informada;
+}
+
 /** Check-in operacional: Confirmada → Hospedada. */
 export async function realizarCheckinAdmin(
     idReservaHospedagem: number,
-    idUsuario: number
+    idUsuario: number,
+    dataHoraCheckinInformada?: Date | null
 ) {
     const escopo = await resolverEscopoProdutor(idUsuario);
 
@@ -2343,11 +2476,18 @@ export async function realizarCheckinAdmin(
                 as: 'ReservaSuite',
                 required: false,
             },
+            {
+                model: PagamentoHospedagem,
+                as: 'Pagamentos',
+                attributes: ['id', 'valor'],
+                required: false,
+            },
         ],
     })) as
         | (ReservaHospedagem & {
               Evento?: { id: number; idProdutor?: number } | null;
               ReservaSuite?: ReservaSuite[];
+              Pagamentos?: Array<{ valor?: number }>;
           })
         | null;
 
@@ -2393,7 +2533,7 @@ export async function realizarCheckinAdmin(
         );
     }
 
-    // data atual (Cuiabá) >= dia de check-in
+    // data atual (Cuiabá) >= dia de check-in planejado (libera a ação no dia/após)
     const hojeLocal = toZonedTime(new Date(), TZ);
     const checkinLocal = toZonedTime(new Date(reserva.checkin), TZ);
     const inicioHoje = startOfDay(hojeLocal);
@@ -2408,13 +2548,16 @@ export async function realizarCheckinAdmin(
         );
     }
 
-    const agora = new Date();
+    const dataHoraCheckin = resolverDataHoraOperacaoRetroativa(
+        dataHoraCheckinInformada,
+        'check-in'
+    );
 
     await connection.transaction(async (t: Transaction) => {
         await reserva.update(
             {
                 status: StatusReservaHospedagem.Hospedada,
-                dataHoraCheckinReal: agora,
+                dataHoraCheckinReal: dataHoraCheckin,
                 idUsuarioCheckin: idUsuario,
             },
             { transaction: t }
@@ -2433,7 +2576,7 @@ export async function realizarCheckinAdmin(
                 {
                     idTransacao: reserva.idTransacao,
                     idUsuario,
-                    data: agora,
+                    data: dataHoraCheckin,
                     descricao: 'Check-in realizado',
                 },
                 { transaction: t }
@@ -2441,13 +2584,19 @@ export async function realizarCheckinAdmin(
         }
     });
 
+    const { incrementarHospedagemRefreshVersion } = await import(
+        './hospedagemRefreshVersionService'
+    );
+    await incrementarHospedagemRefreshVersion();
+
     return obterReservaAdminDetalhe(idReservaHospedagem, idUsuario);
 }
 
 /** Check-out operacional: Hospedada → CheckOutRealizado. */
 export async function realizarCheckoutAdmin(
     idReservaHospedagem: number,
-    idUsuario: number
+    idUsuario: number,
+    dataHoraCheckoutInformada?: Date | null
 ) {
     const escopo = await resolverEscopoProdutor(idUsuario);
 
@@ -2503,13 +2652,27 @@ export async function realizarCheckoutAdmin(
         );
     }
 
-    const agora = new Date();
+    const dataHoraCheckout = resolverDataHoraOperacaoRetroativa(
+        dataHoraCheckoutInformada,
+        'check-out'
+    );
+
+    const checkinReal =
+        (reserva as ReservaHospedagem & { dataHoraCheckinReal?: Date | null })
+            .dataHoraCheckinReal ?? null;
+    if (checkinReal && dataHoraCheckout.getTime() < new Date(checkinReal).getTime()) {
+        throw new CustomError(
+            'A data/hora do check-out não pode ser anterior ao check-in.',
+            400,
+            ''
+        );
+    }
 
     await connection.transaction(async (t: Transaction) => {
         await reserva.update(
             {
                 status: StatusReservaHospedagem.CheckOutRealizado,
-                dataHoraCheckoutRealizado: agora,
+                dataHoraCheckoutRealizado: dataHoraCheckout,
                 idUsuarioCheckout: idUsuario,
             },
             { transaction: t }
@@ -2528,7 +2691,7 @@ export async function realizarCheckoutAdmin(
                 {
                     idTransacao: reserva.idTransacao,
                     idUsuario,
-                    data: agora,
+                    data: dataHoraCheckout,
                     descricao: 'Check-out realizado.',
                 },
                 { transaction: t }
@@ -2536,7 +2699,77 @@ export async function realizarCheckoutAdmin(
         }
     });
 
+    const { incrementarHospedagemRefreshVersion } = await import(
+        './hospedagemRefreshVersionService'
+    );
+    await incrementarHospedagemRefreshVersion();
+
     return obterReservaAdminDetalhe(idReservaHospedagem, idUsuario);
+}
+
+/** Atualiza anotação operacional (auto-save da aba Operação). */
+export async function atualizarObservacoesReservaAdmin(
+    idReserva: number,
+    idUsuario: number,
+    observacoesTexto: string
+) {
+    await obterReservaAdminDetalhe(idReserva, idUsuario);
+
+    const reserva = await ReservaHospedagem.findByPk(idReserva);
+    if (!reserva) {
+        throw new CustomError('Reserva não encontrada.', 404, '');
+    }
+
+    const importadaAtual =
+        (reserva as ReservaHospedagem & {
+            observacaoImportada?: string | null;
+        }).observacaoImportada ?? null;
+    const operadorAtual =
+        (reserva as ReservaHospedagem & {
+            observacaoOperador?: string | null;
+        }).observacaoOperador ?? null;
+    const mergedAtual = mergeReservaObservacoes(importadaAtual, operadorAtual);
+
+    if (observacoesTexto === mergedAtual) {
+        return obterReservaAdminDetalhe(idReserva, idUsuario);
+    }
+
+    const partes = splitOperadorFromTextoCompleto(
+        observacoesTexto,
+        importadaAtual
+    );
+    const observacoesMerged =
+        mergeReservaObservacoes(
+            partes.observacaoImportada,
+            partes.observacaoOperador
+        ) || null;
+
+    const agora = new Date();
+
+    await connection.transaction(async (t: Transaction) => {
+        await reserva.update(
+            {
+                observacaoImportada: partes.observacaoImportada,
+                observacaoOperador: partes.observacaoOperador,
+                observacoes: observacoesMerged,
+            },
+            { transaction: t }
+        );
+
+        if (reserva.idTransacao) {
+            await HistoricoTransacao.create(
+                {
+                    idTransacao: reserva.idTransacao,
+                    idUsuario,
+                    data: agora,
+                    descricao: 'Observação da reserva alterada.',
+                },
+                { transaction: t }
+            );
+        }
+    });
+
+    return obterReservaAdminDetalhe(idReserva, idUsuario);
 }
 
 /** Reserva manual da recepção: Confirmada + notificação (reusa checkoutHospedagem). */
@@ -2894,6 +3127,12 @@ export async function trocarSuiteReservaAdmin(params: {
         await linha.update({ idEventoSuite: idDestino }, { transaction: t });
     });
 
+    // Refresh automático das Suítes/Agenda (obrigatório após troca).
+    const { incrementarHospedagemRefreshVersion } = await import(
+        './hospedagemRefreshVersionService'
+    );
+    await incrementarHospedagemRefreshVersion();
+
     return obterReservaAdminDetalhe(reserva.id, params.idUsuario);
 }
 
@@ -3109,6 +3348,11 @@ export async function alterarPeriodoReservaAdmin(params: {
             { transaction: t }
         );
     });
+
+    const { incrementarHospedagemRefreshVersion } = await import(
+        './hospedagemRefreshVersionService'
+    );
+    await incrementarHospedagemRefreshVersion();
 
     return obterReservaAdminDetalhe(reserva.id, params.idUsuario);
 }

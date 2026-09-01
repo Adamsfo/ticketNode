@@ -1,5 +1,5 @@
 import { CustomError } from './customError';
-import { formatInTimeZone } from 'date-fns-tz';
+import { formatInTimeZone, fromZonedTime } from 'date-fns-tz';
 import {
     calcularExtrasOcupacao,
     calcularNoitesHotelaria as calcularNoitesHotelariaCore,
@@ -13,11 +13,137 @@ export const HORA_CHECKIN_HOSPEDAGEM = '16:00';
 /** Horário oficial de check-out da hospedagem (Cuiabá). */
 export const HORA_CHECKOUT_HOSPEDAGEM = '13:00';
 
-const TZ_HOSPEDAGEM = 'America/Cuiaba';
+export const TZ_HOSPEDAGEM = 'America/Cuiaba';
 const CHECKIN_MIN_MINUTOS = 16 * 60;
 const CHECKIN_MAX_MINUTOS = 19 * 60;
 const CHECKOUT_MIN_MINUTOS = 8 * 60;
 const CHECKOUT_MAX_MINUTOS = 13 * 60;
+
+const RE_DATA_CIVIL = /^(\d{4}-\d{2}-\d{2})/;
+const RE_SOMENTE_DATA = /^\d{4}-\d{2}-\d{2}$/;
+const RE_TEM_RELOGIO = /T\d{2}:\d{2}| \d{2}:\d{2}/;
+
+export type TipoHorarioHospedagem = 'checkin' | 'checkout';
+
+export type NormalizarDateTimeHospedagemOpts = {
+    /**
+     * Força data civil + horário padrão do PMS (ex.: mapeamento Hospedin → Jango).
+     * Ignora qualquer horário presente no valor de origem.
+     */
+    forcarHorarioPadrao?: boolean;
+    /** Origem da reserva (ex.: HOSPEDIN) — usada para tratar placeholders da integração. */
+    origemReserva?: string | null;
+};
+
+/**
+ * Extrai a data civil (yyyy-MM-dd) no fuso da hospedagem.
+ * Em strings ISO, usa o prefixo yyyy-MM-dd do payload (evita dia errado
+ * quando a integração manda offset diferente de America/Cuiaba).
+ */
+export function dataCivilHospedagem(value: Date | string): string {
+    if (typeof value === 'string') {
+        const s = value.trim();
+        const m = s.match(RE_DATA_CIVIL);
+        if (m) return m[1];
+        const parsed = new Date(s);
+        if (!Number.isNaN(parsed.getTime())) {
+            return formatInTimeZone(parsed, TZ_HOSPEDAGEM, 'yyyy-MM-dd');
+        }
+    }
+    const d = value instanceof Date ? value : new Date(value);
+    return formatInTimeZone(d, TZ_HOSPEDAGEM, 'yyyy-MM-dd');
+}
+
+/** True quando o valor bruto traz componente de horário (não só a data). */
+export function valorInformaHorarioHospedagem(value: unknown): boolean {
+    if (value == null || value === '') return false;
+    if (value instanceof Date) {
+        if (Number.isNaN(value.getTime())) return false;
+        return (
+            formatInTimeZone(value, TZ_HOSPEDAGEM, 'HH:mm:ss') !== '00:00:00'
+        );
+    }
+    const s = String(value).trim();
+    if (!s || RE_SOMENTE_DATA.test(s)) return false;
+    if (!RE_TEM_RELOGIO.test(s)) return false;
+    const parsed = new Date(s);
+    if (Number.isNaN(parsed.getTime())) return false;
+    return formatInTimeZone(parsed, TZ_HOSPEDAGEM, 'HH:mm:ss') !== '00:00:00';
+}
+
+/**
+ * Combina data civil + horário padrão oficial do PMS (Cuiabá).
+ * Único ponto para montar 16:00 / 13:00 a partir de uma data.
+ */
+export function montarDateTimeComHorarioPadraoHospedagem(
+    value: Date | string,
+    tipo: TipoHorarioHospedagem
+): Date {
+    const dia = dataCivilHospedagem(value);
+    const hora =
+        tipo === 'checkin'
+            ? HORA_CHECKIN_HOSPEDAGEM
+            : HORA_CHECKOUT_HOSPEDAGEM;
+    return fromZonedTime(`${dia} ${hora}:00`, TZ_HOSPEDAGEM);
+}
+
+/**
+ * Normaliza check-in/check-out para o PMS.
+ *
+ * - Nulo/vazio → null
+ * - Sem horário (ausente, só data, 00:00) → horário padrão do PMS
+ * - Origem HOSPEDIN ou `forcarHorarioPadrao` → data civil + padrão
+ *   (a Hospedin não envia horário operacional da pousada)
+ * - Horário realmente informado (outras origens) → preservado
+ */
+export function normalizarDateTimeHospedagem(
+    value: unknown,
+    tipo: TipoHorarioHospedagem,
+    opts?: NormalizarDateTimeHospedagemOpts
+): Date | null {
+    if (value == null || value === '') return null;
+
+    const origem = String(opts?.origemReserva || '').toUpperCase();
+    const forcar =
+        Boolean(opts?.forcarHorarioPadrao) || origem === 'HOSPEDIN';
+
+    const asWallDate = (): Date | string | null => {
+        if (typeof value === 'string' || value instanceof Date) return value;
+        const parsed = new Date(value as string | number | Date);
+        return Number.isNaN(parsed.getTime()) ? null : parsed;
+    };
+
+    if (forcar) {
+        const wall = asWallDate();
+        return wall
+            ? montarDateTimeComHorarioPadraoHospedagem(wall, tipo)
+            : null;
+    }
+
+    if (!valorInformaHorarioHospedagem(value)) {
+        const wall = asWallDate();
+        return wall
+            ? montarDateTimeComHorarioPadraoHospedagem(wall, tipo)
+            : null;
+    }
+
+    const parsed =
+        value instanceof Date ? value : new Date(String(value));
+    if (Number.isNaN(parsed.getTime())) return null;
+    return parsed;
+}
+
+/** Normaliza o par check-in/check-out com a mesma regra. */
+export function normalizarPeriodoHospedagem(
+    checkin: unknown,
+    checkout: unknown,
+    opts?: NormalizarDateTimeHospedagemOpts
+): { checkin: Date | null; checkout: Date | null } {
+    return {
+        checkin: normalizarDateTimeHospedagem(checkin, 'checkin', opts),
+        checkout: normalizarDateTimeHospedagem(checkout, 'checkout', opts),
+    };
+}
 
 export {
     VALOR_ADICIONAL_ADULTO_EXTRA,

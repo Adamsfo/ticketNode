@@ -1,32 +1,28 @@
 "use strict";
 const { ValidationError } = require('sequelize');
+const { logger } = require('../utils/logger');
 const errorHandler = (err, req, res, next) => {
-    // res.setHeader('Content-Type', 'application/json');
     if (err instanceof ValidationError) {
-        // Erro de validação do Sequelize
         return res.status(400).json({
             message: 'Erro de validação.',
             errors: err.errors.map((e) => ({
                 field: e.path,
-                message: e.message
-            }))
+                message: e.message,
+            })),
         });
     }
     if (err.name === 'SequelizeUniqueConstraintError') {
-        // Erro de violação de chave única
         return res.status(409).json({
             message: 'Erro de conflito. Registro duplicado.',
-            field: err.errors[0].path
+            field: err.errors[0].path,
         });
     }
     if (err.name === 'SequelizeForeignKeyConstraintError') {
-        // Erro de violação de chave estrangeira
         return res.status(409).json({
             message: 'Erro de conflito. Violação de chave estrangeira.',
-            field: err.index
+            field: err.index,
         });
     }
-    // Tratamento de erros genéricos
     if (err.isOperational) {
         res.status(err.statusCode).json({
             status: err.status,
@@ -36,7 +32,11 @@ const errorHandler = (err, req, res, next) => {
         });
     }
     else {
-        console.error('ERROR:', err);
+        logger.error('Internal Server Error', {
+            message: err?.message,
+            stack: err?.stack,
+            path: req?.path,
+        });
         res.status(500).json({
             status: 'error',
             message: 'Internal Server Error',

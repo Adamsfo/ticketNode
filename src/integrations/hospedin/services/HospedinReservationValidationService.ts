@@ -195,7 +195,7 @@ export class HospedinReservationValidationService {
 
     /**
      * Valida staging. No modo incremental (padrão), aplica a mesma janela
-     * operacional do Import (somente check_in >= hoje).
+     * operacional do Import (check_in >= hoje - 7 dias).
      * mode=full valida absolutamente todas as linhas do staging.
      */
     async validateAll(options?: {
