@@ -33,15 +33,6 @@ const MARCA_CONTA_JANGO_PDV = "Conta Jango PDV|trx=";
 /** Lock em memória: evita duas execuções simultâneas da mesma venda PDV. */
 const locksAbrirContaPdv = new Map<number, Promise<any>>();
 
-async function aguardarContaCriadaPdv(idCliente: number, tentativas = 5, intervaloMs = 1000) {
-    for (let i = 0; i < tentativas; i++) {
-        const contas = await apiJango().getConta(idCliente, true);
-        if (Array.isArray(contas) && contas.length > 0) return contas;
-        await new Promise((res) => setTimeout(res, intervaloMs));
-    }
-    throw new Error("Conta não foi criada após múltiplas tentativas.");
-}
-
 function historicoContaPdvFinalizado(descricao: string | null | undefined): boolean {
     if (!descricao) return false;
     return (
@@ -2215,7 +2206,8 @@ module.exports = {
                     );
                 }
 
-                let contaJango = await apiJango().getConta(userIngresso.id_cliente, true);
+                let idVendaJango: number;
+                const contaJango = await apiJango().getConta(userIngresso.id_cliente, true);
                 let contaCriadaAgora = false;
 
                 // Só abre conta se NÃO houver conta aberta E esta execução adquiriu o claim
@@ -2226,8 +2218,7 @@ module.exports = {
                         idPagamento,
                         id_cliente: userIngresso.id_cliente,
                     });
-                    await apiJango().abreConta(userIngresso.id_cliente);
-                    contaJango = await aguardarContaCriadaPdv(userIngresso.id_cliente);
+                    idVendaJango = await apiJango().abreConta(userIngresso.id_cliente);
                     contaCriadaAgora = true;
                 } else {
                     console.log("[PDV abrirConta] reutilizando conta já aberta", {
@@ -2236,14 +2227,12 @@ module.exports = {
                         id_venda: contaJango[0]?.id_venda,
                         motivo: "cliente já tinha conta aberta / execução anterior",
                     });
+                    idVendaJango = Number(contaJango[0].id_venda);
                 }
 
-                contaJango = await apiJango().getConta(userIngresso.id_cliente, true);
-                if (!Array.isArray(contaJango) || contaJango.length === 0) {
+                if (!Number.isFinite(idVendaJango) || idVendaJango <= 0) {
                     throw new CustomError("Não foi possível obter a conta Jango.", 500, "");
                 }
-
-                const idVendaJango = contaJango[0].id_venda;
 
                 for (const ingresso of pendentes) {
                     const eventoIngresso = await EventoIngresso.findByPk(

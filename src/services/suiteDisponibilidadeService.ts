@@ -65,6 +65,8 @@ export type ReservaDisponibilidadeInput = {
     checkout: Date | string;
     dataHoraCheckinReal?: Date | string | null;
     dataHoraCheckoutRealizado?: Date | string | null;
+    /** Chegada física registrada (Etapa 2) — exigida para podeCheckin. */
+    dataHoraChegadaReal?: Date | string | null;
     /** Se > 0, bloqueia podeCheckin (matriz §7). */
     saldoPendente?: number | null;
     /** Metadados de exibição (card / sheet) — não afetam regras. */
@@ -129,6 +131,7 @@ type ReservaNorm = {
     checkout: Date;
     dataHoraCheckinReal: Date | null;
     dataHoraCheckoutRealizado: Date | null;
+    dataHoraChegadaReal: Date | null;
     saldoPendente: number;
 };
 
@@ -194,6 +197,9 @@ function normalizarReserva(r: ReservaDisponibilidadeInput): ReservaNorm {
             : null,
         dataHoraCheckoutRealizado: r.dataHoraCheckoutRealizado
             ? asDate(r.dataHoraCheckoutRealizado)
+            : null,
+        dataHoraChegadaReal: r.dataHoraChegadaReal
+            ? asDate(r.dataHoraChegadaReal)
             : null,
         saldoPendente: Number(r.saldoPendente ?? 0),
     };
@@ -536,11 +542,12 @@ export function calcularDisponibilidadeSuite(
     /**
      * Ações operacionais — ciclo de vida (Confirmada → Hospedada → finalizada).
      * Não exige `D === hoje`; bloqueia apenas data futura da agenda (`D > hoje`).
-     * Check-in: Confirmada, sem entrada real, D ≥ dia do CI, saldo ok.
+     * Check-in: Confirmada, chegada registrada, sem entrada real, D ≥ dia do CI, saldo ok.
      * Check-out: Hospedada, sem saída real; badge de ocupação do dia.
      */
     const dataCi = reservaAtual ? dataCivil(reservaAtual.checkin) : null;
     const agendaNaoFutura = dataSelecionada <= hoje;
+    const chegadaRegistrada = Boolean(reservaAtual?.dataHoraChegadaReal);
     const checkinJaRealizado = Boolean(
         reservaAtual &&
             (reservaAtual.status === 'Hospedada' ||
@@ -556,6 +563,7 @@ export function calcularDisponibilidadeSuite(
         reservaAtual &&
             agendaNaoFutura &&
             reservaAtual.status === 'Confirmada' &&
+            chegadaRegistrada &&
             !checkinJaRealizado &&
             dataCi != null &&
             dataCi <= dataSelecionada &&
@@ -676,6 +684,7 @@ export function calcularAcoesOperacionaisDaReserva(params: {
         | 'saldoPendente'
         | 'dataHoraCheckinReal'
         | 'dataHoraCheckoutRealizado'
+        | 'dataHoraChegadaReal'
     >;
     dataSelecionada: string;
     hoje: string;
@@ -688,6 +697,7 @@ export function calcularAcoesOperacionaisDaReserva(params: {
         dataHoraCheckinReal: params.reserva.dataHoraCheckinReal ?? null,
         dataHoraCheckoutRealizado:
             params.reserva.dataHoraCheckoutRealizado ?? null,
+        dataHoraChegadaReal: params.reserva.dataHoraChegadaReal ?? null,
         saldoPendente: params.reserva.saldoPendente ?? 0,
     });
 
@@ -706,9 +716,11 @@ export function calcularAcoesOperacionaisDaReserva(params: {
     const dataCi = dataCivil(r.checkin);
     const checkinJaRealizado =
         r.status === 'Hospedada' || Boolean(r.dataHoraCheckinReal);
+    const chegadaRegistrada = Boolean(r.dataHoraChegadaReal);
 
     const podeCheckin = Boolean(
         r.status === 'Confirmada' &&
+            chegadaRegistrada &&
             !checkinJaRealizado &&
             dataCi <= params.dataSelecionada &&
             r.saldoPendente <= 0.009

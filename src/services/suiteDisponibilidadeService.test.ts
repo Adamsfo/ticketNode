@@ -61,6 +61,7 @@ describe('SuiteDisponibilidadeService — regressão matriz §8', () => {
                     status: 'Confirmada',
                     checkin: cuiaba('2026-07-28', '16:00'),
                     checkout: cuiaba('2026-07-29', '13:00'),
+                    dataHoraChegadaReal: cuiaba('2026-07-28', '15:30'),
                 }),
             ],
         });
@@ -85,6 +86,7 @@ describe('SuiteDisponibilidadeService — regressão matriz §8', () => {
                     status: 'Confirmada',
                     checkin: cuiaba('2026-07-28', '16:00'),
                     checkout: cuiaba('2026-07-29', '13:00'),
+                    dataHoraChegadaReal: cuiaba('2026-07-28', '15:30'),
                 }),
             ],
         });
@@ -104,6 +106,7 @@ describe('SuiteDisponibilidadeService — regressão matriz §8', () => {
                     status: 'Confirmada',
                     checkin: cuiaba('2026-07-28', '16:00'),
                     checkout: cuiaba('2026-07-29', '13:00'),
+                    dataHoraChegadaReal: cuiaba('2026-07-28', '15:30'),
                 }),
             ],
         });
@@ -128,6 +131,7 @@ describe('SuiteDisponibilidadeService — regressão matriz §8', () => {
                     status: 'Confirmada',
                     checkin: cuiaba('2026-07-28', '16:00'),
                     checkout: cuiaba('2026-07-29', '13:00'),
+                    dataHoraChegadaReal: cuiaba('2026-07-28', '15:30'),
                 }),
             ],
         });
@@ -189,6 +193,7 @@ describe('SuiteDisponibilidadeService — regressão matriz §8', () => {
                     status: 'Confirmada',
                     checkin: cuiaba('2026-07-28', '16:00'),
                     checkout: cuiaba('2026-07-29', '13:00'),
+                    dataHoraChegadaReal: cuiaba('2026-07-28', '15:30'),
                 }),
             ],
         });
@@ -322,12 +327,32 @@ describe('SuiteDisponibilidadeService — regressão matriz §8', () => {
                     status: 'Confirmada',
                     checkin: cuiaba('2026-07-28', '16:00'),
                     checkout: cuiaba('2026-07-31', '13:00'),
+                    dataHoraChegadaReal: cuiaba('2026-07-28', '15:30'),
                 }),
             ],
         });
         assert.equal(r.badge, 'RESERVADA');
         assert.equal(r.podeCheckin, true);
         assert.equal(r.botaoPrincipal, 'checkin');
+    });
+
+    it('Confirmada no dia do CI sem chegada registrada → podeCheckin false', () => {
+        const r = calcularDisponibilidadeSuite({
+            idEventoSuite: 1,
+            dataSelecionada: '2026-07-28',
+            hoje: '2026-07-28',
+            reservas: [
+                reserva({
+                    id: 10,
+                    status: 'Confirmada',
+                    checkin: cuiaba('2026-07-28', '16:00'),
+                    checkout: cuiaba('2026-07-29', '13:00'),
+                }),
+            ],
+        });
+        assert.equal(r.badge, 'CHECKIN_HOJE');
+        assert.equal(r.podeCheckin, false);
+        assert.notEqual(r.botaoPrincipal, 'checkin');
     });
 
     it('R-11: checkout operacional já feito no dia do CO → Livre', () => {
@@ -492,6 +517,7 @@ describe('SuiteDisponibilidadeService — regressão matriz §8', () => {
                     status: 'Confirmada',
                     checkin: cuiaba('2026-07-28', '16:00'),
                     checkout: cuiaba('2026-07-29', '13:00'),
+                    dataHoraChegadaReal: cuiaba('2026-07-28', '15:30'),
                 }),
             ],
         });
@@ -511,6 +537,7 @@ describe('SuiteDisponibilidadeService — regressão matriz §8', () => {
                     status: 'Confirmada',
                     checkin: cuiaba('2026-07-28', '16:00'),
                     checkout: cuiaba('2026-07-29', '13:00'),
+                    dataHoraChegadaReal: cuiaba('2026-07-28', '15:30'),
                 }),
             ],
         });

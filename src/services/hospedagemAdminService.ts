@@ -19,6 +19,7 @@ import {
     HistoricoTransacao,
 } from '../models/Transacao';
 import { CustomError } from '../utils/customError';
+import apiJango from '../api/apiJango';
 
 /**
  * Vincula o responsável da reserva ao cliente Jango (id_cliente).
@@ -1322,7 +1323,9 @@ export async function obterReservaAdminDetalhe(
     const status = statusExibicaoReserva(reserva.status, reserva.checkout);
 
     const financeiro = resolverFinanceiroReserva({
-        ...(reserva as ReservaHospedagem),
+        valorTotal: reserva.valorTotal,
+        valorPago: reserva.valorPago,
+        saldoPendente: reserva.saldoPendente,
         Pagamentos: pagamentos.map((p) => ({ valor: p.valor })),
     } as ReservaHospedagem & {
         valorPago?: number;
@@ -1416,6 +1419,9 @@ export async function obterReservaAdminDetalhe(
     );
     const checkinNorm = periodoFoco.checkin ?? new Date(reserva.checkin);
     const checkoutNorm = periodoFoco.checkout ?? new Date(reserva.checkout);
+    const dataHoraChegadaRealDetalhe =
+        (reserva as ReservaHospedagem & { dataHoraChegadaReal?: Date | null })
+            .dataHoraChegadaReal ?? null;
     const acoesFoco = calcularAcoesOperacionaisDaReserva({
         reserva: {
             status: reserva.status as StatusReservaDisponibilidade,
@@ -1424,6 +1430,7 @@ export async function obterReservaAdminDetalhe(
             saldoPendente,
             dataHoraCheckinReal,
             dataHoraCheckoutRealizado,
+            dataHoraChegadaReal: dataHoraChegadaRealDetalhe,
         },
         dataSelecionada: dataOp,
         hoje: hojeOp,
@@ -1500,6 +1507,18 @@ export async function obterReservaAdminDetalhe(
             (reserva as ReservaHospedagem & {
                 idUsuarioCheckout?: number | null;
             }).idUsuarioCheckout ?? null,
+        dataHoraChegadaReal:
+            (reserva as ReservaHospedagem & {
+                dataHoraChegadaReal?: Date | null;
+            }).dataHoraChegadaReal ?? null,
+        idUsuarioChegada:
+            (reserva as ReservaHospedagem & {
+                idUsuarioChegada?: number | null;
+            }).idUsuarioChegada ?? null,
+        idVendaJango:
+            (reserva as ReservaHospedagem & {
+                idVendaJango?: number | null;
+            }).idVendaJango ?? null,
         usuarioCheckout:
             (reserva as ReservaHospedagem & {
                 idUsuarioCheckout?: number | null;
@@ -1899,6 +1918,9 @@ function reservasParaDisponibilidade(
                 (rh as ReservaHospedagem & {
                     dataHoraCheckoutRealizado?: Date | null;
                 }).dataHoraCheckoutRealizado ?? null,
+            dataHoraChegadaReal:
+                (rh as ReservaHospedagem & { dataHoraChegadaReal?: Date | null })
+                    .dataHoraChegadaReal ?? null,
             saldoPendente: financeiro.saldoPendente,
             responsavelNome: rh.Usuario?.nomeCompleto ?? null,
             origemReserva:
@@ -2497,6 +2519,244 @@ function resolverDataHoraOperacaoRetroativa(
     return informada;
 }
 
+function idVendaJangoValido(valor: number | null | undefined): boolean {
+    const n = Number(valor);
+    return Number.isFinite(n) && n > 0;
+}
+
+/**
+ * Garante id_venda Jango para a reserva.
+ * Se idVendaJango já persistido, reutiliza sem chamar getConta.
+ */
+async function garantirContaJangoHospedagem(
+    idVendaJangoAtual: number | null | undefined,
+    idCliente: number
+): Promise<number> {
+    if (idVendaJangoValido(idVendaJangoAtual)) {
+        return Number(idVendaJangoAtual);
+    }
+
+    const idClienteNum = Number(idCliente);
+    if (!Number.isFinite(idClienteNum) || idClienteNum <= 0) {
+        throw new CustomError(
+            'O responsável da reserva precisa estar vinculado a um cliente Jango antes de registrar a chegada.',
+            400,
+            ''
+        );
+    }
+
+    const contaJango = await apiJango().getConta(idClienteNum, true);
+
+    if (Array.isArray(contaJango) && contaJango.length > 0) {
+        const idVenda = Number(contaJango[0]?.id_venda);
+        if (!idVendaJangoValido(idVenda)) {
+            throw new CustomError(
+                'Conta Jango retornou ID de venda inválido.',
+                502,
+                ''
+            );
+        }
+        return idVenda;
+    }
+
+    try {
+        const idVenda = await apiJango().abreConta(idClienteNum);
+        if (!idVendaJangoValido(idVenda)) {
+            throw new CustomError(
+                'Não foi possível obter a conta Jango após abertura.',
+                502,
+                ''
+            );
+        }
+        return idVenda;
+    } catch (error) {
+        if (error instanceof CustomError) {
+            throw error;
+        }
+        const detalhe =
+            error instanceof Error ? error.message : 'Erro desconhecido';
+        throw new CustomError(
+            'Não foi possível abrir conta no Jango. Verifique a conexão com o PDV e tente novamente.',
+            502,
+            '',
+            { cause: detalhe }
+        );
+    }
+}
+
+/** Registro de chegada física: mantém Confirmada (não é check-in operacional). */
+export async function registrarChegadaAdmin(
+    idReservaHospedagem: number,
+    idUsuario: number,
+    dataHoraChegadaInformada?: Date | null
+) {
+    const escopo = await resolverEscopoProdutor(idUsuario);
+
+    const reserva = (await ReservaHospedagem.findByPk(idReservaHospedagem, {
+        include: [
+            {
+                model: Evento,
+                as: 'Evento',
+                attributes: ['id', 'idProdutor'],
+                required: true,
+            },
+            {
+                model: ReservaSuite,
+                as: 'ReservaSuite',
+                required: false,
+            },
+            {
+                model: PagamentoHospedagem,
+                as: 'Pagamentos',
+                attributes: ['id', 'valor'],
+                required: false,
+            },
+        ],
+    })) as
+        | (ReservaHospedagem & {
+              Evento?: { id: number; idProdutor?: number } | null;
+              ReservaSuite?: ReservaSuite[];
+              Pagamentos?: Array<{ valor?: number }>;
+          })
+        | null;
+
+    if (!reserva) {
+        throw new CustomError('Reserva de hospedagem não encontrada.', 404, '');
+    }
+
+    if (
+        !escopo.admGeral &&
+        !escopo.idsProdutor.includes(Number(reserva.Evento?.idProdutor))
+    ) {
+        throw new CustomError(
+            'Sem permissão para esta reserva.',
+            403,
+            ''
+        );
+    }
+
+    const chegadaExistente =
+        (reserva as ReservaHospedagem & { dataHoraChegadaReal?: Date | null })
+            .dataHoraChegadaReal ?? null;
+    const idVendaJangoExistente = (
+        reserva as ReservaHospedagem & { idVendaJango?: number | null }
+    ).idVendaJango;
+
+    if (chegadaExistente && idVendaJangoValido(idVendaJangoExistente)) {
+        return obterReservaAdminDetalhe(idReservaHospedagem, idUsuario);
+    }
+
+    if (reserva.status !== StatusReservaHospedagem.Confirmada) {
+        throw new CustomError(
+            'Somente reservas confirmadas podem registrar chegada.',
+            400,
+            ''
+        );
+    }
+
+    const financeiroChegada = resolverFinanceiroReserva(
+        reserva as ReservaHospedagem & {
+            valorPago?: number;
+            saldoPendente?: number | null;
+            Pagamentos?: Array<{ valor?: number }>;
+        }
+    );
+    if (financeiroChegada.saldoPendente > 0.009) {
+        throw new CustomError(
+            'Não é possível registrar a chegada enquanto houver saldo pendente. Receba o pagamento antes de prosseguir.',
+            400,
+            ''
+        );
+    }
+
+    const hojeLocal = toZonedTime(new Date(), TZ);
+    const checkinLocal = toZonedTime(new Date(reserva.checkin), TZ);
+    const inicioHoje = startOfDay(hojeLocal);
+    const inicioCheckin = startOfDay(checkinLocal);
+    if (inicioHoje.getTime() < inicioCheckin.getTime()) {
+        const dd = String(checkinLocal.getDate()).padStart(2, '0');
+        const mm = String(checkinLocal.getMonth() + 1).padStart(2, '0');
+        throw new CustomError(
+            `Registro de chegada disponível em ${dd}/${mm}.`,
+            400,
+            ''
+        );
+    }
+
+    const titular = await Usuario.findByPk(reserva.idUsuario, {
+        attributes: ['id', 'id_cliente'],
+    });
+    if (!titular) {
+        throw new CustomError('Usuário responsável da reserva não encontrado.', 404, '');
+    }
+    const idClienteTitular = Number(titular.id_cliente);
+    if (!Number.isFinite(idClienteTitular) || idClienteTitular <= 0) {
+        throw new CustomError(
+            'O responsável da reserva precisa estar vinculado a um cliente Jango antes de registrar a chegada. Utilize "Cadastrar cliente" para vincular o id_cliente.',
+            400,
+            ''
+        );
+    }
+
+    const dataHoraChegada = chegadaExistente
+        ? null
+        : resolverDataHoraOperacaoRetroativa(
+              dataHoraChegadaInformada,
+              'registro de chegada'
+          );
+
+    let houveAlteracao = false;
+
+    await connection.transaction(async (t: Transaction) => {
+        const reservaLocked = await ReservaHospedagem.findByPk(
+            idReservaHospedagem,
+            {
+                lock: t.LOCK.UPDATE,
+                transaction: t,
+            }
+        );
+
+        if (!reservaLocked) {
+            throw new CustomError('Reserva de hospedagem não encontrada.', 404, '');
+        }
+
+        if (
+            reservaLocked.dataHoraChegadaReal &&
+            idVendaJangoValido(reservaLocked.idVendaJango)
+        ) {
+            return;
+        }
+
+        const idVendaJango = await garantirContaJangoHospedagem(
+            reservaLocked.idVendaJango,
+            idClienteTitular
+        );
+
+        const payload: {
+            idVendaJango: number;
+            dataHoraChegadaReal?: Date;
+            idUsuarioChegada?: number;
+        } = { idVendaJango };
+
+        if (!reservaLocked.dataHoraChegadaReal) {
+            payload.dataHoraChegadaReal = dataHoraChegada!;
+            payload.idUsuarioChegada = idUsuario;
+        }
+
+        await reservaLocked.update(payload, { transaction: t });
+        houveAlteracao = true;
+    });
+
+    if (houveAlteracao) {
+        const { incrementarHospedagemRefreshVersion } = await import(
+            './hospedagemRefreshVersionService'
+        );
+        await incrementarHospedagemRefreshVersion();
+    }
+
+    return obterReservaAdminDetalhe(idReservaHospedagem, idUsuario);
+}
+
 /** Check-in operacional: Confirmada → Hospedada. */
 export async function realizarCheckinAdmin(
     idReservaHospedagem: number,
@@ -2555,6 +2815,28 @@ export async function realizarCheckinAdmin(
     if (reserva.status !== StatusReservaHospedagem.Confirmada) {
         throw new CustomError(
             'Somente reservas confirmadas podem realizar check-in.',
+            400,
+            ''
+        );
+    }
+
+    const dataHoraChegadaReal =
+        (reserva as ReservaHospedagem & { dataHoraChegadaReal?: Date | null })
+            .dataHoraChegadaReal ?? null;
+    if (!dataHoraChegadaReal) {
+        throw new CustomError(
+            'Registre a chegada do hóspede antes de realizar o check-in.',
+            400,
+            ''
+        );
+    }
+
+    const idVendaJangoReserva = (
+        reserva as ReservaHospedagem & { idVendaJango?: number | null }
+    ).idVendaJango;
+    if (!idVendaJangoValido(idVendaJangoReserva)) {
+        throw new CustomError(
+            'A conta Jango da hospedagem não está vinculada à reserva. Registre ou regularize a chegada antes do check-in.',
             400,
             ''
         );

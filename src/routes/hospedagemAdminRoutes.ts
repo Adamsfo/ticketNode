@@ -26,6 +26,11 @@ router.post(
     HospedagemAdminController.realizarCheckin
 );
 router.post(
+    '/hospedagem/reservas/:id/registrar-chegada',
+    authenticate,
+    HospedagemAdminController.registrarChegada
+);
+router.post(
     '/hospedagem/reservas/:id/checkout',
     authenticate,
     HospedagemAdminController.realizarCheckout
@@ -93,6 +98,11 @@ router.post(
     '/hospedagem-admin/reservas/:id/checkin',
     authenticate,
     HospedagemAdminController.realizarCheckin
+);
+router.post(
+    '/hospedagem-admin/reservas/:id/registrar-chegada',
+    authenticate,
+    HospedagemAdminController.registrarChegada
 );
 router.post(
     '/hospedagem-admin/reservas/:id/checkout',

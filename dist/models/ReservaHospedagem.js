@@ -156,6 +156,19 @@ class ReservaHospedagem extends sequelize_1.Model {
                 allowNull: true,
                 references: { model: Usuario_1.Usuario, key: 'id' },
             },
+            dataHoraChegadaReal: {
+                type: sequelize_1.DataTypes.DATE,
+                allowNull: true,
+            },
+            idUsuarioChegada: {
+                type: sequelize_1.DataTypes.INTEGER,
+                allowNull: true,
+                references: { model: Usuario_1.Usuario, key: 'id' },
+            },
+            idVendaJango: {
+                type: sequelize_1.DataTypes.INTEGER,
+                allowNull: true,
+            },
             observacoes: {
                 type: sequelize_1.DataTypes.TEXT,
                 allowNull: true,
@@ -194,6 +207,10 @@ class ReservaHospedagem extends sequelize_1.Model {
         ReservaHospedagem.belongsTo(Usuario_1.Usuario, {
             foreignKey: 'idUsuarioCheckout',
             as: 'UsuarioCheckout',
+        });
+        ReservaHospedagem.belongsTo(Usuario_1.Usuario, {
+            foreignKey: 'idUsuarioChegada',
+            as: 'UsuarioChegada',
         });
         ReservaHospedagem.belongsTo(Usuario_1.Usuario, {
             foreignKey: 'idUsuarioCriacao',

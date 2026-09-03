@@ -7,6 +7,7 @@ import {
     obterSituacaoSuite,
     realizarCheckinAdmin,
     realizarCheckoutAdmin,
+    registrarChegadaAdmin,
     criarReservaRecepcaoAdmin,
     reenviarLinkPagamentoReservaAdmin,
     trocarSuiteReservaAdmin,
@@ -115,6 +116,40 @@ module.exports = {
             return res.status(200).json({
                 success: true,
                 message: 'Check-in realizado com sucesso.',
+                data,
+            });
+        } catch (error) {
+            next(error);
+        }
+    },
+
+    async registrarChegada(req: any, res: any, next: any) {
+        try {
+            const idUsuario = Number(req.user?.id);
+            const idReserva = Number(req.params.id);
+
+            if (!idUsuario) {
+                throw new CustomError('Usuário não autenticado.', 401, '');
+            }
+            if (!idReserva) {
+                throw new CustomError('id da reserva é obrigatório.', 400, '');
+            }
+
+            const rawDataHora =
+                req.body?.dataHora ?? req.body?.dataHoraChegada ?? null;
+            const dataHoraChegada =
+                rawDataHora != null && rawDataHora !== ''
+                    ? parseDateTimeParam(rawDataHora, 'dataHora')
+                    : null;
+
+            const data = await registrarChegadaAdmin(
+                idReserva,
+                idUsuario,
+                dataHoraChegada
+            );
+            return res.status(200).json({
+                success: true,
+                message: 'Chegada registrada com sucesso.',
                 data,
             });
         } catch (error) {

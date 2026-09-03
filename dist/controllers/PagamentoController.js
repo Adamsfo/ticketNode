@@ -28,15 +28,6 @@ const SuperTefBearerToken = process.env.SUPERTEF_BEARER_TOKEN || "";
 const MARCA_CONTA_JANGO_PDV = "Conta Jango PDV|trx=";
 /** Lock em memória: evita duas execuções simultâneas da mesma venda PDV. */
 const locksAbrirContaPdv = new Map();
-async function aguardarContaCriadaPdv(idCliente, tentativas = 5, intervaloMs = 1000) {
-    for (let i = 0; i < tentativas; i++) {
-        const contas = await (0, apiJango_1.default)().getConta(idCliente, true);
-        if (Array.isArray(contas) && contas.length > 0)
-            return contas;
-        await new Promise((res) => setTimeout(res, intervaloMs));
-    }
-    throw new Error("Conta não foi criada após múltiplas tentativas.");
-}
 function historicoContaPdvFinalizado(descricao) {
     if (!descricao)
         return false;
@@ -1723,7 +1714,8 @@ module.exports = {
                     if (!userIngresso.id_cliente || Number(userIngresso.id_cliente) === 0) {
                         throw new customError_1.CustomError("Usuário não possui um id_cliente válido no Jango.", 400, "");
                     }
-                    let contaJango = await (0, apiJango_1.default)().getConta(userIngresso.id_cliente, true);
+                    let idVendaJango;
+                    const contaJango = await (0, apiJango_1.default)().getConta(userIngresso.id_cliente, true);
                     let contaCriadaAgora = false;
                     // Só abre conta se NÃO houver conta aberta E esta execução adquiriu o claim
                     // (ou retomou claim órfão). Nunca chama abreConta se já existe conta.
@@ -1733,8 +1725,7 @@ module.exports = {
                             idPagamento,
                             id_cliente: userIngresso.id_cliente,
                         });
-                        await (0, apiJango_1.default)().abreConta(userIngresso.id_cliente);
-                        contaJango = await aguardarContaCriadaPdv(userIngresso.id_cliente);
+                        idVendaJango = await (0, apiJango_1.default)().abreConta(userIngresso.id_cliente);
                         contaCriadaAgora = true;
                     }
                     else {
@@ -1744,12 +1735,11 @@ module.exports = {
                             id_venda: contaJango[0]?.id_venda,
                             motivo: "cliente já tinha conta aberta / execução anterior",
                         });
+                        idVendaJango = Number(contaJango[0].id_venda);
                     }
-                    contaJango = await (0, apiJango_1.default)().getConta(userIngresso.id_cliente, true);
-                    if (!Array.isArray(contaJango) || contaJango.length === 0) {
+                    if (!Number.isFinite(idVendaJango) || idVendaJango <= 0) {
                         throw new customError_1.CustomError("Não foi possível obter a conta Jango.", 500, "");
                     }
-                    const idVendaJango = contaJango[0].id_venda;
                     for (const ingresso of pendentes) {
                         const eventoIngresso = await EventoIngresso_1.EventoIngresso.findByPk(ingresso.idEventoIngresso);
                         await (0, apiJango_1.default)().inseriIngresso(ingresso.id, eventoIngresso?.nome ?? "", userIngresso.id_cliente, Number(idVendaJango));

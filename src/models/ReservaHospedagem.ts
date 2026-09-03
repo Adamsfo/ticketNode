@@ -70,6 +70,10 @@ interface ReservaHospedagemAttributes {
     idUsuarioCheckin?: number | null;
     dataHoraCheckoutRealizado?: Date | null;
     idUsuarioCheckout?: number | null;
+    dataHoraChegadaReal?: Date | null;
+    idUsuarioChegada?: number | null;
+    /** ID da venda aberta no PDV Jango (Firebird), vinculada na chegada. */
+    idVendaJango?: number | null;
     observacoes?: string | null;
     observacaoImportada?: string | null;
     observacaoOperador?: string | null;
@@ -86,6 +90,9 @@ interface ReservaHospedagemCreationAttributes
         | 'idUsuarioCheckin'
         | 'dataHoraCheckoutRealizado'
         | 'idUsuarioCheckout'
+        | 'dataHoraChegadaReal'
+        | 'idUsuarioChegada'
+        | 'idVendaJango'
         | 'observacoes'
         | 'observacaoImportada'
         | 'observacaoOperador'
@@ -141,6 +148,9 @@ class ReservaHospedagem
     public idUsuarioCheckin?: number | null;
     public dataHoraCheckoutRealizado?: Date | null;
     public idUsuarioCheckout?: number | null;
+    public dataHoraChegadaReal?: Date | null;
+    public idUsuarioChegada?: number | null;
+    public idVendaJango?: number | null;
     public observacoes?: string | null;
     public observacaoImportada?: string | null;
     public observacaoOperador?: string | null;
@@ -286,6 +296,19 @@ class ReservaHospedagem
                 allowNull: true,
                 references: { model: Usuario, key: 'id' },
             },
+            dataHoraChegadaReal: {
+                type: DataTypes.DATE,
+                allowNull: true,
+            },
+            idUsuarioChegada: {
+                type: DataTypes.INTEGER,
+                allowNull: true,
+                references: { model: Usuario, key: 'id' },
+            },
+            idVendaJango: {
+                type: DataTypes.INTEGER,
+                allowNull: true,
+            },
             observacoes: {
                 type: DataTypes.TEXT,
                 allowNull: true,
@@ -325,6 +348,10 @@ class ReservaHospedagem
         ReservaHospedagem.belongsTo(Usuario, {
             foreignKey: 'idUsuarioCheckout',
             as: 'UsuarioCheckout',
+        });
+        ReservaHospedagem.belongsTo(Usuario, {
+            foreignKey: 'idUsuarioChegada',
+            as: 'UsuarioChegada',
         });
         ReservaHospedagem.belongsTo(Usuario, {
             foreignKey: 'idUsuarioCriacao',

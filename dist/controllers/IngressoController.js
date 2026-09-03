@@ -35,15 +35,6 @@ const addHistorico = async (idIngresso, idUsuario, descricao) => {
         console.error('Erro ao adicionar histórico:', error);
     }
 };
-async function aguardarContaCriada(idCliente, tentativas = 5, intervaloMs = 1000) {
-    for (let i = 0; i < tentativas; i++) {
-        const contas = await (0, apiJango_1.default)().getConta(idCliente, true);
-        if (contas.length > 0)
-            return contas;
-        await new Promise(res => setTimeout(res, intervaloMs));
-    }
-    throw new Error('Conta não foi criada após múltiplas tentativas.');
-}
 function formatPhoneToE164(phone) {
     // Remove caracteres não numéricos
     const cleaned = phone.replace(/\D/g, "");
@@ -329,19 +320,19 @@ module.exports = {
             }
             console.log('ID Cliente Jango:', userIngresso);
             // Localizar conta no Jango Aberta
-            let contaJango = await (0, apiJango_1.default)().getConta(userIngresso.id_cliente, true);
-            //Abre Conta no Jango
-            if (contaJango.length === 0) {
-                await (0, apiJango_1.default)().abreConta(userIngresso.id_cliente);
-                contaJango = await aguardarContaCriada(userIngresso.id_cliente);
+            let idVendaJango;
+            const contaJango = await (0, apiJango_1.default)().getConta(userIngresso.id_cliente, true);
+            if (!Array.isArray(contaJango) || contaJango.length === 0) {
+                idVendaJango = await (0, apiJango_1.default)().abreConta(userIngresso.id_cliente);
             }
-            // Localizar conta no Jango Aberta
-            contaJango = await (0, apiJango_1.default)().getConta(userIngresso.id_cliente, true);
-            if (contaJango.length > 0) {
+            else {
+                idVendaJango = Number(contaJango[0].id_venda);
+            }
+            if (idVendaJango > 0) {
                 for (const ingresso of ingressosExistentes) {
                     // Atualizar o ingresso no Jango
                     const eventoIngresso = await EventoIngresso_1.EventoIngresso.findByPk(ingresso.idEventoIngresso);
-                    await (0, apiJango_1.default)().inseriIngresso(ingresso.id, eventoIngresso?.nome ?? '', userIngresso.id_cliente, contaJango[0].id_venda);
+                    await (0, apiJango_1.default)().inseriIngresso(ingresso.id, eventoIngresso?.nome ?? '', userIngresso.id_cliente, idVendaJango);
                     await addHistorico(ingresso.id, idUsuario, 'Ingresso Inserido no Sistema do Jango ');
                 }
             }

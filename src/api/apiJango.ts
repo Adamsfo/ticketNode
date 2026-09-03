@@ -103,14 +103,65 @@ const PdvApiJango = {
     return null;
   },
 
-  abreConta: async (id_cliente: number) => {
-    const qry = `insert into VENDA (ID_CLIENTE, TIPO, STATUS, ID_USUARIO) values (${id_cliente}, 3, 0, 152)`;
-    try {
-      await apiFetchGet("/select/" + qry);
-    } catch (error) {
-      console.log("Erro ao abrir conta na api: ", error);
+  abreConta: async (id_cliente: number): Promise<number> => {
+    const idClienteNum = Number(id_cliente);
+    if (!Number.isFinite(idClienteNum) || idClienteNum <= 0) {
+      throw new Error(`id_cliente inválido para abreConta: ${id_cliente}`);
     }
-    return null;
+
+    const qry =
+      "insert into VENDA (ID_CLIENTE, TIPO, STATUS, ID_USUARIO) " +
+      `values (${idClienteNum}, 3, 0, 152) returning ID_VENDA`;
+    const url = BASEAPI + "/select/" + qry;
+
+    let res: Response;
+    try {
+      res = await fetch(url);
+    } catch (error) {
+      console.error("Erro de rede ao abrir conta na API Jango:", error);
+      throw error;
+    }
+
+    const text = await res.text();
+
+    if (!res.ok) {
+      const msg =
+        `abreConta falhou: HTTP ${res.status} ${res.statusText}. ` +
+        `Body: ${text.slice(0, 500)}`;
+      console.error(msg);
+      throw new Error(msg);
+    }
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(text);
+    } catch (error) {
+      const msg =
+        `abreConta: resposta não é JSON válido. Body: ${text.slice(0, 500)}`;
+      console.error(msg, error);
+      throw new Error(msg);
+    }
+
+    const row = Array.isArray(parsed)
+      ? parsed[0]
+      : parsed && typeof parsed === "object"
+        ? parsed
+        : null;
+
+    const idVendaRaw =
+      row && typeof row === "object"
+        ? (row as { id_venda?: unknown; ID_VENDA?: unknown }).id_venda ??
+          (row as { id_venda?: unknown; ID_VENDA?: unknown }).ID_VENDA
+        : undefined;
+
+    const idVenda = Number(idVendaRaw);
+    if (!Number.isFinite(idVenda) || idVenda <= 0) {
+      const msg = `abreConta: ID_VENDA ausente ou inválido na resposta: ${text}`;
+      console.error(msg);
+      throw new Error(msg);
+    }
+
+    return idVenda;
   },
 
   getCaixa: async () => {
