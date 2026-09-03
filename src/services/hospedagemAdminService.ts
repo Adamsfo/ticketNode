@@ -20,6 +20,8 @@ import {
 } from '../models/Transacao';
 import { CustomError } from '../utils/customError';
 import apiJango from '../api/apiJango';
+import { criarLimpezasPendentesNoCheckout } from './eventoSuiteLimpezaCheckoutService';
+import { assertSuitesSemLimpezaAbertaParaCheckin } from './eventoSuiteLimpezaCheckinService';
 
 /**
  * Vincula o responsável da reserva ao cliente Jango (id_cliente).
@@ -2872,6 +2874,11 @@ export async function realizarCheckinAdmin(
         );
     }
 
+    const suitesCheckin = reserva.ReservaSuite ?? [];
+    await assertSuitesSemLimpezaAbertaParaCheckin(
+        suitesCheckin.map((suite) => suite.idEventoSuite)
+    );
+
     const dataHoraCheckin = resolverDataHoraOperacaoRetroativa(
         dataHoraCheckinInformada,
         'check-in'
@@ -2993,7 +3000,50 @@ export async function realizarCheckoutAdmin(
     }
 
     await connection.transaction(async (t: Transaction) => {
-        await reserva.update(
+        const reservaLocked = (await ReservaHospedagem.findByPk(
+            idReservaHospedagem,
+            {
+                lock: t.LOCK.UPDATE,
+                transaction: t,
+                include: [
+                    {
+                        model: ReservaSuite,
+                        as: 'ReservaSuite',
+                        required: false,
+                    },
+                ],
+            }
+        )) as
+            | (ReservaHospedagem & { ReservaSuite?: ReservaSuite[] })
+            | null;
+
+        if (!reservaLocked) {
+            throw new CustomError(
+                'Reserva de hospedagem não encontrada.',
+                404,
+                ''
+            );
+        }
+
+        if (
+            reservaLocked.status === StatusReservaHospedagem.CheckOutRealizado
+        ) {
+            throw new CustomError(
+                'Check-out já realizado para esta reserva.',
+                400,
+                ''
+            );
+        }
+
+        if (reservaLocked.status !== StatusReservaHospedagem.Hospedada) {
+            throw new CustomError(
+                'Somente reservas hospedadas podem realizar check-out.',
+                400,
+                ''
+            );
+        }
+
+        await reservaLocked.update(
             {
                 status: StatusReservaHospedagem.CheckOutRealizado,
                 dataHoraCheckoutRealizado: dataHoraCheckout,
@@ -3002,7 +3052,7 @@ export async function realizarCheckoutAdmin(
             { transaction: t }
         );
 
-        const suites = reserva.ReservaSuite ?? [];
+        const suites = reservaLocked.ReservaSuite ?? [];
         for (const suite of suites) {
             await suite.update(
                 { status: StatusReservaSuite.CheckOutRealizado },
@@ -3010,10 +3060,19 @@ export async function realizarCheckoutAdmin(
             );
         }
 
-        if (reserva.idTransacao) {
+        await criarLimpezasPendentesNoCheckout(
+            t,
+            reservaLocked.id,
+            suites.map((suite) => ({
+                id: suite.id,
+                idEventoSuite: suite.idEventoSuite,
+            }))
+        );
+
+        if (reservaLocked.idTransacao) {
             await HistoricoTransacao.create(
                 {
-                    idTransacao: reserva.idTransacao,
+                    idTransacao: reservaLocked.idTransacao,
                     idUsuario,
                     data: dataHoraCheckout,
                     descricao: 'Check-out realizado.',

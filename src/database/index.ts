@@ -16,6 +16,7 @@ import { CupomPromocionalInit } from '../models/CupomPromocional';
 import { VisitasInit } from '../models/Visitas';
 import { EventoSuiteInit } from '../models/EventoSuite';
 import { EventoSuiteFotoInit } from '../models/EventoSuiteFoto';
+import { EventoSuiteLimpezaInit } from '../models/EventoSuiteLimpeza';
 import { ReservaHospedagemInit } from '../models/ReservaHospedagem';
 import { ReservaSuiteInit } from '../models/ReservaSuite';
 import { ReservaHospedeInit } from '../models/ReservaHospede';
@@ -83,6 +84,7 @@ const connection = new Sequelize(dbConfig);
     PagamentoHospedagemInit(connection)
     HospedagemPagamentoOperacaoInit(connection)
     ReservaSuiteMovimentacaoInit(connection)
+    EventoSuiteLimpezaInit(connection)
     ReservaPeriodoMovimentacaoInit(connection)
     HospedinPlaceTypeInit(connection)
     HospedinPlaceInit(connection)
