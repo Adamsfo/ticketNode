@@ -1,4 +1,27 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -163,6 +186,10 @@ async function cancelarReservasExpiradas() {
         await marcarReservaComoExpirada(hospedagem, `Reserva de hospedagem expirada por falta de pagamento (${minutos} minutos).`);
         quantidade += 1;
     }
+    if (quantidade > 0) {
+        const { incrementarHospedagemRefreshVersion } = await Promise.resolve().then(() => __importStar(require('./hospedagemRefreshVersionService')));
+        await incrementarHospedagemRefreshVersion();
+    }
     return quantidade;
 }
 /**
@@ -208,6 +235,8 @@ async function cancelarReservaHospedagem(idReservaHospedagem, idUsuario, descric
         throw new customError_1.CustomError('Reserva de hospedagem não encontrada.', 404, '');
     }
     if (hospedagem.status === ReservaHospedagem_1.StatusReservaHospedagem.Cancelada) {
+        const { markOutboundCancelled } = await Promise.resolve().then(() => __importStar(require('../integrations/hospedin/outbound/HospedinOutboundEnqueueService')));
+        await markOutboundCancelled(hospedagem.id);
         return;
     }
     await database_1.default.transaction(async (t) => {
@@ -225,6 +254,10 @@ async function cancelarReservaHospedagem(idReservaHospedagem, idUsuario, descric
             }, { transaction: t });
         }
     });
+    const { incrementarHospedagemRefreshVersion } = await Promise.resolve().then(() => __importStar(require('./hospedagemRefreshVersionService')));
+    await incrementarHospedagemRefreshVersion();
+    const { markOutboundCancelled } = await Promise.resolve().then(() => __importStar(require('../integrations/hospedin/outbound/HospedinOutboundEnqueueService')));
+    await markOutboundCancelled(hospedagem.id);
 }
 /** Mapeia tipo/gateway da Transacao para a forma usada no financeiro da recepção. */
 function mapearFormaPagamentoHospedagemExterno(tipoPagamento, gatewayPagamento) {
@@ -356,6 +389,10 @@ async function confirmarHospedagem(idTransacao) {
                 : 'Hospedagem confirmada após pagamento.',
         }, { transaction: t });
     });
+    const { incrementarHospedagemRefreshVersion } = await Promise.resolve().then(() => __importStar(require('./hospedagemRefreshVersionService')));
+    await incrementarHospedagemRefreshVersion();
+    const { hospedinOutboundEnqueueService } = await Promise.resolve().then(() => __importStar(require('../integrations/hospedin/outbound/HospedinOutboundEnqueueService')));
+    await hospedinOutboundEnqueueService.markDirty(hospedagem.id);
     console.log('Hospedagem confirmada', {
         idReserva: hospedagem.id,
         idTransacao,
@@ -427,7 +464,7 @@ function validarSuitesSemDuplicata(suites) {
     }
 }
 async function calcularCotacao(params) {
-    const { idEventoSuite, checkin, checkout, adultos, criancas } = params;
+    const { idEventoSuite, checkin, checkout, adultos, criancas, validarCapacidadeHospedes = true, } = params;
     const suite = await EventoSuite_1.EventoSuite.findByPk(idEventoSuite);
     if (!suite) {
         throw new customError_1.CustomError('Suíte não encontrada.', 404, '');
@@ -436,8 +473,44 @@ async function calcularCotacao(params) {
         throw new customError_1.CustomError('Suíte não disponível para venda.', 400, '');
     }
     const noites = (0, reservaSuiteUtils_1.calcularNoitesHotelaria)(checkin, checkout);
-    (0, reservaSuiteUtils_1.calcularExtrasPousada)(adultos, criancas, suite.qtdeMinimaPessoas, suite.qtdeMaximaPessoas);
-    const totais = (0, reservaSuiteUtils_1.calcularTotaisSuitePousada)(suite, adultos, criancas, noites);
+    if (validarCapacidadeHospedes) {
+        (0, reservaSuiteUtils_1.calcularExtrasPousada)(adultos, criancas, suite.qtdeMinimaPessoas, suite.qtdeMaximaPessoas);
+    }
+    let totais = (0, reservaSuiteUtils_1.calcularTotaisSuitePousada)(suite, adultos, criancas, noites);
+    if (!totais && !validarCapacidadeHospedes && noites >= 1) {
+        // Fora da capacidade: preço base da suíte sem adicionais (não bloqueia).
+        const min = suite.qtdeMinimaPessoas ?? 1;
+        const max = suite.qtdeMaximaPessoas ?? min;
+        const precoDiaria = (0, reservaSuiteUtils_1.toNumber)(suite.preco);
+        const taxaDiaria = (0, reservaSuiteUtils_1.toNumber)(suite.taxaServico);
+        const valorDiaria = (0, reservaSuiteUtils_1.toNumber)(suite.valor);
+        const suitePreco = (0, reservaSuiteUtils_1.roundMoney)(precoDiaria * noites);
+        const suiteTaxa = (0, reservaSuiteUtils_1.roundMoney)(taxaDiaria * noites);
+        const suiteValor = (0, reservaSuiteUtils_1.roundMoney)(valorDiaria * noites);
+        totais = {
+            min,
+            max,
+            total: adultos + criancas,
+            adultosIncluidos: Math.min(adultos, min),
+            criancasIncluidas: 0,
+            adultosExtras: 0,
+            criancasExtras: 0,
+            valorAdultoExtra: 150,
+            valorCriancaExtra: 120,
+            precoDiaria,
+            taxaDiaria,
+            valorDiaria,
+            suitePreco,
+            suiteTaxa,
+            suiteValor,
+            extraAdultoValor: 0,
+            extraCriancaValor: 0,
+            precoTotal: suitePreco,
+            taxaServicoTotal: suiteTaxa,
+            valorTotal: (0, reservaSuiteUtils_1.roundMoney)(suitePreco + suiteTaxa),
+            temExtras: false,
+        };
+    }
     if (!totais) {
         throw new customError_1.CustomError('Não foi possível calcular a cotação da suíte.', 400, '');
     }
@@ -565,14 +638,15 @@ async function checkoutHospedagem(params) {
     if (isLinkCliente && pagamento) {
         throw new customError_1.CustomError('Pagamento antecipado não permitido ao enviar a reserva para o cliente finalizar.', 400, '');
     }
-    // Reserva pública: janela oficial 16:00–19:00 / 08:00–13:00
-    // Recepção: qualquer horário; se hoje, check-in deve ser > agora
-    if (!isRecepcao) {
+    // Site (origem online): janela oficial, data e capacidade.
+    // Recepção / Hospedin / internos: não aplicam essas validações.
+    const isReservaSite = origem === 'online';
+    if (isReservaSite) {
         (0, reservaSuiteUtils_1.validarHorarioCheckinHospedagem)(checkin);
         (0, reservaSuiteUtils_1.validarHorarioCheckoutHospedagem)(checkout);
+        (0, reservaSuiteUtils_1.validarCheckinNaoEmDataPassada)(checkin);
+        (0, reservaSuiteUtils_1.validarCheckinPosteriorAoAgoraSeHoje)(checkin);
     }
-    (0, reservaSuiteUtils_1.validarCheckinNaoEmDataPassada)(checkin);
-    (0, reservaSuiteUtils_1.validarCheckinPosteriorAoAgoraSeHoje)(checkin);
     const noites = (0, reservaSuiteUtils_1.calcularNoitesHotelaria)(checkin, checkout);
     const cotacoes = [];
     for (const item of suites) {
@@ -582,6 +656,7 @@ async function checkoutHospedagem(params) {
             checkout,
             adultos: item.adultos,
             criancas: item.criancas,
+            validarCapacidadeHospedes: isReservaSite,
         });
         if (cotacao.idEvento !== idEvento) {
             throw new customError_1.CustomError(`Suíte ${item.idEventoSuite} não pertence ao evento informado.`, 400, '');
@@ -648,6 +723,7 @@ async function checkoutHospedagem(params) {
     const quitada = confirmaImediatamente &&
         (0, hospedagemPagamentoRecepcao_1.reservaQuitada)(totaisHospedagem.valorTotal, valorPagoRecepcao);
     const tokenPagamento = isLinkCliente ? gerarTokenPagamentoReserva() : null;
+    let idPagamentoAntecipadoCriado = null;
     const mapTipoPagamentoTransacao = (forma) => {
         switch (forma) {
             case 'PIX':
@@ -792,7 +868,7 @@ async function checkoutHospedagem(params) {
             }, { transaction: t });
         }
         if (confirmaImediatamente && valorPagoRecepcao > 0 && pagamento) {
-            await PagamentoHospedagem_1.PagamentoHospedagem.create({
+            const pagCriado = await PagamentoHospedagem_1.PagamentoHospedagem.create({
                 idReservaHospedagem: hospedagem.id,
                 valor: valorPagoRecepcao,
                 dataPagamento: agora,
@@ -801,6 +877,9 @@ async function checkoutHospedagem(params) {
                 observacao: pagamento.observacao ?? null,
                 idUsuario: idUsuarioOperador || idUsuario,
             }, { transaction: t });
+            if (pagamento.formaPagamento === 'Antecipado') {
+                idPagamentoAntecipadoCriado = Number(pagCriado.id);
+            }
         }
         const linhasDescontoHistorico = suitesComTotais
             .filter((s) => s.descontoTipo && s.descontoValor)
@@ -842,6 +921,12 @@ async function checkoutHospedagem(params) {
             transacao,
         };
     });
+    if (idPagamentoAntecipadoCriado &&
+        pagamento?.formaPagamento === 'Antecipado' &&
+        valorPagoRecepcao > 0) {
+        const { lancarAntecipadoNoCaixaLegado } = await Promise.resolve().then(() => __importStar(require('./hospedagemPagamentoService')));
+        await lancarAntecipadoNoCaixaLegado(valorPagoRecepcao, idPagamentoAntecipadoCriado);
+    }
     if (confirmaImediatamente && resultado.hospedagem.idTransacao) {
         try {
             await (0, hospedagemConfirmacaoNotificacao_1.notificarConfirmacaoHospedagem)(resultado.hospedagem.id, resultado.hospedagem.idTransacao);
@@ -858,6 +943,10 @@ async function checkoutHospedagem(params) {
             console.error(`Erro ao enviar link de pagamento da reserva ${resultado.hospedagem.id}:`, error);
         }
     }
+    const { incrementarHospedagemRefreshVersion } = await Promise.resolve().then(() => __importStar(require('./hospedagemRefreshVersionService')));
+    await incrementarHospedagemRefreshVersion();
+    const { hospedinOutboundEnqueueService } = await Promise.resolve().then(() => __importStar(require('../integrations/hospedin/outbound/HospedinOutboundEnqueueService')));
+    await hospedinOutboundEnqueueService.markDirty(resultado.hospedagem.id);
     return resultado;
 }
 function parseParamsDisponibilidade(query) {

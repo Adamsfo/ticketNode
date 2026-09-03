@@ -17,5 +17,5 @@
     }
   },
   "include": ["next-env.d.ts", "src/**/*.ts", "**/*.tsx"],
-  "exclude": ["node_modules", "src/**/*.test.ts"]
+  "exclude": ["node_modules", "src/**/*.test.ts", "src/**/OutboundIntegrationStore.ts"]
 }

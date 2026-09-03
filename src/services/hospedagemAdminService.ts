@@ -19,8 +19,50 @@ import {
     HistoricoTransacao,
 } from '../models/Transacao';
 import { CustomError } from '../utils/customError';
+
+/**
+ * Vincula o responsável da reserva ao cliente Jango (id_cliente).
+ * Prefere o Usuario que já possui esse id_cliente (cadastro recente),
+ * para o nome deixar de ser o hóspede técnico sem CPF.
+ */
+export async function atualizarUsuarioReserva(
+    idReserva: number,
+    idCliente: number
+) {
+    const idClienteNum = Number(idCliente);
+    if (!Number.isFinite(idClienteNum) || idClienteNum <= 0) {
+        throw new CustomError('id_cliente inválido.', 400, '');
+    }
+
+    const reserva = await ReservaHospedagem.findByPk(idReserva);
+    if (!reserva) {
+        throw new CustomError('Reserva não encontrada.', 404, '');
+    }
+
+    const usuarioCliente = await Usuario.findOne({
+        where: { id_cliente: idClienteNum },
+        order: [['id', 'DESC']],
+    });
+
+    if (usuarioCliente) {
+        await reserva.update({ idUsuario: usuarioCliente.id });
+        if (
+            usuarioCliente.id_cliente == null ||
+            Number(usuarioCliente.id_cliente) !== idClienteNum
+        ) {
+            await usuarioCliente.update({ id_cliente: idClienteNum });
+        }
+        return;
+    }
+
+    const usuarioAtual = await Usuario.findByPk(reserva.idUsuario);
+    if (!usuarioAtual) {
+        throw new CustomError('Usuário da reserva não encontrado.', 404, '');
+    }
+    await usuarioAtual.update({ id_cliente: idClienteNum });
+}
 import {
-    calcularExtrasPousada,
+    validarCapacidadeMaximaPousada,
     toNumber,
     calcularNoitesHotelaria,
     normalizarPeriodoHospedagem,
@@ -2769,6 +2811,11 @@ export async function atualizarObservacoesReservaAdmin(
         }
     });
 
+    const { hospedinOutboundEnqueueService } = await import(
+        '../integrations/hospedin/outbound/HospedinOutboundEnqueueService'
+    );
+    await hospedinOutboundEnqueueService.markDirty(idReserva);
+
     return obterReservaAdminDetalhe(idReserva, idUsuario);
 }
 
@@ -2888,7 +2935,7 @@ async function carregarOcupantesSuiteParaPeriodo(
     return reservasParaDisponibilidade(ocupantes);
 }
 
-/** Lista suítes disponíveis para troca (mesmas regras da Nova Reserva + capacidade). */
+/** Lista suítes disponíveis para troca (disponibilidade de período + teto de ocupação; mínimo não bloqueia). */
 export async function listarSuitesDisponiveisParaTroca(params: {
     idReservaHospedagem: number;
     idUsuario: number;
@@ -2951,11 +2998,11 @@ export async function listarSuitesDisponiveisParaTroca(params: {
         if (!disp.podeReservar) continue;
 
         try {
-            calcularExtrasPousada(
+            validarCapacidadeMaximaPousada(
                 adultos,
                 criancas,
-                suite.qtdeMinimaPessoas,
-                suite.qtdeMaximaPessoas
+                suite.qtdeMaximaPessoas,
+                suite.qtdeMinimaPessoas
             );
         } catch {
             continue;
@@ -3080,16 +3127,12 @@ export async function trocarSuiteReservaAdmin(params: {
         throw new CustomError('Suíte de destino não está disponível.', 400, '');
     }
 
-    try {
-        calcularExtrasPousada(
-            Number(linha.adultos || 0),
-            Number(linha.criancas || 0),
-            suiteDestino.qtdeMinimaPessoas,
-            suiteDestino.qtdeMaximaPessoas
-        );
-    } catch (e) {
-        throw e;
-    }
+    validarCapacidadeMaximaPousada(
+        Number(linha.adultos || 0),
+        Number(linha.criancas || 0),
+        suiteDestino.qtdeMaximaPessoas,
+        suiteDestino.qtdeMinimaPessoas
+    );
 
     const reservasDestino = await carregarOcupantesSuiteParaPeriodo(idDestino);
     const disp = calcularDisponibilidadePeriodo({
@@ -3132,6 +3175,11 @@ export async function trocarSuiteReservaAdmin(params: {
         './hospedagemRefreshVersionService'
     );
     await incrementarHospedagemRefreshVersion();
+
+    const { hospedinOutboundEnqueueService } = await import(
+        '../integrations/hospedin/outbound/HospedinOutboundEnqueueService'
+    );
+    await hospedinOutboundEnqueueService.markDirty(reserva.id);
 
     return obterReservaAdminDetalhe(reserva.id, params.idUsuario);
 }
@@ -3275,16 +3323,12 @@ export async function alterarPeriodoReservaAdmin(params: {
             );
         }
 
-        try {
-            calcularExtrasPousada(
-                Number(linha.adultos || 0),
-                Number(linha.criancas || 0),
-                suite.qtdeMinimaPessoas,
-                suite.qtdeMaximaPessoas
-            );
-        } catch (e) {
-            throw e;
-        }
+        validarCapacidadeMaximaPousada(
+            Number(linha.adultos || 0),
+            Number(linha.criancas || 0),
+            suite.qtdeMaximaPessoas,
+            suite.qtdeMinimaPessoas
+        );
 
         const ocupantes = await carregarOcupantesSuiteParaPeriodo(suite.id);
         const ocupantesSemSelf = ocupantes.filter(
@@ -3353,6 +3397,11 @@ export async function alterarPeriodoReservaAdmin(params: {
         './hospedagemRefreshVersionService'
     );
     await incrementarHospedagemRefreshVersion();
+
+    const { hospedinOutboundEnqueueService } = await import(
+        '../integrations/hospedin/outbound/HospedinOutboundEnqueueService'
+    );
+    await hospedinOutboundEnqueueService.markDirty(reserva.id);
 
     return obterReservaAdminDetalhe(reserva.id, params.idUsuario);
 }

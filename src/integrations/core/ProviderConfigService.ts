@@ -74,6 +74,7 @@ export async function ensureProviderConfigsFromRegistry(): Promise<void> {
                     : IntegrationProviderRuntimeStatus.DISABLED,
                 nextRunAt,
                 consecutiveFailures: 0,
+                hasPending: false,
             });
         } else if (!config.enabled) {
             await state.update({

@@ -31,6 +31,7 @@ const HospedinReservation_1 = require("../models/HospedinReservation");
 const HospedinSyncLog_1 = require("../models/HospedinSyncLog");
 const IntegrationSyncState_1 = require("../models/IntegrationSyncState");
 const HospedinPlaceSuiteMap_1 = require("../models/HospedinPlaceSuiteMap");
+const HospedinOutboundSyncState_1 = require("../models/HospedinOutboundSyncState");
 const ReservaIdentificadorExterno_1 = require("../models/ReservaIdentificadorExterno");
 const ReservaOrigemFinanceira_1 = require("../models/ReservaOrigemFinanceira");
 const ReservaOrigemPayload_1 = require("../models/ReservaOrigemPayload");
@@ -39,6 +40,7 @@ const IntegrationProviderConfig_1 = require("../models/IntegrationProviderConfig
 const IntegrationProviderState_1 = require("../models/IntegrationProviderState");
 const IntegrationSyncExecution_1 = require("../models/IntegrationSyncExecution");
 const IntegrationEntitySyncEvent_1 = require("../models/IntegrationEntitySyncEvent");
+const HospedagemRefreshState_1 = require("../models/HospedagemRefreshState");
 const ConfigIniciais = require('./ConfigIniciais');
 const FuncaoSistema = require('./FuncaoSistema');
 const connection = new Sequelize(dbConfig);
@@ -86,8 +88,10 @@ const connection = new Sequelize(dbConfig);
         (0, HospedinSyncLog_1.HospedinSyncLogInit)(connection);
         (0, IntegrationSyncState_1.IntegrationSyncStateInit)(connection);
         (0, HospedinPlaceSuiteMap_1.HospedinPlaceSuiteMapInit)(connection);
+        (0, HospedinOutboundSyncState_1.HospedinOutboundSyncStateInit)(connection);
         (0, ClienteMetodoPagamento_1.UsuarioMetodoPagamentoInit)(connection);
         (0, Visitas_1.VisitasInit)(connection);
+        (0, HospedagemRefreshState_1.HospedagemRefreshStateInit)(connection);
         // Sincronizando os modelos com o banco de dados        
         // await connection.sync();
         // await connection.sync({ alter: true });

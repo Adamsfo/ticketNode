@@ -97,6 +97,15 @@ class ReservaHospedagem extends sequelize_1.Model {
                 type: sequelize_1.DataTypes.STRING(40),
                 allowNull: true,
             },
+            possivelPagamentoOta: {
+                type: sequelize_1.DataTypes.BOOLEAN,
+                allowNull: false,
+                defaultValue: false,
+            },
+            possivelPagamentoOtaTrecho: {
+                type: sequelize_1.DataTypes.TEXT,
+                allowNull: true,
+            },
             idUsuarioCriacao: {
                 type: sequelize_1.DataTypes.INTEGER,
                 allowNull: true,

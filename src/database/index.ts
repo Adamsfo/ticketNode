@@ -29,6 +29,7 @@ import { HospedinReservationInit } from '../models/HospedinReservation';
 import { HospedinSyncLogInit } from '../models/HospedinSyncLog';
 import { IntegrationSyncStateInit } from '../models/IntegrationSyncState';
 import { HospedinPlaceSuiteMapInit } from '../models/HospedinPlaceSuiteMap';
+import { HospedinOutboundSyncStateInit } from '../models/HospedinOutboundSyncState';
 import { ReservaIdentificadorExternoInit } from '../models/ReservaIdentificadorExterno';
 import { ReservaOrigemFinanceiraInit } from '../models/ReservaOrigemFinanceira';
 import { ReservaOrigemPayloadInit } from '../models/ReservaOrigemPayload';
@@ -89,6 +90,7 @@ const connection = new Sequelize(dbConfig);
     HospedinSyncLogInit(connection)
     IntegrationSyncStateInit(connection)
     HospedinPlaceSuiteMapInit(connection)
+    HospedinOutboundSyncStateInit(connection)
     UsuarioMetodoPagamentoInit(connection)
     VisitasInit(connection)
     HospedagemRefreshStateInit(connection)

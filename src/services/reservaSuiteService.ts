@@ -349,6 +349,10 @@ export async function cancelarReservaHospedagem(
     }
 
     if (hospedagem.status === StatusReservaHospedagem.Cancelada) {
+        const { markOutboundCancelled } = await import(
+            '../integrations/hospedin/outbound/HospedinOutboundEnqueueService'
+        );
+        await markOutboundCancelled(hospedagem.id);
         return;
     }
 
@@ -386,6 +390,11 @@ export async function cancelarReservaHospedagem(
         './hospedagemRefreshVersionService'
     );
     await incrementarHospedagemRefreshVersion();
+
+    const { markOutboundCancelled } = await import(
+        '../integrations/hospedin/outbound/HospedinOutboundEnqueueService'
+    );
+    await markOutboundCancelled(hospedagem.id);
 }
 
 /** Mapeia tipo/gateway da Transacao para a forma usada no financeiro da recepção. */
@@ -578,6 +587,11 @@ export async function confirmarHospedagem(idTransacao: number): Promise<void> {
         './hospedagemRefreshVersionService'
     );
     await incrementarHospedagemRefreshVersion();
+
+    const { hospedinOutboundEnqueueService } = await import(
+        '../integrations/hospedin/outbound/HospedinOutboundEnqueueService'
+    );
+    await hospedinOutboundEnqueueService.markDirty(hospedagem.id);
 
     console.log('Hospedagem confirmada', {
         idReserva: hospedagem.id,
@@ -1395,6 +1409,11 @@ export async function checkoutHospedagem(params: {
         './hospedagemRefreshVersionService'
     );
     await incrementarHospedagemRefreshVersion();
+
+    const { hospedinOutboundEnqueueService } = await import(
+        '../integrations/hospedin/outbound/HospedinOutboundEnqueueService'
+    );
+    await hospedinOutboundEnqueueService.markDirty(resultado.hospedagem.id);
 
     return resultado;
 }

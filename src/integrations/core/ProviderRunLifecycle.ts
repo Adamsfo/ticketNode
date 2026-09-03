@@ -206,6 +206,7 @@ export async function startRun(input: {
                 provider,
                 status: IntegrationProviderRuntimeStatus.IDLE,
                 consecutiveFailures: 0,
+                hasPending: false,
             }));
 
         const now = new Date();

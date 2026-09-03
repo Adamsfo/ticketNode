@@ -12,7 +12,9 @@ import {
     trocarSuiteReservaAdmin,
     alterarPeriodoReservaAdmin,
     atualizarObservacoesReservaAdmin,
+    atualizarUsuarioReserva as atualizarUsuarioReservaService,
 } from '../services/hospedagemAdminService';
+import { cancelarReservaHospedagemAdmin } from '../services/hospedagemCancelamentoAdminService';
 import { parseSuitesCheckout } from '../services/reservaSuiteService';
 import { parseDateTimeParam } from '../utils/reservaSuiteUtils';
 import { parsePagamentoRecepcao } from '../utils/hospedagemPagamentoRecepcao';
@@ -113,6 +115,37 @@ module.exports = {
             return res.status(200).json({
                 success: true,
                 message: 'Check-in realizado com sucesso.',
+                data,
+            });
+        } catch (error) {
+            next(error);
+        }
+    },
+
+    async cancelarReserva(req: any, res: any, next: any) {
+        try {
+            const idUsuario = Number(req.user?.id);
+            const idReserva = Number(req.params.id);
+
+            if (!idUsuario) {
+                throw new CustomError('Usuário não autenticado.', 401, '');
+            }
+            if (!idReserva) {
+                throw new CustomError('id da reserva é obrigatório.', 400, '');
+            }
+
+            const result = await cancelarReservaHospedagemAdmin({
+                idReservaHospedagem: idReserva,
+                idUsuario,
+                motivo: req.body?.motivo,
+            });
+
+            const data = await obterReservaAdminDetalhe(idReserva, idUsuario);
+            return res.status(200).json({
+                success: true,
+                message: result.alreadyCancelled
+                    ? 'Reserva já estava cancelada.'
+                    : 'Reserva cancelada com sucesso.',
                 data,
             });
         } catch (error) {
@@ -416,6 +449,27 @@ module.exports = {
                 message: 'Observações salvas.',
                 data,
             });
+        } catch (error) {
+            next(error);
+        }
+    },
+
+    async atualizarUsuarioReserva(req: any, res: any, next: any) {
+        try {
+            const idUsuario = Number(req.user?.id);
+            const idReserva = Number(req.params.id);
+            if (!idUsuario) {
+                throw new CustomError('Usuário não autenticado.', 401, '');
+            }
+            if (!idReserva) {
+                throw new CustomError('id da reserva é obrigatório.', 400, '');
+            }
+            const { id_cliente } = req.body;
+            if (!id_cliente) {
+                throw new CustomError('id_cliente é obrigatório.', 400, '');
+            }
+            await atualizarUsuarioReservaService(idReserva, id_cliente);
+            return res.status(200).json({ success: true, message: 'Usuário atualizado.' });
         } catch (error) {
             next(error);
         }

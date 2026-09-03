@@ -10,6 +10,8 @@ import { providerRegistry } from './ProviderRegistry';
 import { providerRunLock } from './ProviderRunLock';
 import { recoverDeadRuns } from './ProviderRunLifecycle';
 import { runProviderCycle } from './SyncRunOrchestrator';
+import { hospedinOutboundDispatcher } from '../hospedin/outbound/HospedinOutboundDispatcher';
+import { HOSPEDIN_OUTBOUND_PROVIDER_ID } from '../hospedin/outbound/hospedinOutboundQueueProbe';
 
 const TICK_MS = 30_000;
 
@@ -87,6 +89,12 @@ async function tickDueProviders(): Promise<void> {
 
         for (const config of configs) {
             if (!providerRegistry.get(config.provider)) continue;
+
+            if (config.provider === HOSPEDIN_OUTBOUND_PROVIDER_ID) {
+                await hospedinOutboundDispatcher.runWatchdogIfDue();
+                continue;
+            }
+
             const state = await IntegrationProviderState.findOne({
                 where: { provider: config.provider },
             });

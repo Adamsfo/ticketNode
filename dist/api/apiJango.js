@@ -106,8 +106,12 @@ const PdvApiJango = {
             return null; // ou [] ou {} dependendo do esperado
         }
     },
-    inseriCaixaItem: async (id_caixa, valor, id_forma_pagamento, identificadorUnico) => {
-        const descricao = `Ingressos ${identificadorUnico}`.replace(/'/g, "''");
+    inseriCaixaItem: async (id_caixa, valor, id_forma_pagamento, identificadorUnico, 
+    /** Quando informado (hospedagem), substitui o padrão "Ingressos …". */
+    descricaoCustom) => {
+        const descricao = (descricaoCustom && String(descricaoCustom).trim()
+            ? String(descricaoCustom).trim()
+            : `Ingressos ${identificadorUnico}`).replace(/'/g, "''");
         try {
             const existentes = await apiFetchGet("/select/" +
                 `select DESCRICAO from caixa_item where DESCRICAO = '${descricao}'`);

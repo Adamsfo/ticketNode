@@ -31,6 +31,11 @@ router.post(
     HospedagemAdminController.realizarCheckout
 );
 router.post(
+    '/hospedagem/reservas/:id/cancelar',
+    authenticate,
+    HospedagemAdminController.cancelarReserva
+);
+router.post(
     '/hospedagem/reservas/recepcao',
     authenticate,
     HospedagemAdminController.criarReservaRecepcao
@@ -62,10 +67,11 @@ router.post(
     HospedagemAdminController.alterarPeriodo
 );
 router.patch(
-    '/hospedagem/reservas/:id/observacoes',
-    authenticate,
-    HospedagemAdminController.atualizarObservacoes
-);
+     '/hospedagem/reservas/:id/usuario',
+     authenticate,
+     HospedagemAdminController.atualizarUsuarioReserva
+ );
+
 
 // Alias legado (mesma lógica)
 router.get(
@@ -92,6 +98,11 @@ router.post(
     '/hospedagem-admin/reservas/:id/checkout',
     authenticate,
     HospedagemAdminController.realizarCheckout
+);
+router.post(
+    '/hospedagem-admin/reservas/:id/cancelar',
+    authenticate,
+    HospedagemAdminController.cancelarReserva
 );
 router.post(
     '/hospedagem-admin/reservas/recepcao',

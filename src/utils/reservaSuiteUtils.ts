@@ -329,6 +329,29 @@ export function parsePositiveInt(value: unknown, fieldName: string, min = 0): nu
     return n;
 }
 
+/**
+ * Valida apenas o teto de ocupação.
+ * Uso em troca administrativa de suíte: mínimo não bloqueia, máximo continua.
+ */
+export function validarCapacidadeMaximaPousada(
+    adultos: number,
+    criancas: number,
+    qtdeMaximaPessoas?: number | null,
+    qtdeMinimaPessoas?: number | null
+): void {
+    const total = adultos + criancas;
+    const min = qtdeMinimaPessoas ?? 1;
+    const max = qtdeMaximaPessoas ?? min;
+
+    if (total > max) {
+        throw new CustomError(
+            `A suíte permite no máximo ${max} hóspede(s) (informado: ${total}).`,
+            400,
+            ''
+        );
+    }
+}
+
 export function calcularExtrasPousada(
     adultos: number,
     criancas: number,

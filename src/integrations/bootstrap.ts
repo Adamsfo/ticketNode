@@ -1,5 +1,6 @@
 import { providerRegistry } from './core/ProviderRegistry';
 import { hospedinSyncProvider } from './hospedin/HospedinSyncProvider';
+import { hospedinOutboundSyncProvider } from './hospedin/outbound/HospedinOutboundSyncProvider';
 
 let bootstrapped = false;
 
@@ -10,5 +11,6 @@ let bootstrapped = false;
 export function bootstrapIntegrationProviders(): void {
     if (bootstrapped) return;
     providerRegistry.register(hospedinSyncProvider);
+    providerRegistry.register(hospedinOutboundSyncProvider);
     bootstrapped = true;
 }

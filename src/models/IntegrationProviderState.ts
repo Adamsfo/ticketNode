@@ -26,6 +26,8 @@ interface IntegrationProviderStateAttributes {
     lastDurationMs?: number | null;
     consecutiveFailures: number;
     lastExecutionId?: number | null;
+    /** Wake-up outbound — fila real em hospedin_outbound_sync_state. */
+    hasPending?: boolean;
     createdAt?: Date;
     updatedAt?: Date;
 }
@@ -44,6 +46,7 @@ type Creation = Optional<
     | 'lastDurationMs'
     | 'consecutiveFailures'
     | 'lastExecutionId'
+    | 'hasPending'
     | 'createdAt'
     | 'updatedAt'
 >;
@@ -65,6 +68,7 @@ class IntegrationProviderState
     public lastDurationMs?: number | null;
     public consecutiveFailures!: number;
     public lastExecutionId?: number | null;
+    public hasPending!: boolean;
     public readonly createdAt!: Date;
     public readonly updatedAt!: Date;
 
@@ -100,6 +104,12 @@ class IntegrationProviderState
                     defaultValue: 0,
                 },
                 lastExecutionId: { type: DataTypes.INTEGER, allowNull: true },
+                hasPending: {
+                    type: DataTypes.BOOLEAN,
+                    allowNull: false,
+                    defaultValue: false,
+                    field: 'has_pending',
+                },
             },
             {
                 sequelize,

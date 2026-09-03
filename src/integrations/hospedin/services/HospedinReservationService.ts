@@ -2,6 +2,11 @@ import {
     hospedinApiClient,
     HospedinApiClient,
 } from '../api/HospedinApiClient';
+import type {
+    HospedinOutboundReservationCancelPatch,
+    HospedinOutboundReservationInput,
+    HospedinOutboundReservationPatch,
+} from '../outbound/HospedinOutboundPayloadBuilder';
 import type { HospedinReservationDto } from '../dto';
 import { HospedinReservationMapper } from '../mapper/HospedinReservationMapper';
 import type {
@@ -82,6 +87,53 @@ export class HospedinReservationService {
             accountId
         );
         return this.client.get(path);
+    }
+
+    /**
+     * CREATE outbound Jango → Hospedin.
+     * Body: reservation_input (sem financeiro/pagamentos).
+     */
+    async createReservation(
+        input: HospedinOutboundReservationInput,
+        accountId?: string
+    ): Promise<HospedinReservationDto> {
+        const path = await this.accountPath('/reservations', accountId);
+        const raw = await this.client.post<unknown>(path, input);
+        return HospedinReservationMapper.toDto(raw);
+    }
+
+    /**
+     * UPDATE outbound Jango → Hospedin.
+     * PATCH parcial — somente campos operacionais (sem financeiro/pagamentos).
+     */
+    async updateReservation(
+        reservationId: string | number,
+        input: HospedinOutboundReservationPatch,
+        accountId?: string
+    ): Promise<HospedinReservationDto> {
+        const path = await this.accountPath(
+            `/reservations/${encodeURIComponent(String(reservationId))}`,
+            accountId
+        );
+        const raw = await this.client.patch<unknown>(path, input);
+        return HospedinReservationMapper.toDto(raw);
+    }
+
+    /**
+     * CANCEL outbound Jango → Hospedin.
+     * PATCH exclusivo: { status: "canceled" } (sem financeiro/outros campos).
+     */
+    async cancelReservation(
+        reservationId: string | number,
+        input: HospedinOutboundReservationCancelPatch,
+        accountId?: string
+    ): Promise<HospedinReservationDto> {
+        const path = await this.accountPath(
+            `/reservations/${encodeURIComponent(String(reservationId))}`,
+            accountId
+        );
+        const raw = await this.client.patch<unknown>(path, input);
+        return HospedinReservationMapper.toDto(raw);
     }
 }
 

@@ -1,6 +1,11 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.inicioDoDia = exports.toNumber = exports.roundMoney = exports.calcularTotaisSuitePousada = exports.VALOR_ADICIONAL_CRIANCA_EXTRA = exports.VALOR_ADICIONAL_ADULTO_EXTRA = exports.HORA_CHECKOUT_HOSPEDAGEM = exports.HORA_CHECKIN_HOSPEDAGEM = void 0;
+exports.inicioDoDia = exports.toNumber = exports.roundMoney = exports.calcularTotaisSuitePousada = exports.VALOR_ADICIONAL_CRIANCA_EXTRA = exports.VALOR_ADICIONAL_ADULTO_EXTRA = exports.TZ_HOSPEDAGEM = exports.HORA_CHECKOUT_HOSPEDAGEM = exports.HORA_CHECKIN_HOSPEDAGEM = void 0;
+exports.dataCivilHospedagem = dataCivilHospedagem;
+exports.valorInformaHorarioHospedagem = valorInformaHorarioHospedagem;
+exports.montarDateTimeComHorarioPadraoHospedagem = montarDateTimeComHorarioPadraoHospedagem;
+exports.normalizarDateTimeHospedagem = normalizarDateTimeHospedagem;
+exports.normalizarPeriodoHospedagem = normalizarPeriodoHospedagem;
 exports.calcularNoitesHotelaria = calcularNoitesHotelaria;
 exports.intervalosConflitam = intervalosConflitam;
 exports.periodosHospedagemConflitam = periodosHospedagemConflitam;
@@ -12,6 +17,7 @@ exports.validarCheckinNaoEmDataPassada = validarCheckinNaoEmDataPassada;
 exports.validarHorarioCheckoutHospedagem = validarHorarioCheckoutHospedagem;
 exports.parseDateTimeParam = parseDateTimeParam;
 exports.parsePositiveInt = parsePositiveInt;
+exports.validarCapacidadeMaximaPousada = validarCapacidadeMaximaPousada;
 exports.calcularExtrasPousada = calcularExtrasPousada;
 const customError_1 = require("./customError");
 const date_fns_tz_1 = require("date-fns-tz");
@@ -21,11 +27,107 @@ Object.defineProperty(exports, "inicioDoDia", { enumerable: true, get: function 
 exports.HORA_CHECKIN_HOSPEDAGEM = '16:00';
 /** Horário oficial de check-out da hospedagem (Cuiabá). */
 exports.HORA_CHECKOUT_HOSPEDAGEM = '13:00';
-const TZ_HOSPEDAGEM = 'America/Cuiaba';
+exports.TZ_HOSPEDAGEM = 'America/Cuiaba';
 const CHECKIN_MIN_MINUTOS = 16 * 60;
 const CHECKIN_MAX_MINUTOS = 19 * 60;
 const CHECKOUT_MIN_MINUTOS = 8 * 60;
 const CHECKOUT_MAX_MINUTOS = 13 * 60;
+const RE_DATA_CIVIL = /^(\d{4}-\d{2}-\d{2})/;
+const RE_SOMENTE_DATA = /^\d{4}-\d{2}-\d{2}$/;
+const RE_TEM_RELOGIO = /T\d{2}:\d{2}| \d{2}:\d{2}/;
+/**
+ * Extrai a data civil (yyyy-MM-dd) no fuso da hospedagem.
+ * Em strings ISO, usa o prefixo yyyy-MM-dd do payload (evita dia errado
+ * quando a integração manda offset diferente de America/Cuiaba).
+ */
+function dataCivilHospedagem(value) {
+    if (typeof value === 'string') {
+        const s = value.trim();
+        const m = s.match(RE_DATA_CIVIL);
+        if (m)
+            return m[1];
+        const parsed = new Date(s);
+        if (!Number.isNaN(parsed.getTime())) {
+            return (0, date_fns_tz_1.formatInTimeZone)(parsed, exports.TZ_HOSPEDAGEM, 'yyyy-MM-dd');
+        }
+    }
+    const d = value instanceof Date ? value : new Date(value);
+    return (0, date_fns_tz_1.formatInTimeZone)(d, exports.TZ_HOSPEDAGEM, 'yyyy-MM-dd');
+}
+/** True quando o valor bruto traz componente de horário (não só a data). */
+function valorInformaHorarioHospedagem(value) {
+    if (value == null || value === '')
+        return false;
+    if (value instanceof Date) {
+        if (Number.isNaN(value.getTime()))
+            return false;
+        return ((0, date_fns_tz_1.formatInTimeZone)(value, exports.TZ_HOSPEDAGEM, 'HH:mm:ss') !== '00:00:00');
+    }
+    const s = String(value).trim();
+    if (!s || RE_SOMENTE_DATA.test(s))
+        return false;
+    if (!RE_TEM_RELOGIO.test(s))
+        return false;
+    const parsed = new Date(s);
+    if (Number.isNaN(parsed.getTime()))
+        return false;
+    return (0, date_fns_tz_1.formatInTimeZone)(parsed, exports.TZ_HOSPEDAGEM, 'HH:mm:ss') !== '00:00:00';
+}
+/**
+ * Combina data civil + horário padrão oficial do PMS (Cuiabá).
+ * Único ponto para montar 16:00 / 13:00 a partir de uma data.
+ */
+function montarDateTimeComHorarioPadraoHospedagem(value, tipo) {
+    const dia = dataCivilHospedagem(value);
+    const hora = tipo === 'checkin'
+        ? exports.HORA_CHECKIN_HOSPEDAGEM
+        : exports.HORA_CHECKOUT_HOSPEDAGEM;
+    return (0, date_fns_tz_1.fromZonedTime)(`${dia} ${hora}:00`, exports.TZ_HOSPEDAGEM);
+}
+/**
+ * Normaliza check-in/check-out para o PMS.
+ *
+ * - Nulo/vazio → null
+ * - Sem horário (ausente, só data, 00:00) → horário padrão do PMS
+ * - Origem HOSPEDIN ou `forcarHorarioPadrao` → data civil + padrão
+ *   (a Hospedin não envia horário operacional da pousada)
+ * - Horário realmente informado (outras origens) → preservado
+ */
+function normalizarDateTimeHospedagem(value, tipo, opts) {
+    if (value == null || value === '')
+        return null;
+    const origem = String(opts?.origemReserva || '').toUpperCase();
+    const forcar = Boolean(opts?.forcarHorarioPadrao) || origem === 'HOSPEDIN';
+    const asWallDate = () => {
+        if (typeof value === 'string' || value instanceof Date)
+            return value;
+        const parsed = new Date(value);
+        return Number.isNaN(parsed.getTime()) ? null : parsed;
+    };
+    if (forcar) {
+        const wall = asWallDate();
+        return wall
+            ? montarDateTimeComHorarioPadraoHospedagem(wall, tipo)
+            : null;
+    }
+    if (!valorInformaHorarioHospedagem(value)) {
+        const wall = asWallDate();
+        return wall
+            ? montarDateTimeComHorarioPadraoHospedagem(wall, tipo)
+            : null;
+    }
+    const parsed = value instanceof Date ? value : new Date(String(value));
+    if (Number.isNaN(parsed.getTime()))
+        return null;
+    return parsed;
+}
+/** Normaliza o par check-in/check-out com a mesma regra. */
+function normalizarPeriodoHospedagem(checkin, checkout, opts) {
+    return {
+        checkin: normalizarDateTimeHospedagem(checkin, 'checkin', opts),
+        checkout: normalizarDateTimeHospedagem(checkout, 'checkout', opts),
+    };
+}
 var reservaSuitePricing_2 = require("./reservaSuitePricing");
 Object.defineProperty(exports, "VALOR_ADICIONAL_ADULTO_EXTRA", { enumerable: true, get: function () { return reservaSuitePricing_2.VALOR_ADICIONAL_ADULTO_EXTRA; } });
 Object.defineProperty(exports, "VALOR_ADICIONAL_CRIANCA_EXTRA", { enumerable: true, get: function () { return reservaSuitePricing_2.VALOR_ADICIONAL_CRIANCA_EXTRA; } });
@@ -72,10 +174,10 @@ function reservaTemCheckinNaDataCivil(checkinReserva, dataReferencia) {
         ? dataReferencia
         : (0, date_fns_tz_1.formatInTimeZone)(dataReferencia instanceof Date
             ? dataReferencia
-            : new Date(dataReferencia), TZ_HOSPEDAGEM, 'yyyy-MM-dd');
+            : new Date(dataReferencia), exports.TZ_HOSPEDAGEM, 'yyyy-MM-dd');
     const checkinStr = (0, date_fns_tz_1.formatInTimeZone)(checkinReserva instanceof Date
         ? checkinReserva
-        : new Date(checkinReserva), TZ_HOSPEDAGEM, 'yyyy-MM-dd');
+        : new Date(checkinReserva), exports.TZ_HOSPEDAGEM, 'yyyy-MM-dd');
     return checkinStr === dataStr;
 }
 /** True se alguma reserva ocupante tem check-in na data civil informada. */
@@ -83,8 +185,8 @@ function suiteIndisponivelPorCheckinNaData(checkinsOcupantes, dataReferencia) {
     return checkinsOcupantes.some((checkin) => reservaTemCheckinNaDataCivil(checkin instanceof Date ? checkin : new Date(checkin), dataReferencia));
 }
 function minutosNoFuso(d) {
-    const h = Number((0, date_fns_tz_1.formatInTimeZone)(d, TZ_HOSPEDAGEM, 'H'));
-    const m = Number((0, date_fns_tz_1.formatInTimeZone)(d, TZ_HOSPEDAGEM, 'm'));
+    const h = Number((0, date_fns_tz_1.formatInTimeZone)(d, exports.TZ_HOSPEDAGEM, 'H'));
+    const m = Number((0, date_fns_tz_1.formatInTimeZone)(d, exports.TZ_HOSPEDAGEM, 'm'));
     return h * 60 + m;
 }
 /** Garante check-in entre 16:00 e 19:00 (fuso Cuiabá). */
@@ -99,8 +201,8 @@ function validarHorarioCheckinHospedagem(checkin) {
  */
 function validarCheckinPosteriorAoAgoraSeHoje(checkin) {
     const agora = new Date();
-    const hojeStr = (0, date_fns_tz_1.formatInTimeZone)(agora, TZ_HOSPEDAGEM, 'yyyy-MM-dd');
-    const checkinStr = (0, date_fns_tz_1.formatInTimeZone)(checkin, TZ_HOSPEDAGEM, 'yyyy-MM-dd');
+    const hojeStr = (0, date_fns_tz_1.formatInTimeZone)(agora, exports.TZ_HOSPEDAGEM, 'yyyy-MM-dd');
+    const checkinStr = (0, date_fns_tz_1.formatInTimeZone)(checkin, exports.TZ_HOSPEDAGEM, 'yyyy-MM-dd');
     if (hojeStr !== checkinStr) {
         return;
     }
@@ -111,8 +213,8 @@ function validarCheckinPosteriorAoAgoraSeHoje(checkin) {
 /** Impede criar reserva com check-in em dia anterior ao atual (fuso Cuiabá). */
 function validarCheckinNaoEmDataPassada(checkin) {
     const agora = new Date();
-    const hojeStr = (0, date_fns_tz_1.formatInTimeZone)(agora, TZ_HOSPEDAGEM, 'yyyy-MM-dd');
-    const checkinStr = (0, date_fns_tz_1.formatInTimeZone)(checkin, TZ_HOSPEDAGEM, 'yyyy-MM-dd');
+    const hojeStr = (0, date_fns_tz_1.formatInTimeZone)(agora, exports.TZ_HOSPEDAGEM, 'yyyy-MM-dd');
+    const checkinStr = (0, date_fns_tz_1.formatInTimeZone)(checkin, exports.TZ_HOSPEDAGEM, 'yyyy-MM-dd');
     if (checkinStr < hojeStr) {
         throw new customError_1.CustomError('Não é permitido criar reservas para datas passadas.', 400, '');
     }
@@ -140,6 +242,18 @@ function parsePositiveInt(value, fieldName, min = 0) {
         throw new customError_1.CustomError(`${fieldName} inválido.`, 400, '');
     }
     return n;
+}
+/**
+ * Valida apenas o teto de ocupação.
+ * Uso em troca administrativa de suíte: mínimo não bloqueia, máximo continua.
+ */
+function validarCapacidadeMaximaPousada(adultos, criancas, qtdeMaximaPessoas, qtdeMinimaPessoas) {
+    const total = adultos + criancas;
+    const min = qtdeMinimaPessoas ?? 1;
+    const max = qtdeMaximaPessoas ?? min;
+    if (total > max) {
+        throw new customError_1.CustomError(`A suíte permite no máximo ${max} hóspede(s) (informado: ${total}).`, 400, '');
+    }
 }
 function calcularExtrasPousada(adultos, criancas, qtdeMinimaPessoas, qtdeMaximaPessoas) {
     const extras = (0, reservaSuitePricing_1.calcularExtrasOcupacao)(adultos, criancas, qtdeMinimaPessoas, qtdeMaximaPessoas);
