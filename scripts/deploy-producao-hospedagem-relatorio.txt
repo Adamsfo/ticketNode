@@ -1,0 +1,185 @@
+================================================================================
+RELATÓRIO — deploy-producao-hospedagem.sql
+Gerado para revisão antes de execução em PRODUÇÃO
+Compare de referência: database-diff-relatorio.txt (read-only, sem execução em PROD)
+================================================================================
+
+1. SCRIPTS VERSIONADOS INCLUÍDOS (fonte / adaptação)
+--------------------------------------------------------------------------------
+Ordem de execução no pacote final:
+
+  #  Tipo              Script fonte                              Tabela/objeto
+  --  ----------------  ----------------------------------------  ---------------------------
+  1   CREATE TABLE      create-hospedagem-refresh-state.sql       hospedagem_refresh_state
+  2   CREATE TABLE      create-evento-suite-foto.sql              EventoSuiteFoto
+  3   CREATE TABLE      create-evento-suite-limpeza.sql           EventoSuiteLimpeza
+  4   CREATE TABLE      alter-hospedagem-pagamento-operacao-tef.sql HospedagemPagamentoOperacao *
+  5   CREATE TABLE      alter-hospedagem-alterar-periodo.sql      ReservaPeriodoMovimentacao *
+  6   CREATE TABLE      alter-hospedagem-troca-suite.sql            ReservaSuiteMovimentacao *
+  7   ADD COLUMN        alter-reserva-origem-integracao-fase1.sql ReservaHospedagem (3 cols) **
+  8   ADD COLUMN        alter-hospedagem-link-pagamento.sql       ReservaHospedagem (3 cols) *
+  9   ADD COLUMN        alter-hospedagem-chegada.sql                ReservaHospedagem (2 cols)
+ 10   ADD COLUMN        alter-hospedagem-id-venda-jango.sql         ReservaHospedagem.id_venda_jango
+ 11   ADD COLUMN        alter-hospedagem-observacoes-split.sql      ReservaHospedagem (2 cols) ***
+ 12   ADD COLUMN        alter-reserva-possivel-pagamento-ota.sql    ReservaHospedagem (2 cols)
+ 13   ADD COLUMN        alter-reserva-hospede-id-usuario.sql        ReservaHospede.id_usuario
+ 14   ADD COLUMN        alter-transacao-origem-transacao.sql        Transacao.origem_transacao
+ 15   INDEX             alter-reserva-origem-integracao-fase1.sql   3 índices ReservaHospedagem
+ 16   INDEX             alter-hospedagem-link-pagamento.sql         uq_reserva_hosp_token_pagamento
+ 17   INDEX             alter-reserva-possivel-pagamento-ota.sql    idx_reserva_hosp_possivel_pagamento_ota
+ 18   INDEX             (compare + boas práticas)                   idx_reserva_hospede_id_usuario
+ 19   FK                alter-hospedagem-chegada.sql                fk_reserva_hospedagem_usuario_chegada
+
+  *  Colunas físicas convertidas de camelCase (script antigo) para snake_case (PROD / underscored:true).
+  ** Somente as 3 colunas em ReservaHospedagem; tabelas integration do mesmo arquivo foram excluídas.
+  *** Somente ADD COLUMN; UPDATEs de backfill do script original foram excluídos.
+
+Helpers idempotentes (procedures temporárias) no início/fim do pacote:
+  sp_deploy_add_column_if_missing, sp_deploy_create_index_if_missing, sp_deploy_add_fk_if_missing
+
+2. OBJETO × MOTIVO (por que é necessário)
+--------------------------------------------------------------------------------
+hospedagem_refresh_state
+  → Refresh automático Agenda/Suites/Limpeza (GET /hospedagem/refresh-version).
+
+EventoSuiteFoto
+  → Cadastro oficial de fotos das suítes (galeria / CRUD).
+
+EventoSuiteLimpeza
+  → Grid de limpeza (/limpezaSuites) e painel de status nos cards de hospedagem.
+
+HospedagemPagamentoOperacao
+  → Receber saldo via SuperTEF no módulo hospedagem.
+
+ReservaPeriodoMovimentacao
+  → Auditoria ao alterar período (check-in/check-out) da reserva.
+
+ReservaSuiteMovimentacao
+  → Auditoria ao trocar suíte.
+
+ReservaHospedagem.id_externo, codigo_externo, canal_venda
+  → Campos do model Sequelize já em uso; faltam na PROD (compare ADD SEGURO).
+  → Não exigem tabelas Hospedin neste deploy.
+
+ReservaHospedagem.token_pagamento, expira_em, link_pagamento_enviado_em
+  → Link de pagamento na recepção.
+
+ReservaHospedagem.data_hora_chegada_real, id_usuario_chegada
+  → Fluxo “Hóspede chegou” e painel nos cards.
+
+ReservaHospedagem.id_venda_jango
+  → Conta PDV Jango vinculada na chegada.
+
+ReservaHospedagem.observacao_importada, observacao_operador
+  → Separação de observações (colunas novas; dados legados permanecem em observacoes).
+
+ReservaHospedagem.possivel_pagamento_ota, possivel_pagamento_ota_trecho
+  → Alerta operacional (compare ADD SEGURO).
+
+ReservaHospede.id_usuario
+  → Vínculo hóspede ↔ usuário cadastrado.
+
+Transacao.origem_transacao
+  → Pagamentos de hospedagem sem misturar com ingressos (default INGRESSOS).
+
+Índices / FK
+  → Suporte documentado aos campos acima; sem réplicas token_pagamento_2…10 do DEV.
+
+3. ORDEM DE EXECUÇÃO RECOMENDADA
+--------------------------------------------------------------------------------
+1. Backup lógico / snapshot RDS (fora deste script).
+2. Executar deploy-producao-hospedagem.sql inteiro em janela de manutenção.
+3. Validar information_schema (tabelas/colunas/índices listados acima).
+4. Subir backend + frontend da release de hospedagem.
+5. Testes manuais: Agenda, Suites, Limpeza, chegada, link pagamento, refresh.
+6. Revisar seção REVISÃO MANUAL (origem_reserva) em deploy separado, se aprovado.
+
+4. ALTERAÇÕES DELIBERADAMENTE NÃO INCLUÍDAS
+--------------------------------------------------------------------------------
+Arquivo bruto:
+  - database-diff-dev-producao.sql (inteiro)
+
+DML:
+  - INSERT seed hospedagem_refresh_state (create-hospedagem-refresh-state.sql)
+  - UPDATE backfill observações (alter-hospedagem-observacoes-split.sql)
+
+MODIFY sem aprovação:
+  - ReservaHospedagem.origem_reserva (ENUM SITE/ATENDENTE → VARCHAR) — seção REVISÃO MANUAL
+
+Tabelas somente DEV — Hospedin / integration (15 tabelas):
+  - hospedin_outbound_sync_state, hospedin_place_suite_map, hospedin_place_types
+  - hospedin_places, hospedin_reservations, hospedin_sync_log
+  - integration_entity_sync_event, integration_provider_config, integration_provider_state
+  - integration_sync_execution, integration_sync_state
+  - reserva_hospede_documento, reserva_identificador_externo
+  - reserva_origem_financeira, reserva_origem_payload
+
+Scripts integration não necessários a esta publicação de hospedagem operacional:
+  - create-hospedin-integration.sql e derivados
+  - create-integration-sync-state.sql, create-integration-scheduler-fase2.sql
+  - alter-integration-*.sql, alter-hospedin-*.sql
+
+Índices/FKs artefato sequelize.sync no DEV:
+  - Empresa.cnpj_27…cnpj_58, FuncaoUsuario.funcao_usuario_27…
+  - ReservaHospedagem.token_pagamento_2 … token_pagamento_10
+  - FKs duplicadas em reservaperiodomovimentacao / reservasuitemovimentacao no DEV
+
+Outros scripts hospedagem já presentes na PROD (compare 0 diffs):
+  - alter-hospedagem-checkin.sql, alter-hospedagem-checkout.sql
+  - alter-hospedagem-desconto-recepcao.sql (ReservaSuite)
+  - alter-hospedagem-pagamento-recepcao.sql, alter-hospedagem-observacoes.sql
+  - alter-hospedagem-origem-atendente.sql (deprecated / destrutivo)
+
+AUTO_INCREMENT:
+  - Qualquer sincronização de contadores DEV → PROD
+
+DROP / TRUNCATE:
+  - Nenhum
+
+5. RISCOS E PONTOS DE REVISÃO MANUAL
+--------------------------------------------------------------------------------
+ALTO — origem_reserva
+  PROD: ENUM('SITE','ATENDENTE'). Backend espera VARCHAR com CLIENTE e outras origens.
+  Não alterado neste pacote. Deploy do backend pode falhar em INSERT/UPDATE que usem
+  origens fora do ENUM até migração aprovada.
+
+MÉDIO — observacao_importada / observacao_operador
+  Colunas criadas vazias. Texto legado permanece só em observacoes até migração opcional.
+
+BAIXO — hospedagem_refresh_state sem INSERT
+  Primeira mutação operacional ou chamada ao service deve criar linha id=1.
+  Confirmar em homologação se refresh funciona sem seed manual.
+
+BAIXO — CREATE TABLE IF NOT EXISTS
+  Se tabela existir com schema divergente (deploy parcial anterior), IF NOT EXISTS
+  não corrige colunas faltantes — revisar SHOW CREATE TABLE após execução.
+
+BAIXO — uq_reserva_hosp_token_pagamento
+  UNIQUE em coluna nullable: múltiplos NULL são permitidos no MySQL (OK para tokens opcionais).
+
+BAIXO — Transacao.origem_transacao DEFAULT 'INGRESSOS'
+  Linhas existentes recebem default na ADD COLUMN; comportamento de ingressos preservado.
+
+BAIXO — janela de deploy
+  Executar com backend antigo parado ou após colunas criadas, para evitar erro
+  "Unknown column" em queries do Sequelize.
+
+VERIFICAÇÃO PÓS-DEPLOY (sugestão):
+  SELECT TABLE_NAME FROM information_schema.TABLES
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME IN (
+        'hospedagem_refresh_state','EventoSuiteFoto','EventoSuiteLimpeza',
+        'HospedagemPagamentoOperacao','ReservaPeriodoMovimentacao','ReservaSuiteMovimentacao'
+      );
+  SELECT COLUMN_NAME FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ReservaHospedagem'
+      AND COLUMN_NAME IN (
+        'id_externo','codigo_externo','canal_venda','token_pagamento','expira_em',
+        'link_pagamento_enviado_em','data_hora_chegada_real','id_usuario_chegada',
+        'id_venda_jango','observacao_importada','observacao_operador',
+        'possivel_pagamento_ota','possivel_pagamento_ota_trecho'
+      );
+
+================================================================================
+Nenhum comando foi executado em produção na geração deste pacote.
+================================================================================

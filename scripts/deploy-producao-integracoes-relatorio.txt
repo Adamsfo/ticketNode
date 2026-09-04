@@ -1,0 +1,207 @@
+================================================================================
+RELATÓRIO — deploy-producao-integracoes.sql
+Gerado para revisão antes de execução em PRODUÇÃO
+Compare de referência: database-diff-relatorio.txt (read-only)
+Pré-requisito: deploy-producao-hospedagem.sql já aplicado
+================================================================================
+
+1. TABELAS DEV RELACIONADAS A INTEGRAÇÃO / HOSPEDIN
+--------------------------------------------------------------------------------
+Identificadas via models Sequelize (ticket-node/src/models/), bootstrap de providers
+(ticket-node/src/integrations/bootstrap.ts) e compare DEV×PROD:
+
+  Scheduler / estado:
+    integration_provider_config
+    integration_provider_state
+    integration_sync_execution
+    integration_sync_state
+    integration_entity_sync_event
+
+  Staging Hospedin (import):
+    hospedin_place_types
+    hospedin_places
+    hospedin_reservations
+    hospedin_sync_log
+
+  Mapeamento / outbound:
+    hospedin_place_suite_map
+    hospedin_outbound_sync_state
+
+  Espelhos origem multi-provedor (fase 1):
+    reserva_identificador_externo
+    reserva_origem_financeira
+    reserva_origem_payload
+    reserva_hospede_documento
+
+  Colunas em ReservaHospedagem (id_externo, codigo_externo, canal_venda):
+    já cobertas pelo pacote deploy-producao-hospedagem.sql — NÃO repetidas aqui.
+
+2. TABELAS QUE FALTAM NA PROD (compare original — 15 de integração)
+--------------------------------------------------------------------------------
+  integration_provider_config          ← erro reportado pelo backend novo
+  integration_provider_state
+  integration_sync_execution
+  integration_sync_state               ← erro reportado pelo backend novo
+  integration_entity_sync_event
+  hospedin_place_types
+  hospedin_places
+  hospedin_reservations
+  hospedin_sync_log
+  hospedin_place_suite_map
+  hospedin_outbound_sync_state
+  reserva_identificador_externo
+  reserva_origem_financeira
+  reserva_origem_payload
+  reserva_hospede_documento
+
+3. TABELAS QUE SERÃO CRIADAS (15)
+--------------------------------------------------------------------------------
+  Todas as 15 listadas acima, via CREATE TABLE IF NOT EXISTS no pacote.
+
+4. TABELAS DELIBERADAMENTE NÃO INCLUÍDAS
+--------------------------------------------------------------------------------
+  Hospedagem operacional (já no pacote anterior):
+    hospedagem_refresh_state, EventoSuiteLimpeza, EventoSuiteFoto,
+    HospedagemPagamentoOperacao, ReservaPeriodoMovimentacao, ReservaSuiteMovimentacao
+
+  database-diff-dev-producao.sql (inteiro) — artefatos sequelize.sync no DEV
+
+  Scripts com UPDATE/DROP não aplicados como DML:
+    alter-integration-resolution-status.sql (UPDATEs de migração DEV)
+    alter-hospedin-place-suite-map-ignored.sql (DROP FK + UPDATE backfill)
+    alter-hospedin-sync-log-2-5.sql (redundante — colunas já no CREATE)
+
+  Dados operacionais do DEV:
+    linhas de integration_sync_state, hospedin_reservations, hospedin_sync_log,
+    integration_sync_execution, integration_entity_sync_event, etc.
+
+5. CONFIGURAÇÃO QUE SERÁ INSERIDA (idempotente, enabled=0)
+--------------------------------------------------------------------------------
+  O backend registra 2 providers em providerRegistry (bootstrap.ts):
+    HOSPEDIN          — inbound (import/validate/sync)
+    HOSPEDIN_OUTBOUND — outbound (fila Jango→Hospedin)
+
+  DEV (compare): AUTO_INCREMENT=3 em integration_provider_config → 2 registros.
+  DEV local indisponível no momento da geração; valores alinhados aos defaults
+  de HospedinSyncProvider e HospedinOutboundSyncProvider + enabled=0.
+
+  integration_provider_config — HOSPEDIN:
+    provider              = HOSPEDIN
+    display_name          = Hospedin
+    enabled               = 0
+    interval_minutes      = 5
+    mode                  = incremental
+    sync_limit            = 50
+    priority              = 100
+    max_retries           = 2
+    backoff_base_seconds  = 30
+    max_run_minutes       = 10
+    webhook_enabled       = 0
+
+  integration_provider_config — HOSPEDIN_OUTBOUND:
+    provider              = HOSPEDIN_OUTBOUND
+    display_name          = Hospedin Outbound
+    enabled               = 0
+    interval_minutes      = 15
+    mode                  = incremental
+    sync_limit            = 30
+    priority              = 110
+    max_retries           = 5
+    backoff_base_seconds  = 30
+    max_run_minutes       = 10
+    webhook_enabled       = 0
+
+  integration_provider_state — ambos:
+    status                = DISABLED
+    next_run_at           = NULL
+    consecutive_failures  = 0
+    has_pending           = 0
+
+  IDs: NÃO copiados (AUTO_INCREMENT na PROD).
+
+6. CAMPOS SENSÍVEIS — NÃO COPIADOS
+--------------------------------------------------------------------------------
+  integration_provider_config / integration_provider_state:
+    NÃO contêm API keys, tokens ou senhas.
+
+  Credenciais Hospedin residem em variáveis de ambiente (ex.: HOSPEDIN_API_*,
+  HOSPEDIN_SYNC_ENABLED, HOSPEDIN_OUTBOUND_SYNC_ENABLED) — configurar manualmente
+  na PROD quando for homologar integração; manter enabled=0 até então.
+
+  payload_json, request_json, response_json nas tabelas staging/log:
+    NÃO copiados (tabelas criadas vazias).
+
+7. FOREIGN KEYS (6)
+--------------------------------------------------------------------------------
+  fk_hospedin_place_suite_evento_suite
+    hospedin_place_suite_map.id_evento_suite → EventoSuite.id
+
+  fk_hospedin_outbound_reserva
+    hospedin_outbound_sync_state.id_reserva_hospedagem → ReservaHospedagem.id
+    ON DELETE CASCADE
+
+  fk_reserva_ident_hosp
+    reserva_identificador_externo.id_reserva_hospedagem → ReservaHospedagem.id
+
+  fk_reserva_origem_fin_hosp
+    reserva_origem_financeira.id_reserva_hospedagem → ReservaHospedagem.id
+
+  fk_reserva_origem_payload_hosp
+    reserva_origem_payload.id_reserva_hospedagem → ReservaHospedagem.id
+
+  fk_reserva_hosp_doc_hospede
+    reserva_hospede_documento.id_reserva_hospede → ReservaHospede.id
+
+8. ÍNDICES UNIQUE PRINCIPAIS (sem duplicatas do sequelize.sync DEV)
+--------------------------------------------------------------------------------
+  uq_integration_provider_config (provider)
+  uq_integration_provider_state (provider)
+  uq_integration_sync_identity (provider, entity_type, external_id)
+  uq_hospedin_place_type_id, uq_hospedin_place_id, uq_hospedin_reservation_id
+  uq_hospedin_place_suite_place, uq_hospedin_place_suite_evento_suite
+  uq_hospedin_outbound_reserva
+  uq_reserva_ident_provider_tipo, uq_provider_tipo_valor
+  uq_reserva_origem_fin_provider, uq_reserva_origem_payload
+  uq_reserva_hosp_doc_tipo
+
+9. ORDEM DE EXECUÇÃO RECOMENDADA
+--------------------------------------------------------------------------------
+  1. Backup / snapshot RDS (já realizado pelo operador)
+  2. Confirmar pacote hospedagem + origem_reserva VARCHAR aplicados
+  3. Executar deploy-producao-integracoes.sql no Workbench
+  4. Executar validate-deploy-producao-integracoes.sql
+  5. Subir backend novo (enabled=0 → scheduler não sincroniza)
+  6. NÃO habilitar HOSPEDIN_SYNC_ENABLED / HOSPEDIN_OUTBOUND_SYNC_ENABLED na PROD
+     até homologação explícita
+
+  Ordem interna do script:
+    a) integration_provider_config, integration_provider_state,
+       integration_sync_execution, integration_sync_state, integration_entity_sync_event
+    b) hospedin_place_types, hospedin_places, hospedin_reservations, hospedin_sync_log
+    c) hospedin_place_suite_map, hospedin_outbound_sync_state
+    d) reserva_identificador_externo, reserva_origem_financeira,
+       reserva_origem_payload, reserva_hospede_documento
+    e) INSERT config + state (idempotente)
+
+10. RISCOS E PONTOS DE REVISÃO
+--------------------------------------------------------------------------------
+  MÉDIO — Backend novo pode chamar ensureProviderConfigsFromRegistry() no boot:
+    se INSERT falhar, o Sequelize pode criar configs com defaults ENV — conferir
+    enabled=0 após deploy.
+
+  MÉDIO — Credenciais Hospedin na PROD:
+    sem ENV configurado, endpoints de teste falham; isso é esperado com enabled=0.
+
+  BAIXO — CREATE TABLE IF NOT EXISTS não corrige schema parcial de deploy incompleto.
+
+  BAIXO — FK hospedin_outbound_sync_state → ReservaHospedagem: tabela vazia na PROD OK.
+
+  BAIXO — Coluna error_severityity (typo histórico no código) preservada intencionalmente
+    para compatibilidade com IntegrationSyncState model.
+
+  BAIXO — Não ativar scheduler: manter enabled=0 e status=DISABLED; não setar
+    HOSPEDIN_SYNC_ENABLED=1 na PROD até decisão operacional.
+
+================================================================================
+Nenhum comando foi executado em produção na geração deste pacote.
+================================================================================
