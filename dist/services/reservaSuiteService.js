@@ -965,21 +965,22 @@ function parseParamsCotacao(query) {
         criancas: (0, reservaSuiteUtils_1.parsePositiveInt)(query.criancas ?? 0, 'criancas', 0),
     };
 }
-function parseSuitesCheckout(body) {
+function parseSuitesCheckout(body, options) {
     const suites = body?.suites;
     if (!Array.isArray(suites) || suites.length === 0) {
         throw new customError_1.CustomError('suites deve ser um array com ao menos um item.', 400, '');
     }
+    const nomeOpcional = options?.nomeOpcional === true;
     return suites.map((s, index) => {
         const idEventoSuite = (0, reservaSuiteUtils_1.parsePositiveInt)(s.idEventoSuite, `suites[${index}].idEventoSuite`, 1);
         const adultos = (0, reservaSuiteUtils_1.parsePositiveInt)(s.adultos, `suites[${index}].adultos`, 1);
         const criancas = (0, reservaSuiteUtils_1.parsePositiveInt)(s.criancas ?? 0, `suites[${index}].criancas`, 0);
-        const hospedes = parseHospedesSuite(s, index, adultos, criancas);
+        const hospedes = parseHospedesSuite(s, index, adultos, criancas, nomeOpcional);
         const desconto = (0, hospedagemDescontoRecepcao_1.parseDescontoRecepcao)(s?.desconto, index);
         return { idEventoSuite, adultos, criancas, hospedes, desconto };
     });
 }
-function parseHospedesSuite(suite, index, adultos, criancas) {
+function parseHospedesSuite(suite, index, adultos, criancas, nomeOpcional = false) {
     const hospedes = suite?.hospedes;
     if (!Array.isArray(hospedes)) {
         throw new customError_1.CustomError(`suites[${index}].hospedes é obrigatório.`, 400, '');
@@ -994,7 +995,7 @@ function parseHospedesSuite(suite, index, adultos, criancas) {
     for (let hospedeIndex = 0; hospedeIndex < hospedes.length; hospedeIndex += 1) {
         const hospede = hospedes[hospedeIndex];
         const nome = String(hospede?.nome ?? '').trim();
-        if (!nome) {
+        if (!nome && !nomeOpcional) {
             throw new customError_1.CustomError(`suites[${index}].hospedes[${hospedeIndex}].nome é obrigatório.`, 400, '');
         }
         const tipo = hospede?.tipo;

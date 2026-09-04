@@ -110,6 +110,7 @@ import {
     mergeReservaObservacoes,
     splitOperadorFromTextoCompleto,
 } from '../utils/reservaObservacoesUtils';
+import { logger } from '../utils/logger';
 
 function resolverOrigemReserva(
     reserva: ReservaHospedagem & {
@@ -2600,6 +2601,156 @@ function idVendaJangoValido(valor: number | null | undefined): boolean {
     return Number.isFinite(n) && n > 0;
 }
 
+const ID_INGRESSO_HOSPEDAGEM_CHEGADA = 1;
+const DESCRICAO_INGRESSO_ADULTO_HOSPEDAGEM = 'Adulto';
+const DESCRICAO_INGRESSO_CRIANCA_HOSPEDAGEM = 'Criança';
+
+type ContagemIngressosHospedagemPdv = {
+    adultos: number;
+    criancas: number;
+};
+
+function calcularTotaisHospedesReserva(
+    suites: ReservaSuite[]
+): ContagemIngressosHospedagemPdv {
+    const list = suites ?? [];
+    return {
+        adultos: list.reduce((acc, s) => acc + Number(s.adultos || 0), 0),
+        criancas: list.reduce((acc, s) => acc + Number(s.criancas || 0), 0),
+    };
+}
+
+function ingressosHospedagemChegadaCompletos(
+    existentes: ContagemIngressosHospedagemPdv,
+    esperado: ContagemIngressosHospedagemPdv
+): boolean {
+    return (
+        existentes.adultos >= esperado.adultos &&
+        existentes.criancas >= esperado.criancas
+    );
+}
+
+async function contarIngressosHospedagemPdv(
+    idVenda: number
+): Promise<ContagemIngressosHospedagemPdv> {
+    try {
+        return await apiJango().contarIngressosHospedagemPorVenda(idVenda);
+    } catch (error) {
+        const detalhe =
+            error instanceof Error ? error.message : 'Erro desconhecido';
+        throw new CustomError(
+            'Não foi possível consultar ingressos no PDV Jango.',
+            502,
+            '',
+            { cause: detalhe }
+        );
+    }
+}
+
+function logIngressosHospedagemAcimaDoEsperado(params: {
+    idReservaHospedagem: number;
+    idVenda: number;
+    esperado: ContagemIngressosHospedagemPdv;
+    existentes: ContagemIngressosHospedagemPdv;
+    contexto: 'antes' | 'depois';
+}) {
+    logger.info(
+        `[hospedagem/registrar-chegada] ingressos PDV acima do esperado (${params.contexto}) — não cria novos`,
+        {
+            idReservaHospedagem: params.idReservaHospedagem,
+            idVenda: params.idVenda,
+            esperado: params.esperado,
+            existentes: params.existentes,
+        }
+    );
+}
+
+async function garantirIngressosPdvHospedagemChegada(params: {
+    idReservaHospedagem: number;
+    idVenda: number;
+    idCliente: number;
+    suites: ReservaSuite[];
+}): Promise<{ alterouIngressos: boolean }> {
+    const { idReservaHospedagem, idVenda, idCliente, suites } = params;
+    const esperado = calcularTotaisHospedesReserva(suites);
+
+    if (esperado.adultos + esperado.criancas <= 0) {
+        throw new CustomError(
+            'A reserva não possui hóspedes (adultos/crianças) para registrar ingressos no PDV.',
+            400,
+            ''
+        );
+    }
+
+    const antes = await contarIngressosHospedagemPdv(idVenda);
+
+    if (ingressosHospedagemChegadaCompletos(antes, esperado)) {
+        if (
+            antes.adultos > esperado.adultos ||
+            antes.criancas > esperado.criancas
+        ) {
+            logIngressosHospedagemAcimaDoEsperado({
+                idReservaHospedagem,
+                idVenda,
+                esperado,
+                existentes: antes,
+                contexto: 'antes',
+            });
+        }
+        return { alterouIngressos: false };
+    }
+
+    const deficitAdultos = Math.max(0, esperado.adultos - antes.adultos);
+    const deficitCriancas = Math.max(0, esperado.criancas - antes.criancas);
+
+    if (deficitAdultos === 0 && deficitCriancas === 0) {
+        return { alterouIngressos: false };
+    }
+
+    for (let i = 0; i < deficitAdultos; i++) {
+        await apiJango().inseriIngresso(
+            ID_INGRESSO_HOSPEDAGEM_CHEGADA,
+            DESCRICAO_INGRESSO_ADULTO_HOSPEDAGEM,
+            idCliente,
+            idVenda
+        );
+    }
+
+    for (let i = 0; i < deficitCriancas; i++) {
+        await apiJango().inseriIngresso(
+            ID_INGRESSO_HOSPEDAGEM_CHEGADA,
+            DESCRICAO_INGRESSO_CRIANCA_HOSPEDAGEM,
+            idCliente,
+            idVenda
+        );
+    }
+
+    const depois = await contarIngressosHospedagemPdv(idVenda);
+
+    if (!ingressosHospedagemChegadaCompletos(depois, esperado)) {
+        throw new CustomError(
+            'Não foi possível registrar os ingressos no PDV Jango. Verifique a conexão com o PDV e tente novamente.',
+            502,
+            ''
+        );
+    }
+
+    if (
+        depois.adultos > esperado.adultos ||
+        depois.criancas > esperado.criancas
+    ) {
+        logIngressosHospedagemAcimaDoEsperado({
+            idReservaHospedagem,
+            idVenda,
+            esperado,
+            existentes: depois,
+            contexto: 'depois',
+        });
+    }
+
+    return { alterouIngressos: true };
+}
+
 /**
  * Garante id_venda Jango para a reserva.
  * Se idVendaJango já persistido, reutiliza sem chamar getConta.
@@ -2719,7 +2870,25 @@ export async function registrarChegadaAdmin(
     ).idVendaJango;
 
     if (chegadaExistente && idVendaJangoValido(idVendaJangoExistente)) {
-        return obterReservaAdminDetalhe(idReservaHospedagem, idUsuario);
+        const esperadoIngressos = calcularTotaisHospedesReserva(
+            reserva.ReservaSuite ?? []
+        );
+        if (esperadoIngressos.adultos + esperadoIngressos.criancas > 0) {
+            const existentesIngressos = await contarIngressosHospedagemPdv(
+                Number(idVendaJangoExistente)
+            );
+            if (
+                ingressosHospedagemChegadaCompletos(
+                    existentesIngressos,
+                    esperadoIngressos
+                )
+            ) {
+                return obterReservaAdminDetalhe(
+                    idReservaHospedagem,
+                    idUsuario
+                );
+            }
+        }
     }
 
     if (reserva.status !== StatusReservaHospedagem.Confirmada) {
@@ -2851,16 +3020,18 @@ export async function registrarChegadaAdmin(
             throw new CustomError('Reserva de hospedagem não encontrada.', 404, '');
         }
 
-        if (
-            reservaLocked.dataHoraChegadaReal &&
-            idVendaJangoValido(reservaLocked.idVendaJango)
-        ) {
-            return;
-        }
-
         const idVendaJango = await garantirContaJangoHospedagem(
             reservaLocked.idVendaJango,
             idClienteTitular
+        );
+
+        const { alterouIngressos } = await garantirIngressosPdvHospedagemChegada(
+            {
+                idReservaHospedagem,
+                idVenda: idVendaJango,
+                idCliente: idClienteTitular,
+                suites: reserva.ReservaSuite ?? [],
+            }
         );
 
         const payload: {
@@ -2874,8 +3045,17 @@ export async function registrarChegadaAdmin(
             payload.idUsuarioChegada = idUsuario;
         }
 
-        await reservaLocked.update(payload, { transaction: t });
-        houveAlteracao = true;
+        const needsUpdate =
+            Number(reservaLocked.idVendaJango) !== idVendaJango ||
+            !reservaLocked.dataHoraChegadaReal;
+
+        if (needsUpdate) {
+            await reservaLocked.update(payload, { transaction: t });
+        }
+
+        if (needsUpdate || alterouIngressos) {
+            houveAlteracao = true;
+        }
     });
 
     if (houveAlteracao) {

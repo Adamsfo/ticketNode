@@ -72,6 +72,11 @@ router.post(
     HospedagemAdminController.alterarPeriodo
 );
 router.patch(
+    '/hospedagem/reservas/:id/observacoes',
+    authenticate,
+    HospedagemAdminController.atualizarObservacoes
+);
+router.patch(
      '/hospedagem/reservas/:id/usuario',
      authenticate,
      HospedagemAdminController.atualizarUsuarioReserva

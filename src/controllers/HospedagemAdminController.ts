@@ -246,7 +246,7 @@ module.exports = {
                 );
             }
 
-            const suites = parseSuitesCheckout(req.body);
+            const suites = parseSuitesCheckout(req.body, { nomeOpcional: true });
             const pagamento = parsePagamentoRecepcao(req.body?.pagamento);
             const data = await criarReservaRecepcaoAdmin({
                 idUsuarioOperador,
@@ -299,7 +299,7 @@ module.exports = {
                 );
             }
 
-            const suites = parseSuitesCheckout(req.body);
+            const suites = parseSuitesCheckout(req.body, { nomeOpcional: true });
             const data = await criarReservaRecepcaoAdmin({
                 idUsuarioOperador,
                 idEvento,

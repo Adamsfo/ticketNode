@@ -1436,7 +1436,15 @@ export function parseParamsCotacao(query: any) {
     };
 }
 
-export function parseSuitesCheckout(body: any): SuiteCheckoutItem[] {
+export type ParseSuitesCheckoutOptions = {
+    /** Recepção/atendente: nome do hóspede é opcional (persiste string vazia). */
+    nomeOpcional?: boolean;
+};
+
+export function parseSuitesCheckout(
+    body: any,
+    options?: ParseSuitesCheckoutOptions
+): SuiteCheckoutItem[] {
     const suites = body?.suites;
     if (!Array.isArray(suites) || suites.length === 0) {
         throw new CustomError(
@@ -1446,6 +1454,8 @@ export function parseSuitesCheckout(body: any): SuiteCheckoutItem[] {
         );
     }
 
+    const nomeOpcional = options?.nomeOpcional === true;
+
     return suites.map((s: any, index: number) => {
         const idEventoSuite = parsePositiveInt(
             s.idEventoSuite,
@@ -1454,7 +1464,13 @@ export function parseSuitesCheckout(body: any): SuiteCheckoutItem[] {
         );
         const adultos = parsePositiveInt(s.adultos, `suites[${index}].adultos`, 1);
         const criancas = parsePositiveInt(s.criancas ?? 0, `suites[${index}].criancas`, 0);
-        const hospedes = parseHospedesSuite(s, index, adultos, criancas);
+        const hospedes = parseHospedesSuite(
+            s,
+            index,
+            adultos,
+            criancas,
+            nomeOpcional
+        );
         const desconto = parseDescontoRecepcao(s?.desconto, index);
         return { idEventoSuite, adultos, criancas, hospedes, desconto };
     });
@@ -1464,7 +1480,8 @@ function parseHospedesSuite(
     suite: any,
     index: number,
     adultos: number,
-    criancas: number
+    criancas: number,
+    nomeOpcional = false
 ): HospedeCheckoutItem[] {
     const hospedes = suite?.hospedes;
     if (!Array.isArray(hospedes)) {
@@ -1491,7 +1508,7 @@ function parseHospedesSuite(
     for (let hospedeIndex = 0; hospedeIndex < hospedes.length; hospedeIndex += 1) {
         const hospede = hospedes[hospedeIndex];
         const nome = String(hospede?.nome ?? '').trim();
-        if (!nome) {
+        if (!nome && !nomeOpcional) {
             throw new CustomError(
                 `suites[${index}].hospedes[${hospedeIndex}].nome é obrigatório.`,
                 400,

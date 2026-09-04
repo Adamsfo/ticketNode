@@ -85,6 +85,42 @@ const PdvApiJango = {
         }
         return null;
     },
+    /** Contagem read-only de ingressos de hospedagem (Registrar Chegada) por venda PDV. */
+    contarIngressosHospedagemPorVenda: async (id_venda) => {
+        const idVendaNum = Number(id_venda);
+        if (!Number.isFinite(idVendaNum) || idVendaNum <= 0) {
+            return { adultos: 0, criancas: 0 };
+        }
+        const qry = "select DESCRICAO, COUNT(*) as QTD from INGRESSO where ID_VENDA = " +
+            idVendaNum +
+            " and DESCRICAO in ('Adulto', 'Criança') group by DESCRICAO";
+        try {
+            const json = await apiFetchGet("/select/" + qry);
+            let adultos = 0;
+            let criancas = 0;
+            if (Array.isArray(json)) {
+                for (const row of json) {
+                    const desc = String(row.descricao ??
+                        row.DESCRICAO ??
+                        "");
+                    const qtd = Number(row.qtd ??
+                        row.QTD ??
+                        0);
+                    if (desc === "Adulto") {
+                        adultos = qtd;
+                    }
+                    else if (desc === "Criança") {
+                        criancas = qtd;
+                    }
+                }
+            }
+            return { adultos, criancas };
+        }
+        catch (error) {
+            console.error("Erro ao contar ingressos hospedagem por venda:", error);
+            throw error;
+        }
+    },
     abreConta: async (id_cliente) => {
         const idClienteNum = Number(id_cliente);
         if (!Number.isFinite(idClienteNum) || idClienteNum <= 0) {

@@ -30,7 +30,7 @@ function criarReservaBase(idUsuario: number) {
         saldoPendente: 0,
         Pagamentos: [{ valor: 500 }],
         Evento: { id: 1, idProdutor: 1 },
-        ReservaSuite: [],
+        ReservaSuite: [{ adultos: 1, criancas: 0 }],
         dataHoraChegadaReal: null,
         idVendaJango: null,
         preco: 400,
@@ -73,6 +73,11 @@ describe('registrarChegadaAdmin — autoresolução id_cliente Jango', () => {
             },
             getConta: async () => [{ id_venda: 777 }],
             abreConta: async () => 777,
+            contarIngressosHospedagemPorVenda: async () => ({
+                adultos: 1,
+                criancas: 0,
+            }),
+            inseriIngresso: async () => null,
         });
 
         require.cache[apiJangoPath] = {
