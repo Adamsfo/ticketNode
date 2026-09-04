@@ -12,6 +12,7 @@
     "test:evento-suite-limpeza-checkout": "node --require ts-node/register/transpile-only --test src/services/eventoSuiteLimpezaCheckoutService.test.ts",
     "test:evento-suite-limpeza-checkin": "node --require ts-node/register/transpile-only --test src/services/eventoSuiteLimpezaCheckinService.test.ts",
     "test:evento-suite-limpeza-operacao": "node --require ts-node/register/transpile-only --test src/services/eventoSuiteLimpezaOperacao.test.ts",
+    "test:hospedagem-registrar-chegada-jango": "node --require ts-node/register/transpile-only --test src/services/hospedagemAdminRegistrarChegadaJango.test.ts",
     "test:suite-disponibilidade": "node --require ts-node/register/transpile-only --test src/services/suiteDisponibilidadeService.test.ts",
     "test:hospedagem-cancelamento-admin": "node --require ts-node/register/transpile-only --test src/services/hospedagemCancelamentoAdminService.test.ts",
     "test:outbound-payload": "node --require ts-node/register/transpile-only --test src/integrations/hospedin/outbound/HospedinOutboundPayloadBuilder.test.ts",

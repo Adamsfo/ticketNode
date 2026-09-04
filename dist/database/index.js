@@ -94,6 +94,7 @@ const connection = new Sequelize(dbConfig);
         (0, ClienteMetodoPagamento_1.UsuarioMetodoPagamentoInit)(connection);
         (0, Visitas_1.VisitasInit)(connection);
         (0, HospedagemRefreshState_1.HospedagemRefreshStateInit)(connection);
+        // EventoSuiteLimpezaInit(connection)
         // Sincronizando os modelos com o banco de dados        
         // await connection.sync();
         // await connection.sync({ alter: true });

@@ -19,9 +19,14 @@ import {
     HistoricoTransacao,
 } from '../models/Transacao';
 import { CustomError } from '../utils/customError';
+import { isValidCpf } from '../utils/cpf';
 import apiJango from '../api/apiJango';
 import { criarLimpezasPendentesNoCheckout } from './eventoSuiteLimpezaCheckoutService';
 import { assertSuitesSemLimpezaAbertaParaCheckin } from './eventoSuiteLimpezaCheckinService';
+import {
+    EventoSuiteLimpeza,
+    StatusEventoSuiteLimpeza,
+} from '../models/EventoSuiteLimpeza';
 
 /**
  * Vincula o responsável da reserva ao cliente Jango (id_cliente).
@@ -2016,6 +2021,64 @@ async function montarDisponibilidadeOperacionalReserva(
 /**
  * Card Suítes (Parte 3): disponibilidade exclusivamente via SuiteDisponibilidadeService.
  */
+type LimpezaSuiteCardResumo = {
+    idEventoSuite: number;
+    idReservaHospedagem: number;
+    status: StatusEventoSuiteLimpeza;
+    updatedAt: Date;
+};
+
+async function carregarLimpezasPorSuite(
+    idsSuites: number[]
+): Promise<Map<number, LimpezaSuiteCardResumo[]>> {
+    const map = new Map<number, LimpezaSuiteCardResumo[]>();
+    if (idsSuites.length === 0) return map;
+
+    const rows = await EventoSuiteLimpeza.findAll({
+        where: { idEventoSuite: { [Op.in]: idsSuites } },
+        attributes: [
+            'idEventoSuite',
+            'idReservaHospedagem',
+            'status',
+            'updatedAt',
+        ],
+        order: [['updatedAt', 'DESC']],
+    });
+
+    for (const row of rows) {
+        const lista = map.get(row.idEventoSuite) ?? [];
+        lista.push({
+            idEventoSuite: row.idEventoSuite,
+            idReservaHospedagem: row.idReservaHospedagem,
+            status: row.status,
+            updatedAt: row.updatedAt,
+        });
+        map.set(row.idEventoSuite, lista);
+    }
+
+    return map;
+}
+
+/**
+ * Limpeza do turnover anterior à reserva exibida no card (checkout → limpeza).
+ * Não usa limpeza vinculada à mesma reserva do card.
+ */
+export function resolverStatusLimpezaSuiteCard(
+    idEventoSuite: number,
+    idReservaHospedagemAtual: number | null | undefined,
+    limpezasPorSuite: Map<number, LimpezaSuiteCardResumo[]>
+): StatusEventoSuiteLimpeza | null {
+    if (!idReservaHospedagemAtual) return null;
+
+    const lista = limpezasPorSuite.get(idEventoSuite) ?? [];
+    const turnover = lista.filter(
+        (l) => l.idReservaHospedagem !== idReservaHospedagemAtual
+    );
+    if (turnover.length === 0) return null;
+
+    return turnover[0].status;
+}
+
 function mapearCardSuiteOperacional(
     suite: EventoSuite & { Evento?: { id: number; nome: string } | null },
     reservasSuite: ReservaSuiteComHospedagem[],
@@ -2459,9 +2522,19 @@ export async function listarSituacaoSuites(params: {
         porSuite.set(item.idEventoSuite, lista);
     }
 
+    const limpezasPorSuite = await carregarLimpezasPorSuite(idsSuites);
+
     let cards = suites.map((suite) => {
         const reservasSuite = porSuite.get(suite.id) ?? [];
-        return mapearCardSuiteOperacional(suite, reservasSuite, ref);
+        const card = mapearCardSuiteOperacional(suite, reservasSuite, ref);
+        return {
+            ...card,
+            statusLimpezaSuite: resolverStatusLimpezaSuiteCard(
+                suite.id,
+                card.idReservaHospedagem,
+                limpezasPorSuite
+            ),
+        };
     });
 
     cards = filtrarCardsOperacionais(cards, filtro);
@@ -2686,18 +2759,73 @@ export async function registrarChegadaAdmin(
     }
 
     const titular = await Usuario.findByPk(reserva.idUsuario, {
-        attributes: ['id', 'id_cliente'],
+        attributes: [
+            'id',
+            'id_cliente',
+            'cpf',
+            'nomeCompleto',
+            'sobreNome',
+            'telefone',
+            'email',
+        ],
     });
     if (!titular) {
         throw new CustomError('Usuário responsável da reserva não encontrado.', 404, '');
     }
-    const idClienteTitular = Number(titular.id_cliente);
+
+    let idClienteTitular = Number(titular.id_cliente);
+
     if (!Number.isFinite(idClienteTitular) || idClienteTitular <= 0) {
-        throw new CustomError(
-            'O responsável da reserva precisa estar vinculado a um cliente Jango antes de registrar a chegada. Utilize "Cadastrar cliente" para vincular o id_cliente.',
-            400,
-            ''
-        );
+        const cpfDigits = String(titular.cpf ?? '').replace(/\D/g, '');
+        if (!isValidCpf(cpfDigits)) {
+            throw new CustomError(
+                'O responsável da reserva precisa estar vinculado a um cliente Jango antes de registrar a chegada. Utilize "Cadastrar cliente" para vincular o id_cliente.',
+                400,
+                ''
+            );
+        }
+
+        const dadosJango = await apiJango().getCliente(cpfDigits);
+        let clienteJango = Array.isArray(dadosJango) ? dadosJango[0] : undefined;
+
+        if (!clienteJango) {
+            const nomeCompletoJango = [titular.nomeCompleto, titular.sobreNome]
+                .map((parte) => String(parte ?? '').trim())
+                .filter(Boolean)
+                .join(' ');
+
+            await apiJango().atualizarCliente({
+                CPF_CNPJ: cpfDigits,
+                NOME: nomeCompletoJango,
+                TELEFONE_CELULAR: String(titular.telefone ?? '').replace(
+                    /\D/g,
+                    ''
+                ),
+                EMAIL: titular.email ? String(titular.email) : '',
+            });
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+            const dadosNovos = await apiJango().getCliente(cpfDigits);
+            if (!Array.isArray(dadosNovos) && dadosNovos?.error) {
+                throw new CustomError(String(dadosNovos.error), 400, '');
+            }
+            clienteJango = Array.isArray(dadosNovos) ? dadosNovos[0] : undefined;
+        }
+
+        if (clienteJango?.error) {
+            throw new CustomError(String(clienteJango.error), 400, '');
+        }
+
+        const idClienteResolvido = Number(clienteJango?.id_cliente);
+        if (!Number.isFinite(idClienteResolvido) || idClienteResolvido <= 0) {
+            throw new CustomError(
+                'O responsável da reserva precisa estar vinculado a um cliente Jango antes de registrar a chegada. Utilize "Cadastrar cliente" para vincular o id_cliente.',
+                400,
+                ''
+            );
+        }
+
+        await titular.update({ id_cliente: idClienteResolvido });
+        idClienteTitular = idClienteResolvido;
     }
 
     const dataHoraChegada = chegadaExistente

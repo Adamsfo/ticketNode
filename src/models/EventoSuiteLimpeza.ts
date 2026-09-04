@@ -138,11 +138,11 @@ class EventoSuiteLimpeza
                     {
                         name: 'uq_limpeza_reserva_suite',
                         unique: true,
-                        fields: ['idReservaHospedagem', 'idEventoSuite'],
+                        fields: ['id_reserva_hospedagem', 'id_evento_suite'],
                     },
                     {
                         name: 'idx_limpeza_suite_status',
-                        fields: ['idEventoSuite', 'status'],
+                        fields: ['id_evento_suite', 'status'],
                     },
                     {
                         name: 'idx_limpeza_status',
@@ -181,11 +181,11 @@ class EventoSuiteLimpeza
         });
         ReservaHospedagem.hasMany(EventoSuiteLimpeza, {
             foreignKey: 'idReservaHospedagem',
-            as: 'Limpezas',
+            as: 'LimpezasReserva',
         });
         ReservaSuite.hasMany(EventoSuiteLimpeza, {
             foreignKey: 'idReservaSuite',
-            as: 'Limpezas',
+            as: 'LimpezasReservaSuite',
         });
     }
 }
