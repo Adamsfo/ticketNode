@@ -20,6 +20,8 @@ import {
 
     obterReservaPublicaPorToken,
 
+    autenticarReservaPublicaPorToken,
+
 } from '../services/reservaSuiteService';
 
 
@@ -230,6 +232,17 @@ module.exports = {
             const token = String(req.params.token || '').trim();
             const data = await obterReservaPublicaPorToken(token);
             return res.status(200).json({ success: true, data });
+        } catch (error) {
+            next(error);
+        }
+    },
+
+    /** Magic login: token da reserva → JWT do cliente (mesmo formato do /login). */
+    async autenticarReservaPublicaPorToken(req: any, res: any, next: any) {
+        try {
+            const token = String(req.params.token || '').trim();
+            const jwt = await autenticarReservaPublicaPorToken(token);
+            return res.status(200).json({ data: jwt });
         } catch (error) {
             next(error);
         }

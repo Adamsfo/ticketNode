@@ -24,6 +24,7 @@ import {
 } from '../models/PagamentoHospedagem';
 import { Usuario } from '../models/Usuario';
 import { CustomError } from '../utils/customError';
+import { generateToken } from '../utils/jwtUtils';
 import {
     aplicarDescontoProporcional,
     calcularValorFinalComDesconto,
@@ -63,6 +64,7 @@ import {
 import {
     montarUrlPublicaReserva,
     notificarConfirmacaoHospedagem,
+    notificarExpiracaoHospedagem,
     notificarLinkPagamentoHospedagem,
 } from './hospedagemConfirmacaoNotificacao';
 import { buildObservacoesFieldsForCreate } from '../utils/reservaObservacoesUtils';
@@ -77,7 +79,7 @@ const STATUS_RESERVA_SUITE_OCUPA = [
 const MINUTOS_EXPIRACAO_RESERVA = 15;
 
 /** Link externo /reserva/:token (recepção → enviar para cliente). */
-const MINUTOS_EXPIRACAO_LINK_PAGAMENTO = 18;
+export const MINUTOS_EXPIRACAO_LINK_PAGAMENTO = 30;
 
 /** Origens de reserva feitas pelo cliente (online) — compatível com produção (CLIENTE) e legado (SITE). */
 const ORIGENS_RESERVA_CLIENTE_ONLINE = ['CLIENTE', 'SITE'] as const;
@@ -94,6 +96,13 @@ async function marcarReservaComoExpirada(
     hospedagem: ReservaHospedagem & { ReservaSuite?: ReservaSuite[] },
     descricaoHistorico: string
 ): Promise<void> {
+    if (hospedagem.status !== StatusReservaHospedagem.AguardandoPagamento) {
+        return;
+    }
+
+    const idReserva = hospedagem.id;
+    const enviarEmailExpiracao = Boolean(hospedagem.tokenPagamento);
+
     await connection.transaction(async (t: Transaction) => {
         await hospedagem.update(
             { status: StatusReservaHospedagem.Expirada },
@@ -120,6 +129,17 @@ async function marcarReservaComoExpirada(
             );
         }
     });
+
+    if (enviarEmailExpiracao) {
+        try {
+            await notificarExpiracaoHospedagem(idReserva);
+        } catch (error) {
+            console.error(
+                `Erro ao enviar e-mail de expiração da reserva ${idReserva}:`,
+                error
+            );
+        }
+    }
 }
 
 /** Gera token opaco para link /reserva/TOKEN. */
@@ -237,7 +257,7 @@ export async function cancelarReservasExpiradas(): Promise<number> {
 
     // 1) expiraEm preenchido → usa a data
     // 2) nulo + CLIENTE/SITE → legado 15 min
-    // 3) nulo + link externo (tokenPagamento) → 18 min a partir de createdAt
+    // 3) nulo + link externo (tokenPagamento) → 30 min a partir de createdAt
     const hospedagens = await ReservaHospedagem.findAll({
         where: {
             status: StatusReservaHospedagem.AguardandoPagamento,
@@ -305,7 +325,7 @@ export async function assertTransacaoHospedagemPagaivel(
     });
     if (!hospedagem) return;
 
-    // Só o link externo (/reserva/:token) entra nesta regra de 18 min.
+    // Só o link externo (/reserva/:token) entra nesta regra de expiração do link.
     if (!hospedagem.tokenPagamento) return;
 
     if (hospedagem.status === StatusReservaHospedagem.Expirada) {
@@ -1175,7 +1195,7 @@ export async function checkoutHospedagem(params: {
                 }),
                 idTransacao: null,
                 tokenPagamento,
-                // Link externo: expira 18 min após a criação (createdAt / agora).
+                // Link externo: expira 30 min após a criação (createdAt / agora).
                 expiraEm: isLinkCliente
                     ? calcularExpiraEmLinkPagamento(agora)
                     : null,
@@ -1889,6 +1909,7 @@ export async function obterReservaPublicaPorToken(token: string) {
         expiraEm: hospedagem.expiraEm ?? null,
         cliente: {
             nome: nomeCliente || usuario?.nomeCompleto || 'Cliente',
+            idUsuario: Number(hospedagem.idUsuario) || null,
         },
         evento: {
             id: evento?.id ?? hospedagem.idEvento,
@@ -1935,4 +1956,106 @@ export async function obterReservaPublicaPorToken(token: string) {
                 : null,
         },
     };
+}
+
+/** Magic login: token do link → JWT do Usuario da reserva (mesmo contrato do /login). */
+export async function autenticarReservaPublicaPorToken(token: string): Promise<string> {
+    const tokenLimpo = String(token || '').trim();
+    if (!tokenLimpo || tokenLimpo.length < 16) {
+        throw new CustomError('Token inválido.', 400, '');
+    }
+
+    await cancelarReservasExpiradas();
+
+    const hospedagem = await ReservaHospedagem.findOne({
+        where: { tokenPagamento: tokenLimpo },
+        include: [
+            {
+                model: Transacao,
+                as: 'Transacao',
+                attributes: ['id', 'status'],
+                required: false,
+            },
+        ],
+    });
+
+    if (!hospedagem) {
+        throw new CustomError('Reserva não encontrada.', 404, '');
+    }
+
+    if (
+        hospedagem.status === StatusReservaHospedagem.AguardandoPagamento &&
+        hospedagem.tokenPagamento
+    ) {
+        const createdAt = new Date(
+            (hospedagem as ReservaHospedagem & { createdAt?: Date }).createdAt ||
+                Date.now()
+        );
+        const limite =
+            hospedagem.expiraEm != null
+                ? new Date(hospedagem.expiraEm)
+                : calcularExpiraEmLinkPagamento(createdAt);
+        if (Date.now() >= limite.getTime()) {
+            await marcarReservaComoExpirada(
+                hospedagem as ReservaHospedagem & {
+                    ReservaSuite?: ReservaSuite[];
+                },
+                `Reserva de hospedagem expirada por falta de pagamento (${MINUTOS_EXPIRACAO_LINK_PAGAMENTO} minutos).`
+            );
+            throw new CustomError('Reserva expirada.', 400, '');
+        }
+    }
+
+    if (hospedagem.status === StatusReservaHospedagem.Expirada) {
+        throw new CustomError('Reserva expirada.', 400, '');
+    }
+
+    if (hospedagem.status !== StatusReservaHospedagem.AguardandoPagamento) {
+        throw new CustomError(
+            'Esta reserva não está disponível para pagamento.',
+            400,
+            ''
+        );
+    }
+
+    const transacao = (hospedagem as ReservaHospedagem & {
+        Transacao?: Transacao;
+    }).Transacao;
+
+    if (!hospedagem.idTransacao) {
+        throw new CustomError('Transação da reserva não encontrada.', 400, '');
+    }
+
+    if (transacao?.status === 'Pago') {
+        throw new CustomError('Esta reserva já foi paga.', 400, '');
+    }
+
+    const idUsuario = Number(hospedagem.idUsuario);
+    if (!Number.isFinite(idUsuario) || idUsuario <= 0) {
+        throw new CustomError('Usuário da reserva não encontrado.', 400, '');
+    }
+
+    const usuario = await Usuario.findByPk(idUsuario);
+    if (!usuario) {
+        throw new CustomError('Usuário não encontrado.', 404, '');
+    }
+
+    if (!usuario.ativo) {
+        throw new CustomError('Conta não ativada.', 403, '');
+    }
+
+    const email = String(usuario.email || '').trim();
+    if (!email || !email.includes('@')) {
+        throw new CustomError(
+            'E-mail do cliente inválido para pagamento.',
+            400,
+            ''
+        );
+    }
+
+    const jwt = generateToken(usuario);
+    usuario.token = jwt;
+    await usuario.save();
+
+    return jwt;
 }

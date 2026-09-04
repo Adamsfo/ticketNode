@@ -21,5 +21,9 @@ router.get(
 
 // Público: consulta da reserva pelo token do link (sem auth)
 router.get('/reserva/:token', ReservaSuiteController.reservaPublicaPorToken);
+router.post(
+    '/reserva/:token/autenticar',
+    ReservaSuiteController.autenticarReservaPublicaPorToken
+);
 
 module.exports = router;

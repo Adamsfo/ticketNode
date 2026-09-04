@@ -1,6 +1,6 @@
 import { formatInTimeZone } from 'date-fns-tz';
 import { Evento } from '../models/Evento';
-import { ReservaHospedagem } from '../models/ReservaHospedagem';
+import { ReservaHospedagem, StatusReservaHospedagem } from '../models/ReservaHospedagem';
 import { ReservaSuite } from '../models/ReservaSuite';
 import { EventoSuite } from '../models/EventoSuite';
 import { Usuario } from '../models/Usuario';
@@ -345,6 +345,8 @@ export function montarMensagemWhatsAppLinkPagamentoHospedagem(
 
 Sua reserva foi criada com sucesso.
 
+Importante: você tem 30 minutos para realizar o pagamento. Após esse prazo, a reserva será cancelada automaticamente.
+
 Para concluir sua reserva e efetuar o pagamento, acesse:
 
 ${conteudo.linkPagamento}`;
@@ -363,12 +365,115 @@ export function montarHtmlEmailLinkPagamentoHospedagem(
       <p><strong>Check-in:</strong> ${conteudo.checkin}</p>
       <p><strong>Check-out:</strong> ${conteudo.checkout}</p>
       <p><strong>Valor total:</strong> ${conteudo.valorTotal}</p>
+      <p><strong>Importante:</strong> você tem 30 minutos para realizar o pagamento. Após esse prazo, a reserva será cancelada automaticamente.</p>
       <p>Para concluir sua reserva e efetuar o pagamento, acesse:</p>
       <p><a href="${conteudo.linkPagamento}" style="color:#0b5fff;">${conteudo.linkPagamento}</a></p>
       <br/>
       <small>Jango Ingressos © ${new Date().getFullYear()}</small>
     </div>
   `;
+}
+
+export function montarHtmlEmailExpiracaoHospedagem(
+    conteudo: HospedagemConfirmacaoConteudo
+): string {
+    return `
+    <div style="font-family: Arial, sans-serif; color: #333; line-height: 1.5;">
+      <p>Olá, <strong>${conteudo.nomeCliente}</strong>,</p>
+      <p>Informamos que a sua reserva no Pesque Pague Jango foi cancelada porque o pagamento não foi realizado dentro do prazo de 30 minutos.</p>
+      <p><strong>Reserva:</strong> ${conteudo.idReserva}</p>
+      <p><strong>Check-in:</strong> ${conteudo.dataEntrada}</p>
+      <p><strong>Check-out:</strong> ${conteudo.dataSaida}</p>
+      <p>Caso ainda tenha interesse em se hospedar conosco, será necessário realizar uma nova reserva, sujeita à disponibilidade.</p>
+      <p>Se ainda deseja realizar sua hospedagem, você pode fazer uma nova reserva pelo site <a href="https://www.jangoingressos.com.br" style="color:#0b5fff;">www.jangoingressos.com.br</a>, sujeita à disponibilidade.</p>
+      <p>Atenciosamente,<br/>Pesque Pague Jango</p>
+      <br/>
+      <small>Jango Ingressos © ${new Date().getFullYear()}</small>
+    </div>
+  `;
+}
+
+export function montarMensagemWhatsAppExpiracaoHospedagem(
+    conteudo: HospedagemConfirmacaoConteudo
+): string {
+    return `Olá, ${conteudo.nomeCliente}.
+
+Sua reserva no Pesque Pague Jango foi cancelada porque o pagamento não foi realizado dentro do prazo de 30 minutos.
+
+Se ainda deseja realizar sua hospedagem, você pode fazer uma nova reserva pelo site:
+
+www.jangoingressos.com.br
+
+A nova reserva está sujeita à disponibilidade.
+
+Pesque Pague Jango`;
+}
+
+/**
+ * E-mail e WhatsApp automáticos quando a reserva expira por falta de pagamento (link externo).
+ */
+export async function notificarExpiracaoHospedagem(
+    idReservaHospedagem: number
+): Promise<void> {
+    const hospedagem = await ReservaHospedagem.findByPk(idReservaHospedagem, {
+        attributes: ['id', 'status', 'idTransacao', 'tokenPagamento'],
+    });
+
+    if (!hospedagem) {
+        console.error(
+            `Reserva ${idReservaHospedagem} não encontrada para notificação de expiração.`
+        );
+        return;
+    }
+
+    if (hospedagem.status !== StatusReservaHospedagem.Expirada) {
+        return;
+    }
+
+    if (!hospedagem.tokenPagamento || !hospedagem.idTransacao) {
+        return;
+    }
+
+    const conteudo = await carregarConteudoConfirmacaoHospedagem(
+        idReservaHospedagem,
+        hospedagem.idTransacao
+    );
+
+    if (!conteudo) {
+        console.error(
+            `Conteúdo não encontrado para expiração da reserva ${idReservaHospedagem}.`
+        );
+        return;
+    }
+
+    try {
+        if (conteudo.email) {
+            await enviarEmailCliente(
+                conteudo.email,
+                `Reserva cancelada por falta de pagamento - ${conteudo.nomeEvento}`,
+                montarHtmlEmailExpiracaoHospedagem(conteudo)
+            );
+        }
+    } catch (error) {
+        console.error(
+            `Erro ao enviar e-mail de expiração da reserva ${idReservaHospedagem}:`,
+            error
+        );
+    }
+
+    try {
+        if (conteudo.telefone) {
+            await enviarMensagemTextoZApi(
+                conteudo.telefone,
+                montarMensagemWhatsAppExpiracaoHospedagem(conteudo)
+            );
+        }
+    } catch (error) {
+        console.error(
+            `Erro ao enviar WhatsApp de expiração da reserva ${idReservaHospedagem}:`,
+            error
+        );
+    }
 }
 
 /**

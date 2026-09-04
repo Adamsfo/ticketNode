@@ -111,4 +111,15 @@ module.exports = {
             next(error);
         }
     },
+    /** Magic login: token da reserva → JWT do cliente (mesmo formato do /login). */
+    async autenticarReservaPublicaPorToken(req, res, next) {
+        try {
+            const token = String(req.params.token || '').trim();
+            const jwt = await (0, reservaSuiteService_1.autenticarReservaPublicaPorToken)(token);
+            return res.status(200).json({ data: jwt });
+        }
+        catch (error) {
+            next(error);
+        }
+    },
 };
