@@ -19,6 +19,7 @@
     "test:hospedagem-checkin-filtro": "node --require ts-node/register/transpile-only --test src/services/hospedagemAdminCheckinFiltro.test.ts",
     "test:hospedagem-cancelamento-admin": "node --require ts-node/register/transpile-only --test src/services/hospedagemCancelamentoAdminService.test.ts",
     "test:hospedagem-hospedes-nome-opcional": "node --require ts-node/register/transpile-only --test src/services/reservaSuiteService.parseHospedesSuite.test.ts",
+    "test:reserva-publica-hospedes": "node --require ts-node/register/transpile-only --test src/services/reservaPublicaHospedes.test.ts",
     "test:outbound-payload": "node --require ts-node/register/transpile-only --test src/integrations/hospedin/outbound/HospedinOutboundPayloadBuilder.test.ts",
     "test:outbound-update": "node --require ts-node/register/transpile-only --test src/integrations/hospedin/outbound/HospedinOutboundUpdate.test.ts",
     "test:outbound-snapshot": "node --require ts-node/register/transpile-only --test src/integrations/hospedin/outbound/HospedinOutboundSnapshot.test.ts",

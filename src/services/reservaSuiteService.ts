@@ -1790,17 +1790,46 @@ export async function obterReservaConfirmadaPorTransacao(
     };
 }
 
-/** Consulta pública da reserva pelo token do link (sem autenticação). */
-export async function obterReservaPublicaPorToken(token: string) {
+export type HospedeReservaPublicaUpdateItem = {
+    id: number;
+    nome: string;
+    dataNascimento?: string | null;
+};
+
+export type SuiteReservaPublicaUpdateItem = {
+    idReservaSuite: number;
+    hospedes: HospedeReservaPublicaUpdateItem[];
+};
+
+type ReservaHospedagemLinkCarregada = ReservaHospedagem & {
+    Usuario?: Usuario;
+    Evento?: Evento;
+    Transacao?: Transacao;
+    ReservaSuite?: Array<
+        ReservaSuite & {
+            EventoSuite?: EventoSuite;
+            ReservaHospede?: ReservaHospede[];
+        }
+    >;
+    createdAt?: Date;
+};
+
+function parseTokenReservaPublica(token: string): string {
     const tokenLimpo = String(token || '').trim();
     if (!tokenLimpo || tokenLimpo.length < 16) {
         throw new CustomError('Token inválido.', 400, '');
     }
+    return tokenLimpo;
+}
 
-    // Expira imediatamente se já passou o prazo (antes de montar a tela).
+async function carregarReservaHospedagemPorTokenPagamento(
+    token: string
+): Promise<ReservaHospedagemLinkCarregada> {
+    const tokenLimpo = parseTokenReservaPublica(token);
+
     await cancelarReservasExpiradas();
 
-    const hospedagem = await ReservaHospedagem.findOne({
+    const hospedagem = (await ReservaHospedagem.findOne({
         where: { tokenPagamento: tokenLimpo },
         include: [
             {
@@ -1837,49 +1866,263 @@ export async function obterReservaPublicaPorToken(token: string) {
                         as: 'EventoSuite',
                         attributes: ['nome'],
                     },
+                    {
+                        model: ReservaHospede,
+                        as: 'ReservaHospede',
+                        attributes: ['id', 'nome', 'tipo', 'dataNascimento', 'idReservaSuite'],
+                    },
                 ],
             },
         ],
-    });
+    })) as ReservaHospedagemLinkCarregada | null;
 
     if (!hospedagem) {
         throw new CustomError('Reserva não encontrada.', 404, '');
     }
 
-    // Garantia pontual: link vencido por createdAt/expiraEm mesmo se o job ainda não rodou.
+    return hospedagem;
+}
+
+async function expirarReservaLinkSeVencida(
+    hospedagem: ReservaHospedagemLinkCarregada
+): Promise<void> {
     if (
-        hospedagem.status === StatusReservaHospedagem.AguardandoPagamento &&
-        hospedagem.tokenPagamento
+        hospedagem.status !== StatusReservaHospedagem.AguardandoPagamento ||
+        !hospedagem.tokenPagamento
     ) {
-        const createdAt = new Date(
-            (hospedagem as ReservaHospedagem & { createdAt?: Date }).createdAt ||
-                Date.now()
+        return;
+    }
+
+    const createdAt = new Date(hospedagem.createdAt ?? Date.now());
+    const limite =
+        hospedagem.expiraEm != null
+            ? new Date(hospedagem.expiraEm)
+            : calcularExpiraEmLinkPagamento(createdAt);
+
+    if (Date.now() < limite.getTime()) {
+        return;
+    }
+
+    await marcarReservaComoExpirada(
+        hospedagem,
+        `Reserva de hospedagem expirada por falta de pagamento (${MINUTOS_EXPIRACAO_LINK_PAGAMENTO} minutos).`
+    );
+    hospedagem.status = StatusReservaHospedagem.Expirada;
+}
+
+export async function assertReservaEditavelPorLink(
+    hospedagem: ReservaHospedagemLinkCarregada
+): Promise<void> {
+    await expirarReservaLinkSeVencida(hospedagem);
+
+    if (hospedagem.status === StatusReservaHospedagem.Expirada) {
+        throw new CustomError('Reserva expirada.', 400, '');
+    }
+
+    if (hospedagem.status !== StatusReservaHospedagem.AguardandoPagamento) {
+        throw new CustomError(
+            'Esta reserva não está disponível para alteração.',
+            400,
+            ''
         );
-        const limite =
-            hospedagem.expiraEm != null
-                ? new Date(hospedagem.expiraEm)
-                : calcularExpiraEmLinkPagamento(createdAt);
-        if (Date.now() >= limite.getTime()) {
-            await marcarReservaComoExpirada(
-                hospedagem as ReservaHospedagem & {
-                    ReservaSuite?: ReservaSuite[];
-                },
-                `Reserva de hospedagem expirada por falta de pagamento (${MINUTOS_EXPIRACAO_LINK_PAGAMENTO} minutos).`
-            );
-            hospedagem.status = StatusReservaHospedagem.Expirada;
+    }
+}
+
+export function assertUsuarioDonoReservaPublica(
+    hospedagem: Pick<ReservaHospedagem, 'idUsuario'>,
+    idUsuarioJwt: number
+): void {
+    const idUsuarioReserva = Number(hospedagem.idUsuario);
+    if (
+        !Number.isFinite(idUsuarioJwt) ||
+        idUsuarioJwt <= 0 ||
+        idUsuarioJwt !== idUsuarioReserva
+    ) {
+        throw new CustomError('Sem permissão para alterar esta reserva.', 403, '');
+    }
+}
+
+export function prepararAtualizacaoHospedesReservaPublica(
+    suitesDb: Array<{
+        id: number;
+        adultos: number;
+        criancas: number;
+        ReservaHospede?: Array<{
+            id: number;
+            idReservaSuite: number;
+            nome: string;
+            tipo: TipoReservaHospede;
+            dataNascimento?: Date | string | null;
+        }>;
+    }>,
+    suitesBody: unknown
+): Array<{ id: number; nome: string; dataNascimento: Date | null }> {
+    if (!Array.isArray(suitesBody) || suitesBody.length !== suitesDb.length) {
+        throw new CustomError('Informe os hóspedes de todas as suítes.', 400, '');
+    }
+
+    const suiteIdsDb = new Set(suitesDb.map((suite) => suite.id));
+    const suiteIdsBody = suitesBody.map((suite) =>
+        Number((suite as SuiteReservaPublicaUpdateItem)?.idReservaSuite)
+    );
+
+    if (suiteIdsBody.some((id) => !Number.isFinite(id) || id <= 0)) {
+        throw new CustomError('Suíte informada é inválida.', 400, '');
+    }
+
+    if (new Set(suiteIdsBody).size !== suiteIdsBody.length) {
+        throw new CustomError('Suíte informada em duplicidade.', 400, '');
+    }
+
+    for (const id of suiteIdsDb) {
+        if (!suiteIdsBody.includes(id)) {
+            throw new CustomError('Informe os hóspedes de todas as suítes.', 400, '');
         }
     }
 
-    const usuario = (hospedagem as ReservaHospedagem & { Usuario?: Usuario })
-        .Usuario;
-    const evento = (hospedagem as ReservaHospedagem & { Evento?: Evento })
-        .Evento;
-    const transacao = (hospedagem as ReservaHospedagem & {
-        Transacao?: Transacao;
-    }).Transacao;
-    const suites = (hospedagem as ReservaHospedagem & {
-        ReservaSuite?: Array<ReservaSuite & { EventoSuite?: EventoSuite }>;
-    }).ReservaSuite ?? [];
+    const updates: Array<{ id: number; nome: string; dataNascimento: Date | null }> =
+        [];
+
+    for (const bodySuite of suitesBody as SuiteReservaPublicaUpdateItem[]) {
+        const idReservaSuite = Number(bodySuite.idReservaSuite);
+        const suiteDb = suitesDb.find((suite) => suite.id === idReservaSuite);
+        if (!suiteDb) {
+            throw new CustomError(
+                `Suíte ${idReservaSuite} não pertence a esta reserva.`,
+                400,
+                ''
+            );
+        }
+
+        const hospedesDb = [...(suiteDb.ReservaHospede ?? [])].sort(
+            (a, b) => a.id - b.id
+        );
+        const totalEsperado = suiteDb.adultos + suiteDb.criancas;
+
+        if (hospedesDb.length !== totalEsperado) {
+            throw new CustomError(
+                'Quantidade de hóspedes inconsistente na reserva.',
+                500,
+                ''
+            );
+        }
+
+        const hospedesBody = bodySuite.hospedes;
+        if (!Array.isArray(hospedesBody) || hospedesBody.length !== totalEsperado) {
+            throw new CustomError(
+                `Informe todos os hóspedes da suíte ${idReservaSuite}.`,
+                400,
+                ''
+            );
+        }
+
+        const hospedeIdsDb = new Set(hospedesDb.map((hospede) => hospede.id));
+        for (const item of hospedesBody) {
+            const id = Number(item?.id);
+            if (!Number.isFinite(id) || id <= 0 || !hospedeIdsDb.has(id)) {
+                throw new CustomError(
+                    `Hóspede informado não pertence à suíte ${idReservaSuite}.`,
+                    400,
+                    ''
+                );
+            }
+
+            const dbHospede = hospedesDb.find((hospede) => hospede.id === id);
+            if (!dbHospede || dbHospede.idReservaSuite !== idReservaSuite) {
+                throw new CustomError(
+                    `Hóspede informado não pertence à suíte ${idReservaSuite}.`,
+                    400,
+                    ''
+                );
+            }
+
+            const nome = String(item?.nome ?? '').trim();
+            if (!nome) {
+                throw new CustomError(
+                    `Nome do hóspede é obrigatório (suíte ${idReservaSuite}).`,
+                    400,
+                    ''
+                );
+            }
+
+            if (dbHospede.tipo === TipoReservaHospede.Adulto) {
+                updates.push({ id, nome, dataNascimento: null });
+                continue;
+            }
+
+            if (!item?.dataNascimento) {
+                throw new CustomError(
+                    `Data de nascimento é obrigatória para crianças (suíte ${idReservaSuite}).`,
+                    400,
+                    ''
+                );
+            }
+
+            const dataNascimento = new Date(item.dataNascimento);
+            if (Number.isNaN(dataNascimento.getTime())) {
+                throw new CustomError('Data de nascimento inválida.', 400, '');
+            }
+
+            const idade = calcularIdadeEmAnos(dataNascimento);
+            if (idade > IDADE_MAXIMA_CRIANCA_HOSPEDAGEM) {
+                throw new CustomError(
+                    `O hóspede "${nome}" tem ${idade} anos. A categoria Criança é válida somente até ${IDADE_MAXIMA_CRIANCA_HOSPEDAGEM} anos. Para hóspedes acima de ${IDADE_MAXIMA_CRIANCA_HOSPEDAGEM} anos, cadastre como Adulto.`,
+                    400,
+                    ''
+                );
+            }
+
+            updates.push({ id, nome, dataNascimento });
+        }
+    }
+
+    const idsAtualizados = new Set(updates.map((item) => item.id));
+    for (const suiteDb of suitesDb) {
+        for (const hospede of suiteDb.ReservaHospede ?? []) {
+            if (!idsAtualizados.has(hospede.id)) {
+                throw new CustomError('Informe todos os hóspedes da reserva.', 400, '');
+            }
+        }
+    }
+
+    return updates;
+}
+
+export function serializarSuitesReservaPublica(
+    suites: Array<
+        ReservaSuite & {
+            EventoSuite?: EventoSuite;
+            ReservaHospede?: ReservaHospede[];
+        }
+    >
+) {
+    return suites.map((suite) => ({
+        idReservaSuite: suite.id,
+        idEventoSuite: suite.idEventoSuite,
+        nome: suite.EventoSuite?.nome ?? `Suíte ${suite.idEventoSuite}`,
+        adultos: suite.adultos,
+        criancas: suite.criancas,
+        preco: toNumber(suite.preco),
+        taxaServico: toNumber(suite.taxaServico),
+        valorTotal: toNumber(suite.valorTotal),
+        hospedes: [...(suite.ReservaHospede ?? [])]
+            .sort((a, b) => a.id - b.id)
+            .map((hospede) => ({
+                id: hospede.id,
+                nome: hospede.nome,
+                tipo: hospede.tipo,
+                dataNascimento: hospede.dataNascimento
+                    ? String(hospede.dataNascimento)
+                    : null,
+            })),
+    }));
+}
+
+function montarRespostaReservaPublica(hospedagem: ReservaHospedagemLinkCarregada) {
+    const usuario = hospedagem.Usuario;
+    const evento = hospedagem.Evento;
+    const transacao = hospedagem.Transacao;
+    const suites = hospedagem.ReservaSuite ?? [];
 
     const totalAdultos = suites.reduce((s, i) => s + (i.adultos || 0), 0);
     const totalCriancas = suites.reduce((s, i) => s + (i.criancas || 0), 0);
@@ -1925,14 +2168,7 @@ export async function obterReservaPublicaPorToken(token: string) {
             adultos: totalAdultos,
             criancas: totalCriancas,
         },
-        suites: suites.map((suite) => ({
-            nome: suite.EventoSuite?.nome ?? `Suíte ${suite.idEventoSuite}`,
-            adultos: suite.adultos,
-            criancas: suite.criancas,
-            preco: toNumber(suite.preco),
-            taxaServico: toNumber(suite.taxaServico),
-            valorTotal: toNumber(suite.valorTotal),
-        })),
+        suites: serializarSuitesReservaPublica(suites),
         valores: {
             preco: toNumber(hospedagem.preco),
             taxaServico: toNumber(hospedagem.taxaServico),
@@ -1956,6 +2192,47 @@ export async function obterReservaPublicaPorToken(token: string) {
                 : null,
         },
     };
+}
+
+/** Consulta pública da reserva pelo token do link (sem autenticação). */
+export async function obterReservaPublicaPorToken(token: string) {
+    const hospedagem = await carregarReservaHospedagemPorTokenPagamento(token);
+    await expirarReservaLinkSeVencida(hospedagem);
+    return montarRespostaReservaPublica(hospedagem);
+}
+
+/** Salva hóspedes da reserva identificada pelo token (JWT do dono obrigatório). */
+export async function salvarHospedesReservaPublicaPorToken(
+    token: string,
+    body: unknown,
+    idUsuarioJwt: number
+) {
+    const hospedagem = await carregarReservaHospedagemPorTokenPagamento(token);
+    await assertReservaEditavelPorLink(hospedagem);
+    assertUsuarioDonoReservaPublica(hospedagem, idUsuarioJwt);
+
+    const suitesDb = hospedagem.ReservaSuite ?? [];
+    const suitesBody = (body as { suites?: unknown })?.suites;
+    const updates = prepararAtualizacaoHospedesReservaPublica(suitesDb, suitesBody);
+
+    await connection.transaction(async (t: Transaction) => {
+        for (const update of updates) {
+            await ReservaHospede.update(
+                {
+                    nome: update.nome,
+                    dataNascimento: update.dataNascimento,
+                },
+                {
+                    where: { id: update.id },
+                    transaction: t,
+                }
+            );
+        }
+    });
+
+    const hospedagemAtualizada =
+        await carregarReservaHospedagemPorTokenPagamento(token);
+    return montarRespostaReservaPublica(hospedagemAtualizada);
 }
 
 /** Magic login: token do link → JWT do Usuario da reserva (mesmo contrato do /login). */

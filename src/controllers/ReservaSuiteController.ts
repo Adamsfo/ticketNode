@@ -22,6 +22,8 @@ import {
 
     autenticarReservaPublicaPorToken,
 
+    salvarHospedesReservaPublicaPorToken,
+
 } from '../services/reservaSuiteService';
 
 
@@ -243,6 +245,26 @@ module.exports = {
             const token = String(req.params.token || '').trim();
             const jwt = await autenticarReservaPublicaPorToken(token);
             return res.status(200).json({ data: jwt });
+        } catch (error) {
+            next(error);
+        }
+    },
+
+    /** Salva hóspedes do link público — exige JWT do dono da reserva. */
+    async salvarHospedesReservaPublicaPorToken(req: any, res: any, next: any) {
+        try {
+            const token = String(req.params.token || '').trim();
+            const idUsuario = Number(req.user?.id);
+            if (!idUsuario) {
+                throw new CustomError('Usuário não autenticado.', 401, '');
+            }
+
+            const data = await salvarHospedesReservaPublicaPorToken(
+                token,
+                req.body,
+                idUsuario
+            );
+            return res.status(200).json({ success: true, data });
         } catch (error) {
             next(error);
         }

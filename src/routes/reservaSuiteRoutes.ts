@@ -25,5 +25,10 @@ router.post(
     '/reserva/:token/autenticar',
     ReservaSuiteController.autenticarReservaPublicaPorToken
 );
+router.put(
+    '/reserva/:token/hospedes',
+    authenticate,
+    ReservaSuiteController.salvarHospedesReservaPublicaPorToken
+);
 
 module.exports = router;

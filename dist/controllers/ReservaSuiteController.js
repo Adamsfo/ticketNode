@@ -122,4 +122,19 @@ module.exports = {
             next(error);
         }
     },
+    /** Salva hóspedes do link público — exige JWT do dono da reserva. */
+    async salvarHospedesReservaPublicaPorToken(req, res, next) {
+        try {
+            const token = String(req.params.token || '').trim();
+            const idUsuario = Number(req.user?.id);
+            if (!idUsuario) {
+                throw new customError_1.CustomError('Usuário não autenticado.', 401, '');
+            }
+            const data = await (0, reservaSuiteService_1.salvarHospedesReservaPublicaPorToken)(token, req.body, idUsuario);
+            return res.status(200).json({ success: true, data });
+        }
+        catch (error) {
+            next(error);
+        }
+    },
 };
