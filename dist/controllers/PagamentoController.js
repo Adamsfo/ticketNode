@@ -433,7 +433,10 @@ module.exports = {
             };
             // Só adiciona application_fee se cobrarTaxa for verdadeiro
             if (evento?.idProdutor === 1) {
-                body.application_fee = parseFloat((transacao?.taxaServico ?? "0").toString()) || 0.00;
+                const applicationFee = parseFloat(String(transacao?.taxaServico ?? 0));
+                if (applicationFee > 0) {
+                    body.application_fee = applicationFee;
+                }
             }
             const requestOptions = {
                 idempotencyKey: generateUniqueIdempotencyKey(), // Gere uma chave de idempotência única
@@ -559,7 +562,10 @@ module.exports = {
             };
             // Só adiciona application_fee se cobrarTaxa for verdadeiro
             if (evento?.idProdutor === 1) {
-                body.application_fee = parseFloat((transacao?.taxaServico ?? "0").toString()) || 0.00;
+                const applicationFee = parseFloat(String(transacao?.taxaServico ?? 0));
+                if (applicationFee > 0) {
+                    body.application_fee = applicationFee;
+                }
             }
             const requestOptions = {
                 idempotencyKey: generateUniqueIdempotencyKey(), // Gere uma chave de idempotência única
@@ -654,7 +660,10 @@ module.exports = {
             };
             // Só adiciona application_fee se cobrarTaxa for verdadeiro
             if (evento?.idProdutor === 1) {
-                body.application_fee = parseFloat((transacao?.taxaServico ?? "0").toString()) || 0.00;
+                const applicationFee = parseFloat(String(transacao?.taxaServico ?? 0));
+                if (applicationFee > 0) {
+                    body.application_fee = applicationFee;
+                }
             }
             const result = await payment.create({ body });
             // Salvar dados de pagamento
