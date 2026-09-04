@@ -2335,7 +2335,7 @@ async function carregarReservasSuitesOperacionais(
     })) as ReservaSuiteComHospedagem[];
 }
 
-function filtrarCardsOperacionais<
+export function filtrarCardsOperacionais<
     T extends {
         status: StatusOperacionalSuite;
         ocupadaAgora?: boolean;
@@ -2344,6 +2344,8 @@ function filtrarCardsOperacionais<
         checkoutHoje?: boolean;
         disponivelHojeAposCheckout?: boolean;
         aguardandoPagamento?: boolean;
+        /** Espelha possuiCheckinNaData (SuiteDisponibilidadeService). */
+        bloqueadaPorCheckinNaData?: boolean;
     }
 >(cards: T[], filtro: FiltroSuitesOperacional): T[] {
     switch (filtro) {
@@ -2364,10 +2366,9 @@ function filtrarCardsOperacionais<
                     (c.ocupadaAgora === true && c.status !== 'CheckInHoje')
             );
         case 'checkin_hoje':
-            return cards.filter(
-                (c) =>
-                    c.status === 'CheckInHoje' || c.checkinHoje === true
-            );
+            // Aba Check-in: suítes com check-in civil na data selecionada,
+            // independente do badge (ex.: CHECKOUT_HOJE quando CI=CO no mesmo dia).
+            return cards.filter((c) => c.bloqueadaPorCheckinNaData === true);
         case 'checkout_hoje':
             return cards.filter(
                 (c) =>
