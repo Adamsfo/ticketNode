@@ -30,6 +30,8 @@ export type HospedagemConfirmacaoConteudo = {
     nomeEvento: string;
     checkin: string;
     checkout: string;
+    dataEntrada: string;
+    dataSaida: string;
     noites: number;
     suites: SuiteConfirmacaoNotificacao[];
     valorTotal: string;
@@ -37,6 +39,10 @@ export type HospedagemConfirmacaoConteudo = {
 
 function formatarDataHospedagem(data: Date): string {
     return formatInTimeZone(data, 'America/Cuiaba', 'dd/MM/yyyy HH:mm');
+}
+
+function formatarDataHospedagemSomenteData(data: Date): string {
+    return formatInTimeZone(data, 'America/Cuiaba', 'dd/MM/yyyy');
 }
 
 function formatarMoeda(valor: number): string {
@@ -90,6 +96,8 @@ export async function carregarConteudoConfirmacaoHospedagem(
         nomeEvento: evento?.nome ?? 'Pousada',
         checkin: formatarDataHospedagem(hospedagem.checkin),
         checkout: formatarDataHospedagem(hospedagem.checkout),
+        dataEntrada: formatarDataHospedagemSomenteData(hospedagem.checkin),
+        dataSaida: formatarDataHospedagemSomenteData(hospedagem.checkout),
         noites: hospedagem.noites,
         suites: suites.map((suite) => ({
             nome: suite.EventoSuite?.nome ?? `Suíte ${suite.idEventoSuite}`,
@@ -100,33 +108,114 @@ export async function carregarConteudoConfirmacaoHospedagem(
     };
 }
 
+export function montarTextoPlanoConfirmacaoHospedagem(
+    conteudo: HospedagemConfirmacaoConteudo
+): string {
+    const { nomeCliente, dataEntrada, dataSaida } = conteudo;
+
+    return `✅ Reserva confirmada – PESQUE PAGUE JANGO
+
+Olá, ${nomeCliente}!
+Passando para confirmar sua reserva conosco. Abaixo seguem todas as informações importantes para garantir sua melhor experiência. Por favor, leia com atenção:
+
+⸻
+
+INFORMAÇÕES GERAIS DA SUA RESERVA
+• Entrada no pesqueiro: a partir das 14h do dia ${dataEntrada}
+• Check-in no quarto: a partir das 16h, com prazo máximo até 19h
+• Check-out do quarto: entre 08h e 13h do dia ${dataSaida}
+• Após o check-out, você pode continuar no pesqueiro até as 17h30, aproveitando nossa área de lazer.
+• ATENÇÃO: cascata e escorregador não funcionam após as 17h, sendo religados no outro dia às 08h.
+
+⸻
+
+O QUE ESTÁ INCLUSO NA DIÁRIA
+• Café da manhã: servido das 08h às 10h
+• Piscinas liberadas durante todo o dia e noite
+• Pesca esportiva (pesque e solte) – em horário livre para hóspedes
+
+⸻
+
+O QUE NÃO ESTÁ INCLUSO
+• Almoço
+• Jantar
+• Bebidas
+• Iscas
+• Material de pesca
+
+⸻
+
+SOBRE PESCA E EQUIPAMENTOS
+• Pode trazer seu próprio equipamento e iscas
+• Proibido trazer ração – pois é feito controle pelo pesqueiro para garantir a qualidade da água e a saúde dos peixes
+• Temos à disposição:
+• Aluguel de vara com molinete: R$ 30,00 a diária
+• Isca (salsicha): R$ 4,00 o copo. Outras que variam de valores até R$ 26,00.
+• Balde de ração: R$ 20,00 (1 por pescador)
+
+⸻
+
+ALIMENTAÇÃO
+• Jantar:
+• Pedido obrigatoriamente até as 17h30. Se não chegar a tempo, pode pedir por WhatsApp.
+• O bar fecha às 19h para hóspedes – garanta suas bebidas com antecedência.
+• Almoço (finais de semana e feriados): Servido das 12h às 14h, sistema buffet a R$ 99,90/kg
+• Almoço (dias de semana): À la carte, conforme cardápio
+
+⸻
+
+WI-FI DISPONÍVEL
+Senha: 12345678
+
+⸻
+
+IMPORTANTE – REGRAS DO PESQUEIRO
+
+❌ Proibida a entrada de pet.
+
+• Proibida entrada com comida ou bebida
+• Proibida entrada com caixa térmica
+• Proibido uso de caixa de som
+• Proibido fazer churrasco nas dependências
+• Proibido uso de linha multifilamento
+• Recomendamos linha monofilamento 0.35mm ou superior
+• Anzol com fisga não é permitido (pode usar sem fisga ou amassar a fisga)
+• Proibido uso de alicate de contenção
+• Proibido uso de iscas artificiais.
+
+* SE HOUVER DESCUMPRIMENTO DE QUALQUER REGRA SERÁ COBRADA MULTA.
+
+⸻
+
+POLÍTICA DE CANCELAMENTO
+• Não há reembolso do valor pago antecipadamente
+• É possível remarcar com no mínimo 72h de antecedência
+• Não remarcamos por motivo de condições climáticas
+• Em caso de no-show, não haverá reembolso
+
+⸻
+
+A equipe do Pesque Pague Jango agradece pela preferência e deseja uma estadia incrível!
+Qualquer dúvida, estamos à disposição pelo WhatsApp.`;
+}
+
+function escaparHtml(texto: string): string {
+    return texto
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
 export function montarHtmlEmailConfirmacaoHospedagem(
     conteudo: HospedagemConfirmacaoConteudo
 ): string {
-    const suitesHtml = conteudo.suites
-        .map(
-            (suite) => `
-        <li style="margin-bottom: 8px;">
-          <strong>${suite.nome}</strong><br/>
-          ${suite.adultos} adulto(s), ${suite.criancas} criança(s)
-        </li>`
-        )
-        .join('');
+    const texto = montarTextoPlanoConfirmacaoHospedagem(conteudo);
+    const htmlCorpo = escaparHtml(texto).replace(/\n/g, '<br/>');
 
     return `
     <div style="font-family: Arial, sans-serif; color: #333; line-height: 1.5;">
-      <h2>Reserva confirmada</h2>
-      <p>Olá, <strong>${conteudo.nomeCliente}</strong>!</p>
-      <p>Sua hospedagem foi confirmada com sucesso.</p>
-      <p><strong>Número da reserva:</strong> ${conteudo.idReserva}</p>
-      <p><strong>Evento/Pousada:</strong> ${conteudo.nomeEvento}</p>
-      <p><strong>Check-in:</strong> ${conteudo.checkin}</p>
-      <p><strong>Check-out:</strong> ${conteudo.checkout}</p>
-      <p><strong>Diárias:</strong> ${conteudo.noites}</p>
-      <p><strong>Suítes reservadas:</strong></p>
-      <ul>${suitesHtml}</ul>
-      <p><strong>Valor pago:</strong> ${conteudo.valorTotal}</p>
-      <p>Obrigado por escolher a Jango Ingressos. Aguardamos você!</p>
+      ${htmlCorpo}
       <br/>
       <small>Jango Ingressos © ${new Date().getFullYear()}</small>
     </div>
@@ -136,27 +225,7 @@ export function montarHtmlEmailConfirmacaoHospedagem(
 export function montarMensagemWhatsAppConfirmacaoHospedagem(
     conteudo: HospedagemConfirmacaoConteudo
 ): string {
-    const suitesTexto = conteudo.suites
-        .map((suite) => {
-            const hospedes = formatarHospedesWhatsApp(suite.adultos, suite.criancas);
-            return `- Suíte ${suite.nome}\n${hospedes}`;
-        })
-        .join('\n\n');
-
-    return `✅ Reserva confirmada
-
-Evento: ${conteudo.nomeEvento}
-Check-in: ${conteudo.checkin}
-Check-out: ${conteudo.checkout}
-Diárias: ${conteudo.noites}
-
-Suítes:
-
-${suitesTexto}
-
-Valor total: ${conteudo.valorTotal}
-
-Aguardamos você! Em caso de dúvidas entre em contato conosco.`;
+    return montarTextoPlanoConfirmacaoHospedagem(conteudo);
 }
 
 export async function enviarEmailConfirmacaoHospedagem(
