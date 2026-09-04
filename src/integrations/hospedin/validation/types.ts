@@ -16,6 +16,8 @@ export type ValidationStatus =
     | 'CANCELLED'
     /** Reserva Jango existe mas origem ≠ HOSPEDIN. */
     | 'ORIGIN_CONFLICT'
+    /** Reserva local encontrada por id_externo/codigo_externo — vincular sem CREATE/UPDATE. */
+    | 'LINKED_EXISTING'
     | 'IGNORED'
     | 'ERROR';
 
@@ -28,6 +30,8 @@ export type ValidationStep = {
     implemented: boolean;
     /** Código opcional para classificação do resultado. */
     code?: string;
+    /** ReservaHospedagem vinculada nesta validação (quando aplicável). */
+    internalEntityId?: number;
 };
 
 export type ValidationResult = {

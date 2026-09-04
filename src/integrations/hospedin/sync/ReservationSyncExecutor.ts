@@ -16,6 +16,7 @@ import { placeSuiteResolver } from '../services/PlaceSuiteResolver';
 import { reservationCreationService } from '../services/ReservationCreationService';
 import { reservationUpdateService } from '../services/ReservationUpdateService';
 import { reservationCancellationService } from '../services/ReservationCancellationService';
+import { resolveExistingReservationLink } from '../services/HospedinReservationLinkService';
 import { hospedinSyncLogService } from '../services/HospedinSyncLogService';
 import {
     applyFailureClassification,
@@ -97,16 +98,102 @@ export class ReservationSyncExecutor {
         }
 
         try {
+            let action = decision.action;
+
             await integrationSyncStateService.updateState({
                 ...identity,
                 syncStatus: IntegrationSyncStatus.SYNCING,
-                syncAction: decision.action,
+                syncAction: action,
                 lastError: null,
-                reason: `Início ${decision.action}`,
+                reason: `Início ${action}`,
                 operacao: 'sync_state_syncing',
             });
 
-            if (decision.action === 'CREATE') {
+            if (action === 'CREATE') {
+                const stagingRow = await HospedinReservation.findOne({
+                    where: { reservation_id: decision.reservationId },
+                });
+                const existingLink = await resolveExistingReservationLink({
+                    reservationId: decision.reservationId,
+                    staging: stagingRow,
+                    internalEntityId: syncState.internal_entity_id,
+                });
+
+                if (existingLink?.linkOnly) {
+                    const synced =
+                        await integrationSyncStateService.markSynced({
+                            ...identity,
+                            internalEntityId: String(
+                                existingLink.idReservaHospedagem
+                            ),
+                            incrementSyncVersion: false,
+                            reason: `Vinculada a ReservaHospedagem id=${existingLink.idReservaHospedagem} (${existingLink.matchedBy}, origem=${existingLink.origemReserva}) — sem CREATE.`,
+                        });
+                    const syncVersion = Number(synced.sync_version || 0);
+
+                    await this.logExecutor({
+                        operacao: 'sync_executor_link_existing',
+                        started,
+                        decision,
+                        correlationId,
+                        sucesso: true,
+                        internalEntityId: existingLink.idReservaHospedagem,
+                        syncVersion,
+                        response: {
+                            idReservaHospedagem:
+                                existingLink.idReservaHospedagem,
+                            sync_version: syncVersion,
+                            matchedBy: existingLink.matchedBy,
+                            changes: [
+                                {
+                                    field: 'link_existing',
+                                    before: null,
+                                    after: existingLink.idReservaHospedagem,
+                                },
+                            ],
+                            message: `Reserva existente vinculada id=${existingLink.idReservaHospedagem}`,
+                        },
+                    });
+
+                    await recordEntitySyncEvent({
+                        provider: IntegrationProvider.HOSPEDIN,
+                        externalId: decision.reservationId,
+                        internalEntityId: String(
+                            existingLink.idReservaHospedagem
+                        ),
+                        operation: 'LINK_EXISTING',
+                        result: 'SUCCESS',
+                        message: `Vinculada a ReservaHospedagem id=${existingLink.idReservaHospedagem} (${existingLink.matchedBy})`,
+                        durationMs: Date.now() - started,
+                        correlationId,
+                    });
+
+                    return {
+                        ok: true,
+                        action: 'CREATE',
+                        reservationId: decision.reservationId,
+                        correlationId,
+                        internalEntityId: String(
+                            existingLink.idReservaHospedagem
+                        ),
+                        syncVersion,
+                        status: IntegrationSyncStatus.SYNCED,
+                        message: `Reserva existente vinculada id=${existingLink.idReservaHospedagem} — CREATE não executado.`,
+                        code: 'LINKED_EXISTING',
+                    };
+                }
+
+                if (existingLink && !existingLink.linkOnly) {
+                    syncState = await integrationSyncStateService.updateState({
+                        ...identity,
+                        internalEntityId: String(
+                            existingLink.idReservaHospedagem
+                        ),
+                        reason: `Reserva HOSPEDIN existente id=${existingLink.idReservaHospedagem} — redirecionando para UPDATE.`,
+                        operacao: 'sync_state_link_before_update',
+                    });
+                    action = 'UPDATE';
+                } else if (!existingLink) {
                 const ctx = await this.buildContext(decision, syncState, {
                     requireSuite: true,
                 });
@@ -164,9 +251,10 @@ export class ReservationSyncExecutor {
                     status: IntegrationSyncStatus.SYNCED,
                     message: `Reserva criada id=${created.idReservaHospedagem} (versão ${syncVersion})`,
                 };
+                }
             }
 
-            if (decision.action === 'UPDATE') {
+            if (action === 'UPDATE') {
                 const ctx = await this.buildContext(decision, syncState, {
                     requireSuite: true,
                 });

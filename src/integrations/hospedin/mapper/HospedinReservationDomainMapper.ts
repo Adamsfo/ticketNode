@@ -33,6 +33,49 @@ export type HospedinToJangoCreateParams = {
     externalReservationId: number;
 };
 
+export type OperationalGuestCounts = {
+    adultos: number;
+    criancas: number;
+};
+
+/**
+ * Contagem operacional da reserva (ReservaSuite.adultos / criancas).
+ * Fonte primária: payload.adults / payload.children da Hospedin.
+ * namedGuests representa somente hóspedes com nome — não inventar extras.
+ */
+export function resolveOperationalGuestCounts(
+    payload: Record<string, unknown>,
+    namedGuests: HospedeCheckoutItem[]
+): OperationalGuestCounts {
+    const adultosPayload = asNumber(payload.adults) ?? asNumber(payload.adultos);
+    const criancasPayload =
+        asNumber(payload.children) ?? asNumber(payload.criancas);
+
+    const namedAdults = namedGuests.filter(
+        (g) => g.tipo === TipoReservaHospede.Adulto
+    ).length;
+    const namedChildren = namedGuests.filter(
+        (g) => g.tipo === TipoReservaHospede.Crianca
+    ).length;
+
+    const hasOfficialAdults = adultosPayload != null && adultosPayload >= 0;
+    const hasOfficialChildren = criancasPayload != null && criancasPayload >= 0;
+
+    if (hasOfficialAdults) {
+        return {
+            adultos: Math.max(1, Math.floor(adultosPayload)),
+            criancas: hasOfficialChildren
+                ? Math.max(0, Math.floor(criancasPayload))
+                : Math.max(0, namedChildren),
+        };
+    }
+
+    return {
+        adultos: Math.max(0, namedAdults),
+        criancas: Math.max(0, namedChildren),
+    };
+}
+
 /**
  * Transformação Hospedin (DTO/staging) → parâmetros do domínio Jango.
  * Sem persistência. Sem regras de disponibilidade/tarifa.
@@ -103,12 +146,10 @@ export const HospedinReservationDomainMapper = {
             );
         }
 
-        const adultos = guests.filter(
-            (g) => g.tipo === TipoReservaHospede.Adulto
-        ).length;
-        const criancas = guests.filter(
-            (g) => g.tipo === TipoReservaHospede.Crianca
-        ).length;
+        const { adultos, criancas } = resolveOperationalGuestCounts(
+            payload,
+            guests
+        );
 
         if (adultos < 1) {
             throw new HospedinDomainMappingError(
@@ -177,16 +218,10 @@ export const HospedinReservationDomainMapper = {
         }
 
         const guests = extractGuests(payload);
-        const adultosPayload = asNumber(payload.adults) ?? asNumber(payload.adultos);
-        const criancasPayload =
-            asNumber(payload.children) ?? asNumber(payload.criancas);
-
-        const adultos =
-            guests.filter((g) => g.tipo === TipoReservaHospede.Adulto).length ||
-            Number(adultosPayload || 0);
-        const criancas =
-            guests.filter((g) => g.tipo === TipoReservaHospede.Crianca).length ||
-            Number(criancasPayload || 0);
+        const { adultos, criancas } = resolveOperationalGuestCounts(
+            payload,
+            guests
+        );
 
         return {
             checkin: periodo.checkin,
@@ -359,6 +394,7 @@ function mapGuestRecord(
         row.is_child === true;
 
     const birth =
+        asDate(row.birth) ||
         asDate(row.birthdate) ||
         asDate(row.birth_date) ||
         asDate(row.data_nascimento) ||

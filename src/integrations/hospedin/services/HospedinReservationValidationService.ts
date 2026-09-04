@@ -36,6 +36,11 @@ import {
     SyncResolutionStatus,
 } from '../../core/syncErrorClassification';
 import { recordEntitySyncEvent } from '../../core/EntitySyncEventService';
+import {
+    extractHospedinSearchableCode,
+    findReservaHospedagemByHospedinIdentifiers,
+    reservaMatchesHospedinExternalIds,
+} from './ReservationExternalMatchService';
 
 type ValidationContext = {
     reservationId: number;
@@ -456,51 +461,107 @@ export class HospedinReservationValidationService {
             ? Number(state.internal_entity_id)
             : null;
 
-        if (!internalId || !Number.isFinite(internalId) || internalId <= 0) {
-            return {
-                rule: 'validateExistingReservation',
-                success: true,
-                message: 'Sem reserva Jango vinculada — candidato a CREATE.',
-                durationMs: Date.now() - started,
-                implemented: true,
-                code: 'NEW',
-            };
-        }
-
         const { ReservaHospedagem } = await import(
             '../../../models/ReservaHospedagem'
         );
-        const reserva = await ReservaHospedagem.findByPk(internalId);
-        if (!reserva) {
+
+        if (internalId && Number.isFinite(internalId) && internalId > 0) {
+            const reserva = await ReservaHospedagem.findByPk(internalId);
+            if (!reserva) {
+                return {
+                    rule: 'validateExistingReservation',
+                    success: false,
+                    message: `internal_entity_id=${internalId} órfão (ReservaHospedagem inexistente).`,
+                    durationMs: Date.now() - started,
+                    implemented: true,
+                    code: 'INTERNAL_ENTITY_MISSING',
+                };
+            }
+
+            const origem = String((reserva as any).origemReserva || '');
+            if (origem !== 'HOSPEDIN') {
+                const searchableCode = extractHospedinSearchableCode(ctx.payload);
+                const externalMatch = reservaMatchesHospedinExternalIds(
+                    {
+                        idExterno: (reserva as any).idExterno,
+                        codigoExterno: (reserva as any).codigoExterno,
+                    },
+                    {
+                        reservationId: ctx.reservationId,
+                        searchableCode,
+                    }
+                );
+                if (externalMatch.matched) {
+                    return {
+                        rule: 'validateExistingReservation',
+                        success: true,
+                        message: `Reserva Jango #${internalId} (${origem}) vinculada por ${externalMatch.matchedBy} — sem CREATE/UPDATE.`,
+                        durationMs: Date.now() - started,
+                        implemented: true,
+                        code: 'LINKED_EXISTING',
+                        internalEntityId: internalId,
+                    };
+                }
+
+                return {
+                    rule: 'validateExistingReservation',
+                    success: false,
+                    message: `origemReserva=${origem || 'null'} — Hospedin não sobrescreve.`,
+                    durationMs: Date.now() - started,
+                    implemented: true,
+                    code: 'ORIGIN_CONFLICT',
+                };
+            }
+
             return {
                 rule: 'validateExistingReservation',
-                success: false,
-                message: `internal_entity_id=${internalId} órfão (ReservaHospedagem inexistente).`,
+                success: true,
+                message: `Reserva Jango #${internalId} (HOSPEDIN) — candidato a UPDATE/CANCEL.`,
                 durationMs: Date.now() - started,
                 implemented: true,
-                code: 'INTERNAL_ENTITY_MISSING',
+                code: 'ALREADY_IMPORTED',
+                internalEntityId: internalId,
             };
         }
 
-        const origem = String((reserva as any).origemReserva || '');
-        if (origem !== 'HOSPEDIN') {
+        const searchableCode = extractHospedinSearchableCode(ctx.payload);
+        const externalMatch = await findReservaHospedagemByHospedinIdentifiers({
+            reservationId: ctx.reservationId,
+            searchableCode,
+        });
+
+        if (externalMatch) {
+            const origem = String(externalMatch.origemReserva || '').toUpperCase();
+            if (origem === 'HOSPEDIN') {
+                return {
+                    rule: 'validateExistingReservation',
+                    success: true,
+                    message: `Reserva Jango #${externalMatch.idReservaHospedagem} encontrada por ${externalMatch.matchedBy} — candidato a UPDATE.`,
+                    durationMs: Date.now() - started,
+                    implemented: true,
+                    code: 'ALREADY_IMPORTED',
+                    internalEntityId: externalMatch.idReservaHospedagem,
+                };
+            }
+
             return {
                 rule: 'validateExistingReservation',
-                success: false,
-                message: `origemReserva=${origem || 'null'} — Hospedin não sobrescreve.`,
+                success: true,
+                message: `Reserva Jango #${externalMatch.idReservaHospedagem} encontrada por ${externalMatch.matchedBy} (origem=${externalMatch.origemReserva}) — vincular sem CREATE.`,
                 durationMs: Date.now() - started,
                 implemented: true,
-                code: 'ORIGIN_CONFLICT',
+                code: 'LINKED_EXISTING',
+                internalEntityId: externalMatch.idReservaHospedagem,
             };
         }
 
         return {
             rule: 'validateExistingReservation',
             success: true,
-            message: `Reserva Jango #${internalId} (HOSPEDIN) — candidato a UPDATE/CANCEL.`,
+            message: 'Sem reserva Jango vinculada — candidato a CREATE.',
             durationMs: Date.now() - started,
             implemented: true,
-            code: 'ALREADY_IMPORTED',
+            code: 'NEW',
         };
     }
 
@@ -595,6 +656,15 @@ export class HospedinReservationValidationService {
                 s.rule === 'validateSuiteMapping' && s.code === 'SUITE_IGNORED'
         );
         const suiteIgnored = Boolean(suiteIgnoredStep);
+        const existingReservationStep = result.validations.find(
+            (s) => s.rule === 'validateExistingReservation' && s.implemented
+        );
+        const linkedInternalEntityId =
+            existingReservationStep?.internalEntityId != null &&
+            Number.isFinite(Number(existingReservationStep.internalEntityId)) &&
+            Number(existingReservationStep.internalEntityId) > 0
+                ? String(existingReservationStep.internalEntityId)
+                : undefined;
         const errorText =
             result.errors.length > 0
                 ? result.errors.join('; ')
@@ -620,6 +690,9 @@ export class HospedinReservationValidationService {
             payloadHash,
             touchValidation: true,
             lastError: errorText,
+            ...(linkedInternalEntityId
+                ? { internalEntityId: linkedInternalEntityId }
+                : {}),
             reason: `Validação concluída: ${finalValidation}`,
             operacao: 'sync_state_validated',
         });
@@ -675,10 +748,18 @@ export class HospedinReservationValidationService {
             clearNextRetry:
                 resolutionStatus === SyncResolutionStatus.IGNORED ||
                 resolutionStatus === SyncResolutionStatus.RESOLVED,
+            ...(linkedInternalEntityId
+                ? { internalEntityId: linkedInternalEntityId }
+                : {}),
+            ...(effectiveSyncStatus === IntegrationSyncStatus.SYNCED
+                ? { touchSuccess: true, touchSync: true }
+                : {}),
             reason:
                 finalValidation === 'UNCHANGED'
                     ? 'Already synchronized (payload_hash igual).'
-                    : `Estado pós-validação: ${effectiveSyncStatus}`,
+                    : finalValidation === 'LINKED_EXISTING'
+                      ? `Vinculada a ReservaHospedagem id=${linkedInternalEntityId} sem CREATE.`
+                      : `Estado pós-validação: ${effectiveSyncStatus}`,
             operacao: 'sync_state_after_validation',
         });
 
@@ -729,6 +810,8 @@ export class HospedinReservationValidationService {
                 return 'validate_reservation_cancel';
             case 'ALREADY_IMPORTED':
                 return 'validate_reservation_update';
+            case 'LINKED_EXISTING':
+                return 'sync_linked_existing';
             case 'READY_TO_SYNC':
                 return 'validate_reservation_create';
             default:
@@ -746,6 +829,8 @@ export class HospedinReservationValidationService {
                 return 'CANCEL identificado na Validation (antes do hash).';
             case 'ALREADY_IMPORTED':
                 return 'Candidato a UPDATE.';
+            case 'LINKED_EXISTING':
+                return 'Reserva local existente vinculada — sem CREATE.';
             case 'READY_TO_SYNC':
                 return 'Candidato a CREATE.';
             default:
@@ -762,6 +847,8 @@ export class HospedinReservationValidationService {
             case 'CANCELLED':
                 return IntegrationSyncStatus.READY;
             case 'UNCHANGED':
+                return IntegrationSyncStatus.SYNCED;
+            case 'LINKED_EXISTING':
                 return IntegrationSyncStatus.SYNCED;
             case 'IGNORED':
                 return IntegrationSyncStatus.IGNORED;
@@ -879,6 +966,9 @@ export class HospedinReservationValidationService {
             }
         } else if (statusStep?.code === 'IGNORED_STATUS') {
             status = 'IGNORED';
+            ready = false;
+        } else if (existingStep?.code === 'LINKED_EXISTING') {
+            status = 'LINKED_EXISTING';
             ready = false;
         } else if (implementedFailed.length === 0) {
             if (existingStep?.code === 'ALREADY_IMPORTED') {

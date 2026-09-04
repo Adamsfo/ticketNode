@@ -5,6 +5,10 @@ export {
     HospedinReservationDomainMapper,
     HospedinDomainMappingError,
     PAYLOAD_INCOMPLETE,
+    resolveOperationalGuestCounts,
 } from './HospedinReservationDomainMapper';
-export type { HospedinToJangoCreateParams } from './HospedinReservationDomainMapper';
+export type {
+    HospedinToJangoCreateParams,
+    OperationalGuestCounts,
+} from './HospedinReservationDomainMapper';
 export * from './mapperHelpers';
