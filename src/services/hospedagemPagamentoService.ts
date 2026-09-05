@@ -48,37 +48,77 @@ import {
 import { obterReservaAdminDetalhe } from './hospedagemAdminService';
 import apiJango from '../api/apiJango';
 
-/** id_forma_pagamento no legado Firebird para recebimento OTA antecipado. */
+/** id_forma_pagamento no legado Firebird para recebimentos de hospedagem. */
+const ID_FORMA_PAGAMENTO_CAIXA_PIX = 42;
+const ID_FORMA_PAGAMENTO_CAIXA_CREDITO = 39;
+const ID_FORMA_PAGAMENTO_CAIXA_DEBITO = 40;
 const ID_FORMA_PAGAMENTO_CAIXA_ANTECIPADO = 32;
 
-function primeiroNome(nomeCompleto: string | null | undefined): string {
-    const parte = String(nomeCompleto || '')
-        .trim()
-        .split(/\s+/)
-        .find((p) => p.length > 0);
-    return parte || '—';
+function idFormaPagamentoCaixaJango(
+    forma: FormaPagamentoRecepcao
+): number | null {
+    switch (forma) {
+        case FormaPagamentoRecepcaoValor.PIX:
+            return ID_FORMA_PAGAMENTO_CAIXA_PIX;
+        case FormaPagamentoRecepcaoValor.Dinheiro:
+            return 38;
+        case FormaPagamentoRecepcaoValor.CartaoCredito:
+            return ID_FORMA_PAGAMENTO_CAIXA_CREDITO;
+        case FormaPagamentoRecepcaoValor.CartaoDebito:
+            return ID_FORMA_PAGAMENTO_CAIXA_DEBITO;
+        case FormaPagamentoRecepcaoValor.Antecipado:
+            return ID_FORMA_PAGAMENTO_CAIXA_ANTECIPADO;
+        default:
+            return null;
+    }
+}
+
+function nomeClienteCaixaHospedagem(
+    reserva: ReservaHospedagem & {
+        Usuario?: { nomeCompleto?: string | null } | null;
+        ReservaSuite?: Array<{
+            ReservaHospede?: Array<{ nome?: string | null }>;
+        }>;
+    }
+): string {
+    const nomeCompleto =
+        reserva.Usuario?.nomeCompleto?.trim() ||
+        reserva.ReservaSuite?.[0]?.ReservaHospede?.[0]?.nome?.trim() ||
+        '';
+    return nomeCompleto || '—';
+}
+
+function nomeSuiteCaixaHospedagem(
+    reserva: ReservaHospedagem & {
+        ReservaSuite?: Array<{
+            EventoSuite?: { nome?: string | null } | null;
+        }>;
+    }
+): string {
+    const suiteNome =
+        String(reserva.ReservaSuite?.[0]?.EventoSuite?.nome || '').trim() ||
+        'Suíte';
+    return suiteNome;
 }
 
 /**
- * Descrição do caixa legado (hospedagem):
- * <codigoExterno|id> - <suíte> - <primeiro nome>
- * Reutiliza ReservaHospedagem.codigoExterno (ex.: HO:001200).
+ * Descrição determinística do caixa legado (hospedagem):
+ * Recebimento Suíte 05 - João da Silva - PagamentoHospedagem 101
  */
-async function montarDescricaoCaixaHospedagem(
-    idPagamentoHospedagem: string | number
+async function montarDescricaoCaixaRecebimentoHospedagem(
+    idPagamentoHospedagem: number
 ): Promise<string> {
-    const pagamento = await PagamentoHospedagem.findByPk(
-        Number(idPagamentoHospedagem),
-        { attributes: ['id', 'idReservaHospedagem'] }
-    );
+    const pagamento = await PagamentoHospedagem.findByPk(idPagamentoHospedagem, {
+        attributes: ['id', 'idReservaHospedagem'],
+    });
     if (!pagamento) {
-        return `Hospedagem ${idPagamentoHospedagem}`;
+        return `Recebimento Suíte — - — - PagamentoHospedagem ${idPagamentoHospedagem}`;
     }
 
     const reserva = (await ReservaHospedagem.findByPk(
         pagamento.idReservaHospedagem,
         {
-            attributes: ['id', 'codigoExterno'],
+            attributes: ['id'],
             include: [
                 {
                     model: Usuario,
@@ -118,42 +158,63 @@ async function montarDescricaoCaixaHospedagem(
           })
         | null;
 
-    if (!reserva) {
-        return `Hospedagem ${pagamento.idReservaHospedagem}`;
+    const suiteNome = reserva ? nomeSuiteCaixaHospedagem(reserva) : 'Suíte';
+    const nomeCliente = reserva ? nomeClienteCaixaHospedagem(reserva) : '—';
+
+    return `Recebimento ${suiteNome} - ${nomeCliente} - PagamentoHospedagem ${pagamento.id}`;
+}
+
+/**
+ * Lança um PagamentoHospedagem no caixa Jango e persiste idCaixaItem.
+ * Retorna null quando a forma não entra no caixa ou não há caixa aberto.
+ * Propaga erro se inseriCaixaItem falhar.
+ */
+export async function persistirCaixaPagamentoHospedagem(
+    idPagamentoHospedagem: number
+): Promise<number | null> {
+    const pagamento = await PagamentoHospedagem.findByPk(idPagamentoHospedagem);
+    if (!pagamento) {
+        return null;
     }
 
-    const codigo =
-        String(reserva.codigoExterno || '').trim() || String(reserva.id);
-    const suiteNome =
-        String(reserva.ReservaSuite?.[0]?.EventoSuite?.nome || '').trim() ||
-        'Suíte';
-    const nomeHospede =
-        reserva.Usuario?.nomeCompleto ||
-        reserva.ReservaSuite?.[0]?.ReservaHospede?.[0]?.nome ||
-        null;
+    if (pagamento.idCaixaItem != null && pagamento.idCaixaItem > 0) {
+        return pagamento.idCaixaItem;
+    }
 
-    return `${codigo} - ${suiteNome} - ${primeiroNome(nomeHospede)}`;
+    const idFormaPagamento = idFormaPagamentoCaixaJango(pagamento.formaPagamento);
+    if (idFormaPagamento == null) {
+        return null;
+    }
+
+    const caixa = await apiJango().getCaixa();
+    if (!caixa?.[0]) {
+        return null;
+    }
+
+    const descricao = await montarDescricaoCaixaRecebimentoHospedagem(
+        pagamento.id
+    );
+    const idCaixaItem = await apiJango().inseriCaixaItem(
+        caixa[0].id_caixa,
+        Number(pagamento.valor) || 0,
+        idFormaPagamento,
+        pagamento.id,
+        descricao
+    );
+
+    await pagamento.update({ idCaixaItem });
+    return idCaixaItem;
 }
 
 /**
  * Lança no caixa legado (Firebird) um recebimento Antecipado.
- * Não altera regras financeiras do Jango — apenas espelha no PDV.
+ * Mantido para compatibilidade — delega para persistirCaixaPagamentoHospedagem.
  */
 export async function lancarAntecipadoNoCaixaLegado(
-    valor: number,
+    _valor: number,
     identificadorUnico: string | number
-): Promise<void> {
-    const descricao = await montarDescricaoCaixaHospedagem(identificadorUnico);
-    const caixa = await apiJango().getCaixa();
-    if (caixa?.[0]) {
-        await apiJango().inseriCaixaItem(
-            caixa[0].id_caixa,
-            Number(valor) || 0,
-            ID_FORMA_PAGAMENTO_CAIXA_ANTECIPADO,
-            identificadorUnico,
-            descricao
-        );
-    }
+): Promise<number | null> {
+    return persistirCaixaPagamentoHospedagem(Number(identificadorUnico));
 }
 
 /** Mesmo token/env do PagamentoPDV — sem alterar o controller do PDV. */
@@ -470,11 +531,8 @@ export async function registrarPagamentoHospedagem(params: {
         );
     });
 
-    if (
-        pagamento.formaPagamento === FormaPagamentoRecepcaoValor.Antecipado &&
-        idPagamentoCriado
-    ) {
-        await lancarAntecipadoNoCaixaLegado(pagamento.valor, idPagamentoCriado);
+    if (idPagamentoCriado) {
+        await persistirCaixaPagamentoHospedagem(idPagamentoCriado);
     }
 
     const { incrementarHospedagemRefreshVersion } = await import(

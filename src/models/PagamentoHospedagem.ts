@@ -33,12 +33,13 @@ interface PagamentoHospedagemAttributes {
     comprovante?: string | null;
     observacao?: string | null;
     idUsuario: number;
+    idCaixaItem?: number | null;
 }
 
 interface PagamentoHospedagemCreationAttributes
     extends Optional<
         PagamentoHospedagemAttributes,
-        'id' | 'comprovante' | 'observacao'
+        'id' | 'comprovante' | 'observacao' | 'idCaixaItem'
     > {}
 
 class PagamentoHospedagem
@@ -56,6 +57,7 @@ class PagamentoHospedagem
     public comprovante?: string | null;
     public observacao?: string | null;
     public idUsuario!: number;
+    public idCaixaItem?: number | null;
 
     static initialize(sequelize: Sequelize) {
         PagamentoHospedagem.init(
@@ -100,6 +102,10 @@ class PagamentoHospedagem
                         model: 'Usuario',
                         key: 'id',
                     },
+                },
+                idCaixaItem: {
+                    type: DataTypes.INTEGER,
+                    allowNull: true,
                 },
             },
             {

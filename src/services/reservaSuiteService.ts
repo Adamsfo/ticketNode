@@ -534,6 +534,8 @@ export async function confirmarHospedagem(idTransacao: number): Promise<void> {
     const precisavaConfirmarStatus =
         hospedagem.status === StatusReservaHospedagem.AguardandoPagamento;
 
+    let idPagamentoConfirmacao: number | null = null;
+
     await connection.transaction(async (t: Transaction) => {
         await hospedagem.update(
             {
@@ -571,7 +573,7 @@ export async function confirmarHospedagem(idTransacao: number): Promise<void> {
                 transaction: t,
             });
             if (qtdPagamentos === 0) {
-                await PagamentoHospedagem.create(
+                const pagCriado = await PagamentoHospedagem.create(
                     {
                         idReservaHospedagem: hospedagem.id,
                         valor: valorPago,
@@ -583,6 +585,7 @@ export async function confirmarHospedagem(idTransacao: number): Promise<void> {
                     },
                     { transaction: t }
                 );
+                idPagamentoConfirmacao = Number(pagCriado.id);
             }
         }
 
@@ -602,6 +605,13 @@ export async function confirmarHospedagem(idTransacao: number): Promise<void> {
             { transaction: t }
         );
     });
+
+    if (idPagamentoConfirmacao) {
+        const { persistirCaixaPagamentoHospedagem } = await import(
+            './hospedagemPagamentoService'
+        );
+        await persistirCaixaPagamentoHospedagem(idPagamentoConfirmacao);
+    }
 
     const { incrementarHospedagemRefreshVersion } = await import(
         './hospedagemRefreshVersionService'
@@ -1128,7 +1138,7 @@ export async function checkoutHospedagem(params: {
 
     const tokenPagamento = isLinkCliente ? gerarTokenPagamentoReserva() : null;
 
-    let idPagamentoAntecipadoCriado: number | null = null;
+    let idPagamentoCheckoutCriado: number | null = null;
 
     const mapTipoPagamentoTransacao = (
         forma?: string | null
@@ -1321,9 +1331,7 @@ export async function checkoutHospedagem(params: {
                 },
                 { transaction: t }
             );
-            if (pagamento.formaPagamento === 'Antecipado') {
-                idPagamentoAntecipadoCriado = Number(pagCriado.id);
-            }
+            idPagamentoCheckoutCriado = Number(pagCriado.id);
         }
 
         const linhasDescontoHistorico = suitesComTotais
@@ -1386,18 +1394,11 @@ export async function checkoutHospedagem(params: {
         };
     });
 
-    if (
-        idPagamentoAntecipadoCriado &&
-        pagamento?.formaPagamento === 'Antecipado' &&
-        valorPagoRecepcao > 0
-    ) {
-        const { lancarAntecipadoNoCaixaLegado } = await import(
+    if (idPagamentoCheckoutCriado) {
+        const { persistirCaixaPagamentoHospedagem } = await import(
             './hospedagemPagamentoService'
         );
-        await lancarAntecipadoNoCaixaLegado(
-            valorPagoRecepcao,
-            idPagamentoAntecipadoCriado
-        );
+        await persistirCaixaPagamentoHospedagem(idPagamentoCheckoutCriado);
     }
 
     if (confirmaImediatamente && resultado.hospedagem.idTransacao) {

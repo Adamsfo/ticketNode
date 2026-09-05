@@ -364,6 +364,7 @@ async function confirmarHospedagem(idTransacao) {
     }
     const formaPagamentoRegistro = resolverFormaPagamentoRecepcao(formaPagamentoRecepcao);
     const precisavaConfirmarStatus = hospedagem.status === ReservaHospedagem_1.StatusReservaHospedagem.AguardandoPagamento;
+    let idPagamentoConfirmacao = null;
     await database_1.default.transaction(async (t) => {
         await hospedagem.update({
             status: ReservaHospedagem_1.StatusReservaHospedagem.Confirmada,
@@ -390,7 +391,7 @@ async function confirmarHospedagem(idTransacao) {
                 transaction: t,
             });
             if (qtdPagamentos === 0) {
-                await PagamentoHospedagem_1.PagamentoHospedagem.create({
+                const pagCriado = await PagamentoHospedagem_1.PagamentoHospedagem.create({
                     idReservaHospedagem: hospedagem.id,
                     valor: valorPago,
                     dataPagamento: transacao?.dataPagamento ?? dataConfirmacao,
@@ -399,6 +400,7 @@ async function confirmarHospedagem(idTransacao) {
                     observacao: observacaoPagamento,
                     idUsuario: hospedagem.idUsuario,
                 }, { transaction: t });
+                idPagamentoConfirmacao = Number(pagCriado.id);
             }
         }
         await Transacao_1.HistoricoTransacao.create({
@@ -410,6 +412,10 @@ async function confirmarHospedagem(idTransacao) {
                 : 'Hospedagem confirmada após pagamento.',
         }, { transaction: t });
     });
+    if (idPagamentoConfirmacao) {
+        const { persistirCaixaPagamentoHospedagem } = await Promise.resolve().then(() => __importStar(require('./hospedagemPagamentoService')));
+        await persistirCaixaPagamentoHospedagem(idPagamentoConfirmacao);
+    }
     const { incrementarHospedagemRefreshVersion } = await Promise.resolve().then(() => __importStar(require('./hospedagemRefreshVersionService')));
     await incrementarHospedagemRefreshVersion();
     const { hospedinOutboundEnqueueService } = await Promise.resolve().then(() => __importStar(require('../integrations/hospedin/outbound/HospedinOutboundEnqueueService')));
@@ -744,7 +750,7 @@ async function checkoutHospedagem(params) {
     const quitada = confirmaImediatamente &&
         (0, hospedagemPagamentoRecepcao_1.reservaQuitada)(totaisHospedagem.valorTotal, valorPagoRecepcao);
     const tokenPagamento = isLinkCliente ? gerarTokenPagamentoReserva() : null;
-    let idPagamentoAntecipadoCriado = null;
+    let idPagamentoCheckoutCriado = null;
     const mapTipoPagamentoTransacao = (forma) => {
         switch (forma) {
             case 'PIX':
@@ -898,9 +904,7 @@ async function checkoutHospedagem(params) {
                 observacao: pagamento.observacao ?? null,
                 idUsuario: idUsuarioOperador || idUsuario,
             }, { transaction: t });
-            if (pagamento.formaPagamento === 'Antecipado') {
-                idPagamentoAntecipadoCriado = Number(pagCriado.id);
-            }
+            idPagamentoCheckoutCriado = Number(pagCriado.id);
         }
         const linhasDescontoHistorico = suitesComTotais
             .filter((s) => s.descontoTipo && s.descontoValor)
@@ -942,11 +946,9 @@ async function checkoutHospedagem(params) {
             transacao,
         };
     });
-    if (idPagamentoAntecipadoCriado &&
-        pagamento?.formaPagamento === 'Antecipado' &&
-        valorPagoRecepcao > 0) {
-        const { lancarAntecipadoNoCaixaLegado } = await Promise.resolve().then(() => __importStar(require('./hospedagemPagamentoService')));
-        await lancarAntecipadoNoCaixaLegado(valorPagoRecepcao, idPagamentoAntecipadoCriado);
+    if (idPagamentoCheckoutCriado) {
+        const { persistirCaixaPagamentoHospedagem } = await Promise.resolve().then(() => __importStar(require('./hospedagemPagamentoService')));
+        await persistirCaixaPagamentoHospedagem(idPagamentoCheckoutCriado);
     }
     if (confirmaImediatamente && resultado.hospedagem.idTransacao) {
         try {
