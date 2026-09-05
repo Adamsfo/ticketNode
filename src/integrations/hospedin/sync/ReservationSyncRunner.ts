@@ -15,6 +15,7 @@ import {
 } from '../utils/operationalSyncWindow';
 import { reservationSyncOrchestrator } from './ReservationSyncOrchestrator';
 import { reservationSyncExecutor } from './ReservationSyncExecutor';
+import { linkedExistingSuiteSyncService } from '../services/LinkedExistingSuiteSyncService';
 import type { ReservationSyncExecutionResult } from './types';
 
 /**
@@ -158,6 +159,21 @@ export class ReservationSyncRunner {
             decision.action === 'IGNORE' &&
             String(state.sync_status) === IntegrationSyncStatus.SYNCED
         ) {
+            let linkedExistingSuiteChanges: Array<{
+                field: string;
+                before: unknown;
+                after: unknown;
+            }> = [];
+            if (String(state.validation_status) === 'LINKED_EXISTING') {
+                const suiteSync =
+                    await linkedExistingSuiteSyncService.syncLinkedExistingAllowedChanges({
+                        reservationId: decision.reservationId,
+                        internalEntityId: state.internal_entity_id,
+                        correlationId: state.correlation_id,
+                    });
+                linkedExistingSuiteChanges = suiteSync.changes;
+            }
+
             const syncVersion = Number(state.sync_version || 0);
             const result: ReservationSyncExecutionResult = {
                 ok: true,
@@ -167,7 +183,10 @@ export class ReservationSyncRunner {
                 internalEntityId: state.internal_entity_id,
                 syncVersion,
                 status: IntegrationSyncStatus.SYNCED,
-                message: 'Already synchronized',
+                message:
+                    linkedExistingSuiteChanges.length > 0
+                        ? `Campos sincronizados (${linkedExistingSuiteChanges.length} alteração)`
+                        : 'Already synchronized',
                 code: 'ALREADY_SYNCED',
             };
             await hospedinSyncLogService.write({
@@ -185,8 +204,8 @@ export class ReservationSyncRunner {
                     external_id: decision.reservationId,
                     internal_entity_id: state.internal_entity_id,
                     sync_version: syncVersion,
-                    changes: [],
-                    message: 'Already synchronized',
+                    changes: linkedExistingSuiteChanges,
+                    message: result.message,
                 },
                 status: 200,
                 sucesso: true,

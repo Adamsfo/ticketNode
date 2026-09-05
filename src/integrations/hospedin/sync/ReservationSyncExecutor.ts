@@ -17,6 +17,7 @@ import { reservationCreationService } from '../services/ReservationCreationServi
 import { reservationUpdateService } from '../services/ReservationUpdateService';
 import { reservationCancellationService } from '../services/ReservationCancellationService';
 import { resolveExistingReservationLink } from '../services/HospedinReservationLinkService';
+import { linkedExistingSuiteSyncService } from '../services/LinkedExistingSuiteSyncService';
 import { hospedinSyncLogService } from '../services/HospedinSyncLogService';
 import {
     applyFailureClassification,
@@ -168,6 +169,16 @@ export class ReservationSyncExecutor {
                         correlationId,
                     });
 
+                    const suiteSync =
+                        await linkedExistingSuiteSyncService.syncLinkedExistingAllowedChanges(
+                            {
+                                reservationId: decision.reservationId,
+                                internalEntityId:
+                                    existingLink.idReservaHospedagem,
+                                correlationId,
+                            }
+                        );
+
                     return {
                         ok: true,
                         action: 'CREATE',
@@ -178,7 +189,10 @@ export class ReservationSyncExecutor {
                         ),
                         syncVersion,
                         status: IntegrationSyncStatus.SYNCED,
-                        message: `Reserva existente vinculada id=${existingLink.idReservaHospedagem} — CREATE não executado.`,
+                        message:
+                            suiteSync.applied
+                                ? `Reserva existente vinculada id=${existingLink.idReservaHospedagem} — campos permitidos sincronizados.`
+                                : `Reserva existente vinculada id=${existingLink.idReservaHospedagem} — CREATE não executado.`,
                         code: 'LINKED_EXISTING',
                     };
                 }

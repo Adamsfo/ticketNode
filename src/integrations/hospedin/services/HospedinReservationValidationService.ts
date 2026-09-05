@@ -10,6 +10,7 @@ import { HospedinLogger } from '../logger/HospedinLogger';
 import { HospedinReservationMapper } from '../mapper/HospedinReservationMapper';
 import { asRecord } from '../mapper/mapperHelpers';
 import { reservationSyncOrchestrator } from '../sync/ReservationSyncOrchestrator';
+import { linkedExistingSuiteSyncService } from './LinkedExistingSuiteSyncService';
 import {
     getOperationalSyncWindow,
     isWithinOperationalSyncWindow,
@@ -162,6 +163,21 @@ export class HospedinReservationValidationService {
             result.ready = false;
         }
 
+        let linkedExistingSuiteChanges: Array<{
+            field: string;
+            before: unknown;
+            after: unknown;
+        }> = [];
+        if (validationStatus === 'LINKED_EXISTING') {
+            const suiteSync =
+                await linkedExistingSuiteSyncService.syncLinkedExistingAllowedChanges({
+                    reservationId: id,
+                    internalEntityId: syncState.internal_entity_id,
+                    correlationId: syncState.correlation_id,
+                });
+            linkedExistingSuiteChanges = suiteSync.changes;
+        }
+
         await hospedinSyncLogService.write({
             operacao: this.operacaoFromValidation(validationStatus),
             endpoint: '/api/integrations/hospedin/validate/reservations',
@@ -187,7 +203,7 @@ export class HospedinReservationValidationService {
                 sync_status: syncState.sync_status,
                 sync_action: syncState.sync_action,
                 payload_hash: syncState.payload_hash,
-                changes: [],
+                changes: linkedExistingSuiteChanges,
                 message: this.messageFromValidation(validationStatus),
             },
             status: 200,
