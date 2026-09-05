@@ -299,6 +299,10 @@ class TransacaoPagamento extends sequelize_1.Model {
                 type: sequelize_1.DataTypes.ENUM("Aguardando pagamento", "Pago", "Falhou"),
                 allowNull: true,
                 defaultValue: "Aguardando pagamento" // Valor padrão
+            },
+            idCaixaItem: {
+                type: sequelize_1.DataTypes.INTEGER,
+                allowNull: true,
             }
         }, {
             sequelize,

@@ -1420,20 +1420,25 @@ module.exports = {
                                 const caixa = await apiJango().getCaixa();
 
                                 if (caixa[0]) {
-                                    const identificadorCaixa =
-                                        transacaoPagamento.PagamentoCodigo ||
-                                        payment_uniqueid ||
-                                        transacaoPagamento.id;
-                                    await apiJango().inseriCaixaItem(
-                                        caixa[0].id_caixa,
-                                        transacaoPagamento.valor ?? 0,
-                                        transacao.tipoPagamento === TipoPagamento.Debito
-                                            ? 40
-                                            : transacao.tipoPagamento === TipoPagamento.Credito
-                                              ? 39
-                                              : 42,
-                                        identificadorCaixa
-                                    );
+                                    if (!transacaoPagamento.idCaixaItem) {
+                                        const identificadorCaixa =
+                                            transacaoPagamento.PagamentoCodigo ||
+                                            payment_uniqueid ||
+                                            transacaoPagamento.id;
+                                        const idCaixaItem = await apiJango().inseriCaixaItem(
+                                            caixa[0].id_caixa,
+                                            transacaoPagamento.valor ?? 0,
+                                            transacao.tipoPagamento === TipoPagamento.Debito
+                                                ? 40
+                                                : transacao.tipoPagamento === TipoPagamento.Credito
+                                                  ? 39
+                                                  : 42,
+                                            identificadorCaixa
+                                        );
+                                        await transacaoPagamento.update({
+                                            idCaixaItem,
+                                        });
+                                    }
                                 }
                             }
 
@@ -1496,12 +1501,15 @@ module.exports = {
                 const caixa = await apiJango().getCaixa();
 
                 if (caixa[0]) {
-                    await apiJango().inseriCaixaItem(
+                    const idCaixaItem = await apiJango().inseriCaixaItem(
                         caixa[0].id_caixa,
                         Number(valorTotal ?? 0),
                         38,
                         transacaoPagamento.id
                     );
+                    await transacaoPagamento.update({
+                        idCaixaItem,
+                    });
                 }
             }
 
@@ -1634,11 +1642,13 @@ module.exports = {
                 where: { id: transacao.idEvento },
             });
 
+            let idCaixaItem: number | undefined;
+
             if (evento?.idProdutor === 1) {
                 const caixa = await apiJango().getCaixa();
 
                 if (caixa[0]) {
-                    await apiJango().inseriCaixaItem(
+                    idCaixaItem = await apiJango().inseriCaixaItem(
                         caixa[0].id_caixa,
                         transacao.valorTotal,
                         transacao.tipoPagamento === TipoPagamento.Debito ? 40 :
@@ -1658,11 +1668,17 @@ module.exports = {
             }
 
             // Salvar dados de pagamento
-            await TransacaoPagamento.create({
+            const transacaoPagamento = await TransacaoPagamento.create({
                 idTransacao: idTransacao,
                 PagamentoCodigo: '',
                 gatewayPagamento: 'POS Stone'
             });
+
+            if (idCaixaItem != null) {
+                await transacaoPagamento.update({
+                    idCaixaItem,
+                });
+            }
 
             await transacao.save();
 

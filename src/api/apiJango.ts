@@ -230,31 +230,94 @@ const PdvApiJango = {
     identificadorUnico: string | number,
     /** Quando informado (hospedagem), substitui o padrão "Ingressos …". */
     descricaoCustom?: string | null
-  ) => {
+  ): Promise<number> => {
     const descricao = (
       descricaoCustom && String(descricaoCustom).trim()
         ? String(descricaoCustom).trim()
         : `Ingressos ${identificadorUnico}`
     ).replace(/'/g, "''");
 
-    try {
-      const existentes = await apiFetchGet(
-        "/select/" +
-          `select DESCRICAO from caixa_item where DESCRICAO = '${descricao}'`
-      );
+    const existentes = await apiFetchGet(
+      "/select/" +
+        `select ID_CAIXA_ITEM, DESCRICAO from caixa_item where DESCRICAO = '${descricao}'`
+    );
 
-      if (Array.isArray(existentes) && existentes.length > 0) {
-        console.log("CaixaItem já existe, não reinsere:", descricao);
-        return null;
+    if (Array.isArray(existentes) && existentes.length > 0) {
+      const row = existentes[0];
+      const idCaixaItemRaw =
+        row && typeof row === "object"
+          ? (row as { id_caixa_item?: unknown; ID_CAIXA_ITEM?: unknown })
+              .id_caixa_item ??
+            (row as { id_caixa_item?: unknown; ID_CAIXA_ITEM?: unknown })
+              .ID_CAIXA_ITEM
+          : undefined;
+
+      const idCaixaItem = Number(idCaixaItemRaw);
+      if (!Number.isFinite(idCaixaItem) || idCaixaItem <= 0) {
+        const msg = `inseriCaixaItem: ID_CAIXA_ITEM ausente ou inválido no item existente: ${JSON.stringify(row)}`;
+        console.error(msg);
+        throw new Error(msg);
       }
 
-      const qry = `insert into caixa_item (DESCRICAO, ID_FORMA_PAGAMENTO, ID_CAIXA, ID_USUARIO, TIPO_LANCAMENTO, TIPO_VALOR, VALOR) values ('${descricao}', ${id_forma_pagamento}, ${id_caixa}, 3, 1, 'C', ${valor})`;
-      console.log("Inserindo item no caixa: ", qry);
-      await apiFetchGet("/select/" + qry);
-    } catch (error) {
-      console.log("Erro ao inserir item caixa na api: ", error);
+      console.log("CaixaItem já existe, não reinsere:", descricao);
+      return idCaixaItem;
     }
-    return null;
+
+    const qry =
+      `insert into caixa_item (DESCRICAO, ID_FORMA_PAGAMENTO, ID_CAIXA, ID_USUARIO, TIPO_LANCAMENTO, TIPO_VALOR, VALOR) values ('${descricao}', ${id_forma_pagamento}, ${id_caixa}, 3, 1, 'C', ${valor}) returning ID_CAIXA_ITEM`;
+    const url = BASEAPI + "/select/" + qry;
+    console.log("Inserindo item no caixa: ", qry);
+
+    let res: Response;
+    try {
+      res = await fetch(url);
+    } catch (error) {
+      console.error("Erro de rede ao inserir item caixa na API Jango:", error);
+      throw error;
+    }
+
+    const text = await res.text();
+
+    if (!res.ok) {
+      const msg =
+        `inseriCaixaItem falhou: HTTP ${res.status} ${res.statusText}. ` +
+        `Body: ${text.slice(0, 500)}`;
+      console.error(msg);
+      throw new Error(msg);
+    }
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(text);
+    } catch (error) {
+      const msg =
+        `inseriCaixaItem: resposta não é JSON válido. Body: ${text.slice(0, 500)}`;
+      console.error(msg, error);
+      throw new Error(msg);
+    }
+
+    const row = Array.isArray(parsed)
+      ? parsed[0]
+      : parsed && typeof parsed === "object"
+        ? parsed
+        : null;
+
+    const idCaixaItemRaw =
+      row && typeof row === "object"
+        ? (row as { id_caixa_item?: unknown; ID_CAIXA_ITEM?: unknown })
+            .id_caixa_item ??
+          (row as { id_caixa_item?: unknown; ID_CAIXA_ITEM?: unknown })
+            .ID_CAIXA_ITEM
+        : undefined;
+
+    const idCaixaItem = Number(idCaixaItemRaw);
+    if (!Number.isFinite(idCaixaItem) || idCaixaItem <= 0) {
+      const msg = `inseriCaixaItem: ID_CAIXA_ITEM ausente ou inválido na resposta: ${text}`;
+      console.error(msg);
+      throw new Error(msg);
+    }
+
+    return idCaixaItem;
   },
 
   consultaPedidosPorUsuario: async (dataInicial: string, dataFinal: string) => {

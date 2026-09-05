@@ -368,6 +368,7 @@ interface TransacaoPagamentoAttributes {
     gatewayPagamento?: string; // Gateway de pagamento utilizado
     valor?: number; // Valor do pagamento, se aplicável
     statusPagamento?: "Aguardando pagamento" | "Pago" | "Falhou"; // Status do pagamento, se aplicável
+    idCaixaItem?: number | null; // ID_CAIXA_ITEM no Firebird/Jango, quando lançado no caixa
 }
 
 interface TransacaoPagamentoCreationAttributes extends Optional<TransacaoPagamentoAttributes, 'id'> { }
@@ -379,6 +380,7 @@ class TransacaoPagamento extends Model<TransacaoPagamentoAttributes, TransacaoPa
     public gatewayPagamento?: string; // Gateway de pagamento utilizado
     public valor?: number; // Valor do pagamento, se aplicável
     public statusPagamento?: "Aguardando pagamento" | "Pago" | "Falhou"; // Status do pagamento, se aplicável
+    public idCaixaItem?: number | null; // ID_CAIXA_ITEM no Firebird/Jango, quando lançado no caixa
 
     static initialize(sequelize: Sequelize) {
         TransacaoPagamento.init({
@@ -412,6 +414,10 @@ class TransacaoPagamento extends Model<TransacaoPagamentoAttributes, TransacaoPa
                 type: DataTypes.ENUM("Aguardando pagamento", "Pago", "Falhou"),
                 allowNull: true,
                 defaultValue: "Aguardando pagamento" // Valor padrão
+            },
+            idCaixaItem: {
+                type: DataTypes.INTEGER,
+                allowNull: true,
             }
         }, {
             sequelize,
