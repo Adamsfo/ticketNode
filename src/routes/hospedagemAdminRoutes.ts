@@ -77,6 +77,11 @@ router.patch(
     HospedagemAdminController.atualizarObservacoes
 );
 router.patch(
+    '/hospedagem/reservas/:id/valor-total',
+    authenticate,
+    HospedagemAdminController.atualizarValorTotal
+);
+router.patch(
      '/hospedagem/reservas/:id/usuario',
      authenticate,
      HospedagemAdminController.atualizarUsuarioReserva
@@ -153,6 +158,11 @@ router.patch(
     '/hospedagem-admin/reservas/:id/observacoes',
     authenticate,
     HospedagemAdminController.atualizarObservacoes
+);
+router.patch(
+    '/hospedagem-admin/reservas/:id/valor-total',
+    authenticate,
+    HospedagemAdminController.atualizarValorTotal
 );
 router.get(
     '/hospedagem-admin/suites',

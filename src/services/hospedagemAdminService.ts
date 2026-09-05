@@ -3469,6 +3469,94 @@ export async function atualizarObservacoesReservaAdmin(
     return obterReservaAdminDetalhe(idReserva, idUsuario);
 }
 
+/** Ajuste manual do valor total da reserva (sem lançamentos financeiros). */
+export async function atualizarValorTotalReservaAdmin(
+    idReserva: number,
+    idUsuario: number,
+    valorTotalInformado: number
+) {
+    await obterReservaAdminDetalhe(idReserva, idUsuario);
+
+    const reserva = (await ReservaHospedagem.findByPk(idReserva, {
+        include: [
+            {
+                model: PagamentoHospedagem,
+                as: 'Pagamentos',
+                required: false,
+            },
+            {
+                model: ReservaSuite,
+                as: 'ReservaSuite',
+                required: false,
+            },
+        ],
+    })) as
+        | (ReservaHospedagem & {
+              Pagamentos?: PagamentoHospedagem[];
+              ReservaSuite?: ReservaSuite[];
+          })
+        | null;
+
+    if (!reserva) {
+        throw new CustomError('Reserva não encontrada.', 404, '');
+    }
+
+    const valorTotal = Math.round(Number(valorTotalInformado) * 100) / 100;
+    if (!(valorTotal > 0)) {
+        throw new CustomError('Valor total deve ser maior que zero.', 400, '');
+    }
+
+    const financeiro = resolverFinanceiroReserva({
+        valorTotal: reserva.valorTotal,
+        valorPago: reserva.valorPago,
+        saldoPendente: reserva.saldoPendente,
+        Pagamentos: (reserva.Pagamentos ?? []).map((p) => ({ valor: p.valor })),
+    } as ReservaHospedagem & {
+        valorPago?: number;
+        saldoPendente?: number | null;
+        Pagamentos?: Array<{ valor?: number }>;
+    });
+
+    if (valorTotal < financeiro.valorPago - 0.009) {
+        throw new CustomError(
+            'Valor total não pode ser menor que o valor já recebido.',
+            400,
+            ''
+        );
+    }
+
+    const saldoPendente = calcularSaldoPendente(
+        valorTotal,
+        financeiro.valorPago
+    );
+
+    if (Math.abs(toNumber(reserva.valorTotal) - valorTotal) <= 0.009) {
+        return obterReservaAdminDetalhe(idReserva, idUsuario);
+    }
+
+    await connection.transaction(async (t: Transaction) => {
+        await reserva.update(
+            {
+                valorTotal,
+                saldoPendente,
+            },
+            { transaction: t }
+        );
+
+        const suites = reserva.ReservaSuite ?? [];
+        if (suites.length === 1) {
+            await suites[0].update({ valorTotal }, { transaction: t });
+        }
+    });
+
+    const { incrementarHospedagemRefreshVersion } = await import(
+        './hospedagemRefreshVersionService'
+    );
+    await incrementarHospedagemRefreshVersion();
+
+    return obterReservaAdminDetalhe(idReserva, idUsuario);
+}
+
 /** Reserva manual da recepção: Confirmada + notificação (reusa checkoutHospedagem). */
 export async function criarReservaRecepcaoAdmin(params: {
     idUsuarioOperador: number;

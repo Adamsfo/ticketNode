@@ -13,6 +13,7 @@ import {
     trocarSuiteReservaAdmin,
     alterarPeriodoReservaAdmin,
     atualizarObservacoesReservaAdmin,
+    atualizarValorTotalReservaAdmin,
     atualizarUsuarioReserva as atualizarUsuarioReservaService,
 } from '../services/hospedagemAdminService';
 import { cancelarReservaHospedagemAdmin } from '../services/hospedagemCancelamentoAdminService';
@@ -482,6 +483,44 @@ module.exports = {
             return res.status(200).json({
                 success: true,
                 message: 'Observações salvas.',
+                data,
+            });
+        } catch (error) {
+            next(error);
+        }
+    },
+
+    async atualizarValorTotal(req: any, res: any, next: any) {
+        try {
+            const idUsuario = Number(req.user?.id);
+            const idReserva = Number(req.params.id);
+            if (!idUsuario) {
+                throw new CustomError('Usuário não autenticado.', 401, '');
+            }
+            if (!idReserva) {
+                throw new CustomError('id da reserva é obrigatório.', 400, '');
+            }
+
+            const valorTotal = Number(
+                req.body?.valorTotal ?? req.body?.valor ?? NaN
+            );
+            if (!Number.isFinite(valorTotal)) {
+                throw new CustomError(
+                    'valorTotal é obrigatório no corpo da requisição.',
+                    400,
+                    ''
+                );
+            }
+
+            const data = await atualizarValorTotalReservaAdmin(
+                idReserva,
+                idUsuario,
+                valorTotal
+            );
+
+            return res.status(200).json({
+                success: true,
+                message: 'Valor total atualizado.',
                 data,
             });
         } catch (error) {
