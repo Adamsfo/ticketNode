@@ -1,5 +1,5 @@
 import { Usuario } from '../models/Usuario'
-import { generateToken } from '../utils/jwtUtils'
+import { generateToken, resolveLoginToken } from '../utils/jwtUtils'
 import { CustomError } from '../utils/customError'
 import nodemailer from 'nodemailer'
 import { sendCodeSMS, sendCodeWhatsApp } from '../utils/twilioService'
@@ -96,7 +96,7 @@ async function enviarCodigoAtivacaoChatPro(numeroCliente: string, codigo: string
 module.exports = {
   login: async (req: any, res: any, next: any) => {
     try {
-      const { login, senha } = req.body;
+      const { login, senha, manterOutrasConexoes = false } = req.body;
 
       if (!login || !senha) {
         throw new CustomError('Email e senha são obrigatórios.', 400, '');
@@ -119,14 +119,17 @@ module.exports = {
         throw new CustomError('Credenciais inválidas.', 401, '');
       }
 
-      const token = generateToken(usuario);
-      usuario.token = token
-      usuario.save()
+      const { token, persist } = resolveLoginToken(
+        usuario,
+        Boolean(manterOutrasConexoes)
+      );
+      if (persist) {
+        usuario.token = token;
+        await usuario.save();
+      }
       res.status(200).json({
         data: token
       });
-
-      // return res.status(200).json({ token });
     } catch (error) {
       next(error);
     }
@@ -264,7 +267,7 @@ module.exports = {
   },
 
   async loginEmailCodigo(req: any, res: any) {
-    const { info, codigo, id } = req.body;
+    const { info, codigo, id, manterOutrasConexoes = false } = req.body;
 
     if (!id) {
       throw new CustomError('id é obrigatórios.', 400, '');
@@ -282,9 +285,14 @@ module.exports = {
         return res.status(404).json({ error: "Usuário não encontrado" });
       }
 
-      const token = generateToken(usuario);
-      usuario.token = token
-      usuario.save()
+      const { token, persist } = resolveLoginToken(
+        usuario,
+        Boolean(manterOutrasConexoes)
+      );
+      if (persist) {
+        usuario.token = token;
+        await usuario.save();
+      }
       return res.status(200).json({
         data: token
       });

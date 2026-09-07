@@ -89,7 +89,7 @@ async function enviarCodigoAtivacaoChatPro(numeroCliente, codigo) {
 module.exports = {
     login: async (req, res, next) => {
         try {
-            const { login, senha } = req.body;
+            const { login, senha, manterOutrasConexoes = false } = req.body;
             if (!login || !senha) {
                 throw new customError_1.CustomError('Email e senha são obrigatórios.', 400, '');
             }
@@ -107,13 +107,14 @@ module.exports = {
             if (!usuario || !(await usuario.verifyPassword(senha))) {
                 throw new customError_1.CustomError('Credenciais inválidas.', 401, '');
             }
-            const token = (0, jwtUtils_1.generateToken)(usuario);
-            usuario.token = token;
-            usuario.save();
+            const { token, persist } = (0, jwtUtils_1.resolveLoginToken)(usuario, Boolean(manterOutrasConexoes));
+            if (persist) {
+                usuario.token = token;
+                await usuario.save();
+            }
             res.status(200).json({
                 data: token
             });
-            // return res.status(200).json({ token });
         }
         catch (error) {
             next(error);
@@ -229,7 +230,7 @@ module.exports = {
         return res.status(400).json({ error: "Código inválido ou expirado" });
     },
     async loginEmailCodigo(req, res) {
-        const { info, codigo, id } = req.body;
+        const { info, codigo, id, manterOutrasConexoes = false } = req.body;
         if (!id) {
             throw new customError_1.CustomError('id é obrigatórios.', 400, '');
         }
@@ -242,9 +243,11 @@ module.exports = {
             if (!usuario) {
                 return res.status(404).json({ error: "Usuário não encontrado" });
             }
-            const token = (0, jwtUtils_1.generateToken)(usuario);
-            usuario.token = token;
-            usuario.save();
+            const { token, persist } = (0, jwtUtils_1.resolveLoginToken)(usuario, Boolean(manterOutrasConexoes));
+            if (persist) {
+                usuario.token = token;
+                await usuario.save();
+            }
             return res.status(200).json({
                 data: token
             });
