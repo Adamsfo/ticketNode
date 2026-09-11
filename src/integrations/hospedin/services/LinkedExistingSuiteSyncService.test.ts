@@ -63,6 +63,8 @@ function baseHospedagem(overrides: Record<string, unknown> = {}, linhaOverrides:
         id: ID_RESERVA,
         checkin: new Date('2026-09-06T17:00:00.000Z'),
         checkout: new Date('2026-09-07T15:00:00.000Z'),
+        origemReserva: 'HOSPEDIN',
+        Evento: { tipo: 'Pousada' },
         valorTotal: 1000,
         valorPago: 300,
         saldoPendente: 700,
@@ -436,6 +438,71 @@ describe('LinkedExistingSuiteSyncService', () => {
 
         assert.equal(result.applied, true);
         assert.equal(linha.update.mock.callCount(), 1);
+    });
+
+    describe('financeiro inbound — origem Jango vs HOSPEDIN', () => {
+        it('reserva Jango elegível outbound não sobrescreve valorTotal do Hospedin', async () => {
+            const { hospedagem, linha } = setupCommonMocks(
+                { total_amount: 53000 },
+                {
+                    origemReserva: 'ATENDENTE',
+                    Evento: { tipo: 'Pousada' },
+                    valorTotal: 600,
+                    valorPago: 0,
+                    saldoPendente: 600,
+                },
+                { valorTotal: 600, preco: 600, valorFinal: 600 }
+            );
+
+            const result =
+                await linkedExistingSuiteSyncService.syncLinkedExistingAllowedChanges(
+                    {
+                        reservationId: RESERVATION_ID,
+                        internalEntityId: ID_RESERVA,
+                    }
+                );
+
+            assert.equal(
+                result.changes.some((c) => c.field === 'valorTotal'),
+                false
+            );
+            assert.equal(
+                result.changes.some((c) => c.field === 'ReservaSuite.valorTotal'),
+                false
+            );
+            assert.equal(hospedagem.update.mock.callCount(), 0);
+            assert.equal(linha.update.mock.callCount(), 0);
+            assert.equal(hospedagem.valorTotal, 600);
+            assert.equal(linha.valorTotal, 600);
+        });
+
+        it('reserva HOSPEDIN continua recebendo valor financeiro inbound', async () => {
+            const { hospedagem } = setupCommonMocks(
+                { total_amount: 120000 },
+                {
+                    origemReserva: 'HOSPEDIN',
+                    Evento: { tipo: 'Pousada' },
+                    valorTotal: 1000,
+                    valorPago: 300,
+                    saldoPendente: 700,
+                }
+            );
+
+            const result =
+                await linkedExistingSuiteSyncService.syncLinkedExistingAllowedChanges(
+                    {
+                        reservationId: RESERVATION_ID,
+                        internalEntityId: ID_RESERVA,
+                    }
+                );
+
+            assert.equal(result.applied, true);
+            assert.deepEqual(
+                result.changes.find((c) => c.field === 'valorTotal'),
+                { field: 'valorTotal', before: 1000, after: 1200 }
+            );
+            assert.equal(hospedagem.update.mock.callCount(), 1);
+        });
     });
 
     describe('observação importada — substituir, não concatenar', () => {

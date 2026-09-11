@@ -7,6 +7,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
+    buildOutboundFinanceCentsFromReserva,
     buildOutboundReservationPayload,
     formatOutboundCheckDatetime,
     OUTBOUND_CREATE_DEFERRED_STATUS,
@@ -26,8 +27,32 @@ describe('formatOutboundCheckDatetime', () => {
     });
 });
 
+describe('buildOutboundFinanceCentsFromReserva', () => {
+    it('2 noites: preco=800, valorTotal=880', () => {
+        const finance = buildOutboundFinanceCentsFromReserva({
+            preco: 800,
+            noites: 2,
+            valorTotal: 880,
+        });
+        assert.equal(finance.daily_cents, 40000);
+        assert.equal(finance.total_daily_cents, 80000);
+        assert.equal(finance.total_amount, 88000);
+    });
+
+    it('3 noites: preco=1200, valorTotal=1320', () => {
+        const finance = buildOutboundFinanceCentsFromReserva({
+            preco: 1200,
+            noites: 3,
+            valorTotal: 1320,
+        });
+        assert.equal(finance.daily_cents, 40000);
+        assert.equal(finance.total_daily_cents, 120000);
+        assert.equal(finance.total_amount, 132000);
+    });
+});
+
 describe('buildOutboundReservationPayload', () => {
-    it('monta payload operacional sem campos financeiros extras', () => {
+    it('monta payload CREATE sem financeiro Jango (SALE representa o valor)', () => {
         const payload = buildOutboundReservationPayload({
             idReservaHospedagem: 124,
             checkin: new Date('2026-10-17T17:00:00.000Z'),
@@ -35,8 +60,6 @@ describe('buildOutboundReservationPayload', () => {
             observacoes: 'Obs teste',
             adultos: 2,
             criancas: 1,
-            preco: 400,
-            valorTotal: 800,
             placeId: 445906,
             placeTypeId: 131939,
             guestId: 17942028,
@@ -49,15 +72,16 @@ describe('buildOutboundReservationPayload', () => {
         assert.equal(payload.children, 1);
         assert.equal(payload.exempt, 0);
         assert.equal(payload.guest_id, 17942028);
-        assert.equal(payload.daily_cents, 40000);
-        assert.equal(payload.total_daily_cents, 80000);
+        assert.equal(payload.daily_cents, 0);
+        assert.equal(payload.total_daily_cents, 0);
+        assert.equal(payload.total_amount, 0);
         assert.equal(payload.has_payment_coming_from_ota, false);
         assert.equal(payload.has_breakfast, false);
         assert.equal(payload.sale_channel_id, null);
         assert.ok(payload.note?.includes('Reserva Jango #124'));
+        assert.ok(payload.note?.includes('ORIGEM JANGO - Reserva Jango #124'));
         assert.ok(payload.note?.includes('Obs teste'));
         assert.ok(!('total_received' in payload));
-        assert.ok(!('total_amount' in payload));
     });
 
     it('garante ao menos 1 adulto', () => {
@@ -67,8 +91,6 @@ describe('buildOutboundReservationPayload', () => {
             checkout: new Date('2026-10-19T15:00:00.000Z'),
             adultos: 0,
             criancas: 0,
-            preco: 100,
-            valorTotal: 200,
             placeId: 1,
             placeTypeId: 2,
             guestId: 9,

@@ -13,6 +13,7 @@ import {
 } from './hospedinOutboundCreateFinalize';
 import { OUTBOUND_CLAIMABLE_STATUSES } from './hospedinOutboundClaimable';
 import { notifyOutboundPendingIfClaimable } from './hospedinOutboundDispatchTrigger';
+import { shouldRequeueAfterAppliedSync } from './hospedinOutboundSyncFinalize';
 
 const CLAIMABLE_STATUSES = OUTBOUND_CLAIMABLE_STATUSES;
 
@@ -127,25 +128,47 @@ export class HospedinOutboundStateService {
             hospedinReservationId?: string | null;
             hospedinGuestId?: string | null;
             syncedHashInputJson?: string | null;
+            /** Hash efetivamente aplicado nesta execução (compare com pending atual). */
+            appliedPayloadHash?: string | null;
         }
-    ): Promise<void> {
+    ): Promise<'synced' | 'pending_again'> {
         const row = await HospedinOutboundSyncState.findByPk(id);
-        if (!row) return;
+        if (!row) return 'synced';
 
         const now = new Date();
+        const appliedPayloadHash = String(
+            input?.appliedPayloadHash ??
+                row.pending_payload_hash ??
+                row.payload_hash ??
+                ''
+        ).trim();
+        const latestPending = String(row.pending_payload_hash || '').trim();
+        const requeue = shouldRequeueAfterAppliedSync(
+            appliedPayloadHash,
+            latestPending
+        );
+
         const patch: Record<string, unknown> = {
-            outbound_status: HospedinOutboundStatus.SYNCED,
-            payload_hash: row.pending_payload_hash ?? row.payload_hash,
+            payload_hash: appliedPayloadHash || row.payload_hash,
             last_sync_at: now,
-            last_success_at: now,
             processing_started_at: null,
             processing_correlation_id: null,
             last_error: null,
             error_code: null,
             next_retry_at: null,
             updated_at: now,
-            outbound_version: Number(row.outbound_version || 0) + 1,
         };
+
+        if (requeue) {
+            patch.outbound_status = HospedinOutboundStatus.PENDING_UPDATE;
+            patch.desired_action = HospedinOutboundDesiredAction.UPDATE;
+            patch.last_success_at = now;
+            patch.outbound_version = Number(row.outbound_version || 0) + 1;
+        } else {
+            patch.outbound_status = HospedinOutboundStatus.SYNCED;
+            patch.last_success_at = now;
+            patch.outbound_version = Number(row.outbound_version || 0) + 1;
+        }
 
         if (input?.hospedinReservationId != null) {
             patch.hospedin_reservation_id = input.hospedinReservationId;
@@ -158,6 +181,15 @@ export class HospedinOutboundStateService {
         }
 
         await row.update(patch);
+
+        if (requeue) {
+            await notifyOutboundPendingIfClaimable(
+                HospedinOutboundStatus.PENDING_UPDATE
+            );
+            return 'pending_again';
+        }
+
+        return 'synced';
     }
 
     async markWaitRetry(

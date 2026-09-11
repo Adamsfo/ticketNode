@@ -33,6 +33,7 @@ const baseInput = (): OutboundPayloadHashInput => ({
     observacoes: 'Obs base',
     adultos: 2,
     criancas: 0,
+    valorTotalCents: 0,
 });
 
 describe('buildOutboundCancelPatch', () => {

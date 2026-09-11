@@ -12,6 +12,7 @@ import {
 } from './HospedinOutboundPayloadBuilder';
 import {
     buildSnapshotFromReserva,
+    buildSyncBaselineFromReserva,
     hashOutboundPayload,
     normalizeHashInput,
     parseSyncedHashInputJson,
@@ -26,6 +27,7 @@ const baseInput = (): OutboundPayloadHashInput => ({
     observacoes: 'Obs base',
     adultos: 2,
     criancas: 0,
+    valorTotalCents: 0,
 });
 
 describe('hash outbound — campos suportados', () => {
@@ -39,6 +41,7 @@ describe('hash outbound — campos suportados', () => {
             'observacoes',
             'adultos',
             'criancas',
+            'valorTotalCents',
         ]);
         assert.ok(hash.length === 64);
     });
@@ -204,6 +207,44 @@ describe('diff / PATCH — campos suportados', () => {
         assert.ok(!('total_daily_cents' in patch));
         assert.ok(!('sale_channel_id' in patch));
         assert.ok(!('guest_id' in patch));
+    });
+});
+
+describe('hash financeiro', () => {
+    it('alteração somente de valorTotal gera dirty', () => {
+        const before = buildSyncBaselineFromReserva({
+            valorTotal: 500,
+            checkin: new Date('2026-10-18T14:00:00.000Z'),
+            checkout: new Date('2026-10-20T12:00:00.000Z'),
+            observacoes: 'Obs',
+            ReservaSuite: [{ idEventoSuite: 3, adultos: 2, criancas: 0 } as any],
+        } as any);
+        const after = buildSyncBaselineFromReserva({
+            valorTotal: 880,
+            checkin: new Date('2026-10-18T14:00:00.000Z'),
+            checkout: new Date('2026-10-20T12:00:00.000Z'),
+            observacoes: 'Obs',
+            ReservaSuite: [{ idEventoSuite: 3, adultos: 2, criancas: 0 } as any],
+        } as any);
+
+        assert.notEqual(
+            hashOutboundPayload(before),
+            hashOutboundPayload(after)
+        );
+        assert.equal(before.valorTotalCents, 50000);
+        assert.equal(after.valorTotalCents, 88000);
+    });
+
+    it('valorTotal zerado permanece 0 no hash (sem fallback preco/taxaServico)', () => {
+        const baseline = buildSyncBaselineFromReserva({
+            valorTotal: 0,
+            preco: 430,
+            taxaServico: 0,
+            checkin: new Date('2026-09-10T14:00:00.000Z'),
+            checkout: new Date('2026-09-11T12:00:00.000Z'),
+            ReservaSuite: [{ idEventoSuite: 1, adultos: 2, criancas: 0 } as any],
+        } as any);
+        assert.equal(baseline.valorTotalCents, 0);
     });
 });
 

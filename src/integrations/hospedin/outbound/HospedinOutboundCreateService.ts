@@ -1,4 +1,5 @@
 import { logger } from '../../../utils/logger';
+import { Evento } from '../../../models/Evento';
 import { HospedinPlace } from '../../../models/HospedinPlace';
 import {
     HospedinOutboundDesiredAction,
@@ -27,9 +28,13 @@ import {
 } from './HospedinOutboundGuestService';
 import { hospedinOutboundStateService } from './HospedinOutboundStateService';
 import {
-    buildSnapshotFromReserva,
+    buildSaleSyncContextFromReserva,
+    hospedinOutboundSaleSyncService,
+    HospedinOutboundSaleSyncService,
+} from './HospedinOutboundSaleSyncService';
+import {
+    buildSyncBaselineFromReserva,
     serializeHashInput,
-    snapshotToHashInput,
 } from './HospedinOutboundSnapshot';
 
 const log = logger.child('HospedinOutboundCreate');
@@ -69,10 +74,24 @@ function titularGuestName(
 /**
  * CREATE real outbound Jango → Hospedin (HTTP somente aqui).
  */
+type LoadedReserva = ReservaHospedagem & {
+    observacaoImportada?: string | null;
+    observacaoOperador?: string | null;
+    observacoes?: string | null;
+    origemReserva?: string | null;
+    Evento?: { tipo?: string | null } | null;
+    ReservaSuite?: Array<
+        ReservaSuite & {
+            ReservaHospede?: ReservaHospede[];
+        }
+    >;
+};
+
 export class HospedinOutboundCreateService {
     constructor(
         private readonly reservationService: HospedinReservationService = hospedinReservationService,
-        private readonly guestService: HospedinOutboundGuestService = hospedinOutboundGuestService
+        private readonly guestService: HospedinOutboundGuestService = hospedinOutboundGuestService,
+        private readonly saleSyncService: HospedinOutboundSaleSyncService = hospedinOutboundSaleSyncService
     ) {}
 
     async create(
@@ -82,20 +101,7 @@ export class HospedinOutboundCreateService {
         const idReserva = Number(state.id_reserva_hospedagem);
         const stateId = Number(state.id);
 
-        const hospedagem = await ReservaHospedagem.findByPk(idReserva, {
-            include: [
-                {
-                    model: ReservaSuite,
-                    as: 'ReservaSuite',
-                    include: [
-                        {
-                            model: ReservaHospede,
-                            as: 'ReservaHospede',
-                        },
-                    ],
-                },
-            ],
-        });
+        const hospedagem = await this.loadReserva(idReserva);
 
         if (!hospedagem) {
             return this.failPermanent(stateId, idReserva, {
@@ -149,11 +155,19 @@ export class HospedinOutboundCreateService {
         const freshState = await HospedinOutboundSyncState.findByPk(stateId);
         const stateRow = freshState ?? state;
 
-        const idempotent = await this.tryIdempotentSync(stateRow, hospedagem);
-        if (idempotent) {
-            return idempotent;
-        }
+        const existingLink = await this.tryResolveExistingLink(
+            stateRow,
+            hospedagem
+        );
 
+        let hospedinReservationId: string;
+        let codigoExterno: string | null =
+            String(hospedagem.codigoExterno || '').trim() || null;
+        let hospedinGuestId = String(stateRow.hospedin_guest_id || '').trim();
+
+        if (existingLink) {
+            hospedinReservationId = existingLink;
+        } else {
         const suites = (hospedagem as any).ReservaSuite ?? [];
         const linha = suites[0] as
             | (ReservaSuite & { ReservaHospede?: ReservaHospede[] })
@@ -237,8 +251,6 @@ export class HospedinOutboundCreateService {
             observacoes: hospedagem.observacoes,
             adultos: Number(linha.adultos || 0),
             criancas: Number(linha.criancas || 0),
-            preco: Number(linha.preco ?? hospedagem.preco ?? 0),
-            valorTotal: Number(linha.valorTotal ?? hospedagem.valorTotal ?? 0),
             placeId,
             placeTypeId,
             guestId,
@@ -260,101 +272,65 @@ export class HospedinOutboundCreateService {
             return this.handleHttpError(state, error, options);
         }
 
-        const hospedinReservationId = String(created.reservationId);
-        const codigoExterno = created.searchableCode ?? null;
-        const hospedinGuestId = String(guestId);
-        const syncedHashInputJson = serializeHashInput(
-            snapshotToHashInput(
-                buildSnapshotFromReserva(
-                    hospedagem as ReservaHospedagem & {
-                        ReservaSuite?: Array<
-                            ReservaSuite & {
-                                ReservaHospede?: ReservaHospede[];
-                            }
-                        >;
-                    }
-                )
-            )
-        );
+        hospedinReservationId = String(created.reservationId);
+        codigoExterno = created.searchableCode ?? null;
 
-        try {
-            await hospedinOutboundStateService.persistHospedinIds(stateId, {
-                hospedinReservationId,
-                hospedinGuestId,
-            });
-
-            await ReservaHospedagem.update(
-                {
-                    idExterno: hospedinReservationId,
-                    codigoExterno,
-                },
-                { where: { id: idReserva } }
-            );
-
-            const finalizeOutcome =
-                await hospedinOutboundStateService.finalizeCreateAfterPost(
-                    stateId,
-                    {
-                        hospedinReservationId,
-                        hospedinGuestId,
-                        syncedHashInputJson,
-                    }
-                );
-
-            if (finalizeOutcome === 'pending_cancel') {
-                log.info('outbound:create:pending-cancel-after-post', {
-                    correlationId: options?.correlationId,
-                    idReservaHospedagem: idReserva,
-                    hospedinReservationId,
-                });
-                return {
-                    outcome: 'created',
-                    idReservaHospedagem: idReserva,
-                    hospedinReservationId,
-                    message:
-                        'POST ok mas cancelamento pendente — enfileirado PENDING_CANCEL.',
-                };
-            }
-        } catch (persistError: unknown) {
-            const message =
-                persistError instanceof Error
-                    ? persistError.message
-                    : String(persistError);
-
-            await hospedinOutboundStateService.markFailed(stateId, {
-                errorCode: 'RECONCILE_REQUIRED',
-                errorMessage: `POST Hospedin ok (reservation_id=${hospedinReservationId}) mas falha ao persistir local: ${message}`,
-                hospedinReservationId,
-                hospedinGuestId,
-            });
-
-            return {
-                outcome: 'failed',
-                idReservaHospedagem: idReserva,
-                hospedinReservationId,
-                errorCode: 'RECONCILE_REQUIRED',
-                message,
-            };
-        }
-
-        log.info('outbound:create:success', {
-            correlationId: options?.correlationId,
-            idReservaHospedagem: idReserva,
+        hospedinGuestId = String(guestId);
+        await hospedinOutboundStateService.persistHospedinIds(stateId, {
             hospedinReservationId,
-            codigoExterno,
+            hospedinGuestId,
         });
 
-        return {
-            outcome: 'created',
-            idReservaHospedagem: idReserva,
+        await ReservaHospedagem.update(
+            {
+                idExterno: hospedinReservationId,
+                codigoExterno,
+            },
+            { where: { id: idReserva } }
+        );
+        }
+
+        return this.finalizeCreateWithSaleSync({
+            state,
+            stateRow,
+            hospedagem,
+            idReserva,
+            stateId,
             hospedinReservationId,
-        };
+            hospedinGuestId,
+            codigoExterno,
+            options,
+            reservationWasCreated: !existingLink,
+        });
     }
 
-    private async tryIdempotentSync(
+    private async loadReserva(idReserva: number): Promise<LoadedReserva | null> {
+        return (await ReservaHospedagem.findByPk(idReserva, {
+            include: [
+                {
+                    model: Evento,
+                    as: 'Evento',
+                    attributes: ['id', 'tipo'],
+                    required: false,
+                },
+                {
+                    model: ReservaSuite,
+                    as: 'ReservaSuite',
+                    include: [
+                        {
+                            model: ReservaHospede,
+                            as: 'ReservaHospede',
+                        },
+                    ],
+                },
+            ],
+        })) as LoadedReserva | null;
+    }
+
+    private async tryResolveExistingLink(
         state: HospedinOutboundSyncState,
         hospedagem: ReservaHospedagem
-    ): Promise<OutboundCreateResult | null> {
+    ): Promise<string | null> {
         const fresh = await ReservaHospedagem.findByPk(hospedagem.id, {
             attributes: ['id', 'idExterno', 'codigoExterno'],
         });
@@ -383,22 +359,96 @@ export class HospedinOutboundCreateService {
             );
         }
 
-        await hospedinOutboundStateService.markSynced(Number(state.id), {
-            hospedinReservationId: externalId,
-            hospedinGuestId: state.hospedin_guest_id,
-            syncedHashInputJson: state.synced_hash_input_json,
-        });
+        return externalId;
+    }
 
-        log.info('outbound:create:idempotent', {
-            idReservaHospedagem: hospedagem.id,
-            hospedinReservationId: externalId,
-        });
+    private async finalizeCreateWithSaleSync(input: {
+        state: HospedinOutboundSyncState;
+        stateRow: HospedinOutboundSyncState;
+        hospedagem: LoadedReserva;
+        idReserva: number;
+        stateId: number;
+        hospedinReservationId: string;
+        hospedinGuestId: string;
+        codigoExterno: string | null;
+        options?: OutboundCreateRunOptions;
+        reservationWasCreated: boolean;
+    }): Promise<OutboundCreateResult> {
+        const {
+            state,
+            stateRow,
+            hospedagem,
+            idReserva,
+            stateId,
+            hospedinReservationId,
+            hospedinGuestId,
+            codigoExterno,
+            options,
+            reservationWasCreated,
+        } = input;
+
+        const syncedHashInputJson = serializeHashInput(
+            buildSyncBaselineFromReserva(hospedagem)
+        );
+
+        try {
+            if (this.saleSyncService.shouldSyncSale(hospedagem)) {
+                await this.saleSyncService.ensureSaleAfterCreate(
+                    buildSaleSyncContextFromReserva(
+                        hospedagem,
+                        hospedinReservationId,
+                        options?.correlationId
+                    )
+                );
+            }
+
+            const finalizeOutcome =
+                await hospedinOutboundStateService.finalizeCreateAfterPost(
+                    stateId,
+                    {
+                        hospedinReservationId,
+                        hospedinGuestId,
+                        syncedHashInputJson,
+                    }
+                );
+
+            if (finalizeOutcome === 'pending_cancel') {
+                log.info('outbound:create:pending-cancel-after-post', {
+                    correlationId: options?.correlationId,
+                    idReservaHospedagem: idReserva,
+                    hospedinReservationId,
+                });
+                return {
+                    outcome: reservationWasCreated ? 'created' : 'idempotent',
+                    idReservaHospedagem: idReserva,
+                    hospedinReservationId,
+                    message:
+                        'Reservation ok mas cancelamento pendente — enfileirado PENDING_CANCEL.',
+                };
+            }
+        } catch (error: unknown) {
+            return this.handleHttpError(state, error, options);
+        }
+
+        log.info(
+            reservationWasCreated
+                ? 'outbound:create:success'
+                : 'outbound:create:idempotent',
+            {
+                correlationId: options?.correlationId,
+                idReservaHospedagem: idReserva,
+                hospedinReservationId,
+                codigoExterno,
+            }
+        );
 
         return {
-            outcome: 'idempotent',
-            idReservaHospedagem: hospedagem.id,
-            hospedinReservationId: externalId,
-            message: 'Vínculo externo já existente — POST ignorado.',
+            outcome: reservationWasCreated ? 'created' : 'idempotent',
+            idReservaHospedagem: idReserva,
+            hospedinReservationId,
+            message: reservationWasCreated
+                ? undefined
+                : 'Vínculo externo já existente — POST reservation ignorado.',
         };
     }
 

@@ -1,4 +1,5 @@
 import { logger } from '../../../utils/logger';
+import { Evento } from '../../../models/Evento';
 import { HospedinPlace } from '../../../models/HospedinPlace';
 import {
     HospedinOutboundDesiredAction,
@@ -17,17 +18,23 @@ import {
 import { classifyOutboundHttpError } from './hospedinOutboundErrorClassification';
 import {
     buildOutboundUpdatePatch,
+    isNoteOnlyOperationalPatch,
     OUTBOUND_CREATE_DEFERRED_STATUS,
     OUTBOUND_CREATE_ELIGIBLE_STATUSES,
     OUTBOUND_CREATE_TERMINAL_STATUSES,
 } from './HospedinOutboundPayloadBuilder';
 import { hospedinOutboundStateService } from './HospedinOutboundStateService';
 import {
-    buildSnapshotFromReserva,
+    buildSaleSyncContextFromReserva,
+    hospedinOutboundSaleSyncService,
+    HospedinOutboundSaleSyncService,
+} from './HospedinOutboundSaleSyncService';
+import {
+    buildSyncBaselineFromReserva,
+    financeHashChanged,
     hashOutboundPayload,
     parseSyncedHashInputJson,
     serializeHashInput,
-    snapshotToHashInput,
     type OutboundPayloadHashInput,
 } from './HospedinOutboundSnapshot';
 
@@ -67,6 +74,8 @@ type LoadedReserva = ReservaHospedagem & {
     observacaoImportada?: string | null;
     observacaoOperador?: string | null;
     observacoes?: string | null;
+    origemReserva?: string | null;
+    Evento?: { tipo?: string | null } | null;
     ReservaSuite?: Array<
         ReservaSuite & {
             ReservaHospede?: ReservaHospede[];
@@ -79,7 +88,8 @@ type LoadedReserva = ReservaHospedagem & {
  */
 export class HospedinOutboundUpdateService {
     constructor(
-        private readonly reservationService: HospedinReservationService = hospedinReservationService
+        private readonly reservationService: HospedinReservationService = hospedinReservationService,
+        private readonly saleSyncService: HospedinOutboundSaleSyncService = hospedinOutboundSaleSyncService
     ) {}
 
     async update(
@@ -140,25 +150,10 @@ export class HospedinOutboundUpdateService {
             });
         }
 
-        const afterInput = snapshotToHashInput(
-            buildSnapshotFromReserva(hospedagem)
-        );
+        const afterInput = buildSyncBaselineFromReserva(hospedagem);
         const currentHash = hashOutboundPayload(afterInput);
         const payloadHash = String(freshState.payload_hash || '').trim();
         const pendingHash = String(freshState.pending_payload_hash || '').trim();
-
-        if (
-            (payloadHash && pendingHash && payloadHash === pendingHash) ||
-            (payloadHash && currentHash === payloadHash)
-        ) {
-            return this.markIdempotent(
-                stateId,
-                idReserva,
-                hospedinReservationId,
-                afterInput,
-                freshState
-            );
-        }
 
         const beforeInput = parseSyncedHashInputJson(
             freshState.synced_hash_input_json
@@ -170,6 +165,8 @@ export class HospedinOutboundUpdateService {
                     'Baseline synced_hash_input_json ausente — impossível diff seguro para PATCH.',
             });
         }
+
+        const financeChanged = financeHashChanged(beforeInput, afterInput);
 
         const patchContext = await this.resolveSuitePlaceIds(hospedagem);
         if (!patchContext.ok) {
@@ -197,17 +194,21 @@ export class HospedinOutboundUpdateService {
             });
         }
 
-        const unsupportedOnly =
-            patchResult.changedFields.length > 0 &&
-            Object.keys(patchResult.patch).length === 0;
-        if (unsupportedOnly) {
-            return this.block(stateId, idReserva, {
-                errorCode: 'UNSUPPORTED_CHANGE',
-                message: `Alteração não suportada nesta etapa: ${patchResult.changedFields.join(', ')}`,
-            });
-        }
+        const operationalChanged =
+            Object.keys(patchResult.patch).length > 0;
+        const noteOnlyPatch =
+            operationalChanged && isNoteOnlyOperationalPatch(patchResult.patch);
+        const shouldApplyOperationalPatch =
+            operationalChanged && !(financeChanged && noteOnlyPatch);
+        const saleSyncEnabled = this.saleSyncService.shouldSyncSale(hospedagem);
 
-        if (Object.keys(patchResult.patch).length === 0) {
+        if (
+            (payloadHash && pendingHash && payloadHash === pendingHash) ||
+            (payloadHash &&
+                currentHash === payloadHash &&
+                !financeChanged &&
+                !shouldApplyOperationalPatch)
+        ) {
             return this.markIdempotent(
                 stateId,
                 idReserva,
@@ -217,81 +218,139 @@ export class HospedinOutboundUpdateService {
             );
         }
 
-        const sentHashInput = this.applyPatchToHashInput(
-            beforeInput,
-            afterInput,
-            patchResult.patch
-        );
-        const sentHash = hashOutboundPayload(sentHashInput);
+        const unsupportedOnly =
+            patchResult.changedFields.length > 0 &&
+            Object.keys(patchResult.patch).length === 0;
+        if (unsupportedOnly && !financeChanged) {
+            return this.block(stateId, idReserva, {
+                errorCode: 'UNSUPPORTED_CHANGE',
+                message: `Alteração não suportada nesta etapa: ${patchResult.changedFields.join(', ')}`,
+            });
+        }
 
-        log.info('outbound:update:patch-reservation', {
-            correlationId: options?.correlationId,
-            idReservaHospedagem: idReserva,
-            outboundStateId: stateId,
-            hospedinReservationId,
-            patchKeys: Object.keys(patchResult.patch),
-        });
-
-        try {
-            await this.reservationService.updateReservation(
+        if (!shouldApplyOperationalPatch && !financeChanged) {
+            return this.markIdempotent(
+                stateId,
+                idReserva,
                 hospedinReservationId,
+                afterInput,
+                freshState
+            );
+        }
+
+        let sentHashInput = afterInput;
+
+        if (shouldApplyOperationalPatch) {
+            sentHashInput = this.applyPatchToHashInput(
+                beforeInput,
+                afterInput,
                 patchResult.patch
             );
-        } catch (error: unknown) {
-            return this.handleHttpError(freshState, error, options);
-        }
+            const sentHash = hashOutboundPayload(sentHashInput);
 
-        const reloadedState = await HospedinOutboundSyncState.findByPk(stateId);
-        const reloadedReserva = await this.loadReserva(idReserva);
-        if (!reloadedState || !reloadedReserva) {
-            await hospedinOutboundStateService.markFailed(stateId, {
-                errorCode: 'RECONCILE_REQUIRED',
-                errorMessage:
-                    'PATCH Hospedin ok mas falha ao recarregar estado local.',
-                hospedinReservationId,
-            });
-            return {
-                outcome: 'failed',
-                idReservaHospedagem: idReserva,
-                hospedinReservationId,
-                errorCode: 'RECONCILE_REQUIRED',
-                message: 'PATCH ok — reconciliação manual necessária.',
-            };
-        }
-
-        const latestInput = snapshotToHashInput(
-            buildSnapshotFromReserva(reloadedReserva)
-        );
-        const latestHash = hashOutboundPayload(latestInput);
-        const latestPending = String(
-            reloadedState.pending_payload_hash || ''
-        ).trim();
-
-        if (latestHash !== latestPending || latestHash !== sentHash) {
-            await hospedinOutboundStateService.releaseToPending(stateId, {
-                desiredAction: HospedinOutboundDesiredAction.UPDATE,
-            });
-            log.info('outbound:update:stale-after-patch', {
+            log.info('outbound:update:patch-reservation', {
                 correlationId: options?.correlationId,
                 idReservaHospedagem: idReserva,
-                sentHash,
-                latestHash,
-                latestPending,
-            });
-            return {
-                outcome: 'stale',
-                idReservaHospedagem: idReserva,
+                outboundStateId: stateId,
                 hospedinReservationId,
-                message:
-                    'Estado Jango mudou durante PATCH — permanece PENDING_UPDATE.',
-            };
+                patchKeys: Object.keys(patchResult.patch),
+            });
+
+            try {
+                await this.reservationService.updateReservation(
+                    hospedinReservationId,
+                    patchResult.patch
+                );
+            } catch (error: unknown) {
+                return this.handleHttpError(freshState, error, options);
+            }
+
+            const reloadedState =
+                await HospedinOutboundSyncState.findByPk(stateId);
+            const reloadedReserva = await this.loadReserva(idReserva);
+            if (!reloadedState || !reloadedReserva) {
+                await hospedinOutboundStateService.markFailed(stateId, {
+                    errorCode: 'RECONCILE_REQUIRED',
+                    errorMessage:
+                        'PATCH Hospedin ok mas falha ao recarregar estado local.',
+                    hospedinReservationId,
+                });
+                return {
+                    outcome: 'failed',
+                    idReservaHospedagem: idReserva,
+                    hospedinReservationId,
+                    errorCode: 'RECONCILE_REQUIRED',
+                    message: 'PATCH ok — reconciliação manual necessária.',
+                };
+            }
+
+            const latestInput = buildSyncBaselineFromReserva(reloadedReserva);
+            const latestHash = hashOutboundPayload(latestInput);
+            const latestPending = String(
+                reloadedState.pending_payload_hash || ''
+            ).trim();
+
+            if (latestHash !== latestPending || latestHash !== sentHash) {
+                await hospedinOutboundStateService.releaseToPending(stateId, {
+                    desiredAction: HospedinOutboundDesiredAction.UPDATE,
+                });
+                log.info('outbound:update:stale-after-patch', {
+                    correlationId: options?.correlationId,
+                    idReservaHospedagem: idReserva,
+                    sentHash,
+                    latestHash,
+                    latestPending,
+                });
+                return {
+                    outcome: 'stale',
+                    idReservaHospedagem: idReserva,
+                    hospedinReservationId,
+                    message:
+                        'Estado Jango mudou durante PATCH — permanece PENDING_UPDATE.',
+                };
+            }
         }
 
+        if (financeChanged && saleSyncEnabled) {
+            try {
+                await this.saleSyncService.replaceSale(
+                    buildSaleSyncContextFromReserva(
+                        hospedagem,
+                        hospedinReservationId,
+                        options?.correlationId
+                    )
+                );
+            } catch (error: unknown) {
+                return this.handleHttpError(freshState, error, options);
+            }
+            sentHashInput = afterInput;
+        }
+
+        const appliedPayloadHash = hashOutboundPayload(sentHashInput);
+
         try {
-            await hospedinOutboundStateService.markSynced(stateId, {
-                hospedinReservationId,
-                syncedHashInputJson: serializeHashInput(sentHashInput),
-            });
+            const finalizeOutcome =
+                await hospedinOutboundStateService.markSynced(stateId, {
+                    hospedinReservationId,
+                    syncedHashInputJson: serializeHashInput(sentHashInput),
+                    appliedPayloadHash,
+                });
+
+            if (finalizeOutcome === 'pending_again') {
+                log.info('outbound:update:pending-again-after-sync', {
+                    correlationId: options?.correlationId,
+                    idReservaHospedagem: idReserva,
+                    hospedinReservationId,
+                    appliedPayloadHash,
+                });
+                return {
+                    outcome: 'stale',
+                    idReservaHospedagem: idReserva,
+                    hospedinReservationId,
+                    message:
+                        'Sync parcial concluída — pending mais recente enfileirado.',
+                };
+            }
         } catch (persistError: unknown) {
             const message =
                 persistError instanceof Error
@@ -300,7 +359,7 @@ export class HospedinOutboundUpdateService {
 
             await hospedinOutboundStateService.markFailed(stateId, {
                 errorCode: 'RECONCILE_REQUIRED',
-                errorMessage: `PATCH Hospedin ok mas falha ao persistir estado: ${message}`,
+                errorMessage: `Sync outbound ok mas falha ao persistir estado: ${message}`,
                 hospedinReservationId,
             });
 
@@ -317,6 +376,8 @@ export class HospedinOutboundUpdateService {
             correlationId: options?.correlationId,
             idReservaHospedagem: idReserva,
             hospedinReservationId,
+            operationalChanged,
+            financeChanged,
         });
 
         return {
@@ -329,6 +390,12 @@ export class HospedinOutboundUpdateService {
     private async loadReserva(idReserva: number): Promise<LoadedReserva | null> {
         return (await ReservaHospedagem.findByPk(idReserva, {
             include: [
+                {
+                    model: Evento,
+                    as: 'Evento',
+                    attributes: ['id', 'tipo'],
+                    required: false,
+                },
                 {
                     model: ReservaSuite,
                     as: 'ReservaSuite',
@@ -451,6 +518,7 @@ export class HospedinOutboundUpdateService {
             syncedHashInputJson:
                 state.synced_hash_input_json ??
                 serializeHashInput(afterInput),
+            appliedPayloadHash: hashOutboundPayload(afterInput),
         });
 
         log.info('outbound:update:idempotent', {

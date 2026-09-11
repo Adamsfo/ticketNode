@@ -4,14 +4,17 @@ import { ReservaHospedagem } from '../../../models/ReservaHospedagem';
 import { ReservaSuite } from '../../../models/ReservaSuite';
 import { mergeReservaObservacoes } from '../../../utils/reservaObservacoesUtils';
 import { TZ_HOSPEDAGEM } from '../../../utils/reservaSuiteUtils';
+import { resolveOutboundSalePriceCents } from './HospedinOutboundSalePayloadBuilder';
 
 /**
  * Snapshot operacional outbound — somente campos com PATCH suportado.
  *
- * Fora do hash (e do UPDATE outbound atual):
+ * Fora do hash operacional (e do PATCH outbound atual):
  * - status operacional Jango (check-in/check-out/cancelamento)
  * - hospedes[] / guest_id pós-criação (sincronização de hóspede fica fora do escopo)
- * - financeiro (valorPago, saldoPendente, pagamentos)
+ * - pagamentos (valorPago, saldoPendente)
+ *
+ * `valorTotalCents` participa do hash/baseline para detectar UPDATE financeiro via SALE.
  */
 export type OutboundPayloadSnapshot = {
     checkin: Date | null;
@@ -29,6 +32,7 @@ export type OutboundPayloadHashInput = {
     observacoes: string | null;
     adultos: number;
     criancas: number;
+    valorTotalCents: number;
 };
 
 export function periodKey(d: Date | null | undefined): string | null {
@@ -88,7 +92,8 @@ export function buildSnapshotFromReserva(
 }
 
 export function snapshotToHashInput(
-    snapshot: OutboundPayloadSnapshot
+    snapshot: OutboundPayloadSnapshot,
+    valorTotalCents = 0
 ): OutboundPayloadHashInput {
     return {
         checkin: periodKey(snapshot.checkin),
@@ -97,7 +102,32 @@ export function snapshotToHashInput(
         observacoes: snapshot.observacoes,
         adultos: snapshot.adultos,
         criancas: snapshot.criancas,
+        valorTotalCents: Math.max(0, Math.floor(Number(valorTotalCents) || 0)),
     };
+}
+
+export function buildSyncBaselineFromReserva(
+    hospedagem: ReservaHospedagem & {
+        observacaoImportada?: string | null;
+        observacaoOperador?: string | null;
+        observacoes?: string | null;
+        valorTotal?: unknown;
+        preco?: unknown;
+        taxaServico?: unknown;
+        ReservaSuite?: ReservaSuite[];
+    }
+): OutboundPayloadHashInput {
+    return snapshotToHashInput(
+        buildSnapshotFromReserva(hospedagem),
+        resolveOutboundSalePriceCents(hospedagem)
+    );
+}
+
+export function financeHashChanged(
+    before: OutboundPayloadHashInput,
+    after: OutboundPayloadHashInput
+): boolean {
+    return before.valorTotalCents !== after.valorTotalCents;
 }
 
 /** Normaliza baseline legado (campos removidos do hash: status, hospedes). */
@@ -115,6 +145,10 @@ export function normalizeHashInput(
             raw.observacoes != null ? String(raw.observacoes) : null,
         adultos: Math.max(0, Math.floor(Number(raw.adultos) || 0)),
         criancas: Math.max(0, Math.floor(Number(raw.criancas) || 0)),
+        valorTotalCents: Math.max(
+            0,
+            Math.floor(Number(raw.valorTotalCents) || 0)
+        ),
     };
 }
 

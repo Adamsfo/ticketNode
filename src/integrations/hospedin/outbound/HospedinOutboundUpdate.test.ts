@@ -12,9 +12,11 @@ import {
     buildOutboundNote,
     buildOutboundUpdatePatch,
     diffOutboundHashInputs,
+    isNoteOnlyOperationalPatch,
 } from './HospedinOutboundPayloadBuilder';
 import {
     buildSnapshotFromReserva,
+    financeHashChanged,
     hashOutboundPayload,
     resolveOutboundObservacoes,
     snapshotToHashInput,
@@ -29,6 +31,7 @@ const baseBefore: OutboundPayloadHashInput = {
     observacoes: 'Obs original',
     adultos: 2,
     criancas: 0,
+    valorTotalCents: 88000,
 };
 
 function afterWithObs(obs: string | null): OutboundPayloadHashInput {
@@ -93,9 +96,9 @@ describe('buildOutboundUpdatePatch', () => {
         });
 
         assert.deepEqual(changedFields, ['observacoes']);
-        assert.deepEqual(patch, {
-            note: 'Nova observação admin\nReserva Jango #127',
-        });
+        assert.ok(patch.note?.includes('Nova observação admin'));
+        assert.ok(patch.note?.includes('Reserva Jango #127'));
+        assert.ok(patch.note?.includes('ORIGEM JANGO - Reserva Jango #127'));
         assert.ok(!('daily_cents' in patch));
         assert.ok(!('guest_id' in patch));
         assert.ok(!('check_in' in patch));
@@ -245,11 +248,91 @@ describe('UPDATE não usa POST', () => {
     });
 });
 
-describe('buildOutboundNote', () => {
-    it('formata note homologação observação-only', () => {
+describe('UPDATE financeiro sem PATCH reservation', () => {
+    it('530→600: financeChanged sem PATCH operacional na reservation', () => {
+        const before: OutboundPayloadHashInput = {
+            ...baseBefore,
+            valorTotalCents: 53000,
+        };
+        const after: OutboundPayloadHashInput = {
+            ...baseBefore,
+            valorTotalCents: 60000,
+        };
+
+        assert.equal(financeHashChanged(before, after), true);
+
+        const { patch, changedFields } = buildOutboundUpdatePatch({
+            idReservaHospedagem: 127,
+            before,
+            after,
+        });
+
+        assert.deepEqual(changedFields, []);
+        assert.deepEqual(patch, {});
+    });
+
+    it('530→600 com diff note-only simultâneo não aplica PATCH de note (evita loop)', () => {
+        const before: OutboundPayloadHashInput = {
+            ...baseBefore,
+            valorTotalCents: 53000,
+            observacoes: 'Obs antiga',
+        };
+        const after: OutboundPayloadHashInput = {
+            ...baseBefore,
+            valorTotalCents: 60000,
+            observacoes: 'Obs nova',
+        };
+
+        const financeChanged = financeHashChanged(before, after);
+        const { patch } = buildOutboundUpdatePatch({
+            idReservaHospedagem: 127,
+            before,
+            after,
+        });
+
+        const noteOnlyPatch =
+            Object.keys(patch).length > 0 &&
+            isNoteOnlyOperationalPatch(patch);
+        const shouldApplyOperationalPatch =
+            Object.keys(patch).length > 0 &&
+            !(financeChanged && noteOnlyPatch);
+
+        assert.equal(financeChanged, true);
+        assert.equal(noteOnlyPatch, true);
+        assert.equal(shouldApplyOperationalPatch, false);
+    });
+});
+
+describe('isNoteOnlyOperationalPatch', () => {
+    it('detecta PATCH somente de note', () => {
+        const { patch } = buildOutboundUpdatePatch({
+            idReservaHospedagem: 127,
+            before: baseBefore,
+            after: afterWithObs('Nova obs'),
+        });
+        assert.equal(isNoteOnlyOperationalPatch(patch), true);
+    });
+
+    it('retorna false quando há outros campos além de note', () => {
         assert.equal(
-            buildOutboundNote(127, 'Minha obs'),
-            'Minha obs\nReserva Jango #127'
+            isNoteOnlyOperationalPatch({
+                note: 'x',
+                check_in: '2026-10-19T14:00',
+            }),
+            false
+        );
+    });
+});
+
+describe('buildOutboundNote', () => {
+    it('formata note com referência Jango e origem sem duplicar em retry', () => {
+        const note = buildOutboundNote(127, 'Minha obs');
+        assert.ok(note.includes('Minha obs'));
+        assert.ok(note.includes('Reserva Jango #127'));
+        assert.ok(note.includes('ORIGEM JANGO - Reserva Jango #127'));
+        assert.equal(
+            buildOutboundNote(127, note),
+            note
         );
     });
 });

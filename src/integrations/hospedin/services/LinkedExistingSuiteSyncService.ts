@@ -11,6 +11,7 @@ import { extractHospedinOfficialFinance } from '../utils/hospedinOfficialFinance
 import { incrementarHospedagemRefreshVersion } from '../../../services/hospedagemRefreshVersionService';
 import { suiteTemConflito } from '../../../services/reservaSuiteService';
 import { placeSuiteResolver } from './PlaceSuiteResolver';
+import { isOriginEligibleForOutbound } from '../outbound/hospedinOutboundOrigin';
 
 export type LinkedExistingAllowedChangesResult = {
     idReservaHospedagem: number;
@@ -171,9 +172,18 @@ export class LinkedExistingSuiteSyncService {
             '../../../models/ReservaHospedagem'
         );
         const { ReservaSuite } = await import('../../../models/ReservaSuite');
+        const { Evento } = await import('../../../models/Evento');
 
         const hospedagem = await ReservaHospedagem.findByPk(idReservaHospedagem, {
-            include: [{ model: ReservaSuite, as: 'ReservaSuite' }],
+            include: [
+                { model: ReservaSuite, as: 'ReservaSuite' },
+                {
+                    model: Evento,
+                    as: 'Evento',
+                    attributes: ['id', 'tipo'],
+                    required: false,
+                },
+            ],
         });
 
         if (!hospedagem) {
@@ -244,7 +254,14 @@ export class LinkedExistingSuiteSyncService {
         const valorPagoAtual = roundMoney(Number(hospedagem.valorPago ?? 0));
         let novoValorTotal: number | null = null;
 
-        if (finance) {
+        const skipInboundFinance = isOriginEligibleForOutbound({
+            origemReserva: (hospedagem as { origemReserva?: string | null })
+                .origemReserva,
+            Evento: (hospedagem as { Evento?: { tipo?: string | null } | null })
+                .Evento,
+        });
+
+        if (finance && !skipInboundFinance) {
             novoValorTotal = finance.valorTotal;
             const valorTotalAtual = roundMoney(Number(hospedagem.valorTotal ?? 0));
             if (valorTotalAtual !== novoValorTotal) {

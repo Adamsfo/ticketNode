@@ -9,10 +9,10 @@ import {
 } from '../../../models/HospedinOutboundSyncState';
 import { PlaceSuiteMappingStatus } from '../../../models/HospedinPlaceSuiteMap';
 import { hospedinPlaceSuiteMapService } from '../services/HospedinPlaceSuiteMapService';
+import { isOriginEligibleForOutbound } from './hospedinOutboundOrigin';
 import {
-    buildSnapshotFromReserva,
+    buildSyncBaselineFromReserva,
     hashOutboundPayload,
-    snapshotToHashInput,
 } from './HospedinOutboundSnapshot';
 import { hospedinOutboundStateService } from './HospedinOutboundStateService';
 import { notifyOutboundPendingIfClaimable } from './hospedinOutboundDispatchTrigger';
@@ -36,26 +36,6 @@ type OutboundPreconditionResult = {
     errorCode: string | null;
     lastError: string | null;
 };
-
-/** Elegibilidade de origem — único filtro que impede entrada na fila. */
-function isOriginEligibleForOutbound(
-    hospedagem: ReservaHospedagem & {
-        origemReserva?: string | null;
-        Evento?: { tipo?: string | null } | null;
-    }
-): boolean {
-    const origem = String(hospedagem.origemReserva || '').toUpperCase();
-    if (origem === 'HOSPEDIN') {
-        return false;
-    }
-
-    const tipoEvento = String(hospedagem.Evento?.tipo || '').trim();
-    if (tipoEvento && tipoEvento !== 'Pousada') {
-        return false;
-    }
-
-    return true;
-}
 
 /**
  * Pré-condições para envio efetivo — ausência gera BLOCKED, não descarta a fila.
@@ -267,8 +247,9 @@ export async function markDirty(idReservaHospedagem: number): Promise<void> {
         return;
     }
 
-    const snapshot = buildSnapshotFromReserva(hospedagem);
-    const pendingHash = hashOutboundPayload(snapshotToHashInput(snapshot));
+    const pendingHash = hashOutboundPayload(
+        buildSyncBaselineFromReserva(hospedagem)
+    );
     const preconditions = await evaluateOutboundPreconditions(hospedagem);
 
     const neverSent = resolveNeverSent(hospedagem, existing);
@@ -286,6 +267,30 @@ export async function markDirty(idReservaHospedagem: number): Promise<void> {
             pendingHash === existing.payload_hash;
 
         if (hashUnchanged) {
+            return;
+        }
+
+        if (existing.outbound_status === HospedinOutboundStatus.PROCESSING) {
+            const currentPending = String(
+                existing.pending_payload_hash || ''
+            ).trim();
+            if (currentPending && currentPending === pendingHash) {
+                return;
+            }
+
+            await existing.update({
+                outbound_status: HospedinOutboundStatus.PROCESSING,
+                desired_action:
+                    existing.desired_action ??
+                    (neverSent
+                        ? HospedinOutboundDesiredAction.CREATE
+                        : HospedinOutboundDesiredAction.UPDATE),
+                pending_payload_hash: pendingHash,
+                hospedin_reservation_id:
+                    idExterno ?? existing.hospedin_reservation_id,
+                dirty_at: now,
+                updated_at: now,
+            });
             return;
         }
 
@@ -428,4 +433,5 @@ export const outboundEnqueueTestHelpers = {
     resolveNeverSent,
     hasHospedinLink,
     shouldSkipMarkDirty,
+    resolveNextQueueState,
 };

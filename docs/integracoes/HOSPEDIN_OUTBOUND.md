@@ -125,12 +125,12 @@ Explicitamente **proibido** no outbound homologado:
 
 | Área | Detalhe |
 |------|---------|
-| Financeiro Jango → Hospedin | Sem `daily_cents` reais de negócio; payload usa valores operacionais mínimos |
+| Financeiro via campos da reservation | `daily_cents` / `total_daily_cents` / `total_amount` no POST/PATCH **não** representam valor Jango (sempre 0 no CREATE) |
 | Financeiro Hospedin → Jango | Inbound tem regra própria; outbound não toca |
 | Pagamentos | Sem webhooks de pagamento, sem confirmação financeira remota |
-| `reservation_transactions` | Homolog scripts bloqueiam HTTP a este path |
-| `sales` | Idem |
-| `rate_reservations` | Idem |
+| `reservation_transactions` | Fora do escopo outbound |
+| `rate_reservations` | Fora do escopo outbound |
+| SALE no CANCEL | Não implementado nesta etapa |
 | Sincronização financeira OTA | `has_payment_coming_from_ota: false` fixo no CREATE |
 | Status operacional Jango no UPDATE hash | Check-in/check-out Jango não geram diff outbound |
 | Lista de hóspedes / `guest_id` no UPDATE | Fora do hash; guest só no CREATE |
@@ -207,10 +207,25 @@ Campos enviados (`HospedinOutboundPayloadBuilder.ts`):
 - `exempt: 0`
 - `note` — observações com sufixo Jango quando aplicável
 - `guest_id`
-- `daily_cents`, `total_daily_cents` — operacionais (não financeiro de negócio)
+- `daily_cents: 0`, `total_daily_cents: 0`, `total_amount: 0` — financeiro Jango **não** vai na reservation
 - `has_payment_coming_from_ota: false`, `has_breakfast: false`, `sale_channel_id: null`
+- `note` inclui `Reserva Jango #<id>` e `ORIGEM JANGO - Reserva Jango #<id> - Valor controlado pelo Jango.` (merge sem duplicar)
 
-### 4.6 Guest
+### 4.6 SALE financeira (obrigatória para reservas elegíveis)
+
+Comportamento fixo do outbound Jango — **não** há feature flag para desativar.
+
+1. Após POST da reservation e persistência de `idExterno`, executa `ensureSaleAfterCreate`.
+2. Valor: `ReservaHospedagem.valorTotal` → `price_cents` (×100, `quantity=1`, **sem** multiplicar noites).
+   - Fallback: quando `valorTotal` está zerado mas `preco + taxaServico` já foi persistido, usa o total derivado desses campos (caso recepção).
+3. `item_id` e `selling_point_id` são **constantes** da integração (`810151` / `74977`, item "Valor").
+4. Identificador da SALE outbound: `item_id = 810151` (item "Valor") na reservation vinculada — sem `note`/marker na SALE.
+5. Idempotência: GET `/sales` → se única SALE com `item_id=810151` e `price_cents` correto, noop; se valor errado ou duplicada, DELETE todas com `item_id=810151` → POST.
+6. Retry CREATE com reservation já existente **ainda** executa ensureSale (reservation existente ≠ SALE existente).
+
+Reservas `origemReserva === 'HOSPEDIN'` **não** recebem SALE do Jango.
+
+### 4.7 Guest
 
 1. Primeiro hóspede com nome na 1ª `ReservaSuite`.
 2. `HospedinOutboundGuestService.resolveOrCreateGuestId`:
@@ -218,34 +233,35 @@ Campos enviados (`HospedinOutboundPayloadBuilder.ts`):
    - Senão `POST /api/v2/{accountId}/guests` com `{ name }`.
 3. Persiste `hospedin_guest_id` **antes** do POST da reserva.
 
-### 4.7 Accommodation / place mapping
+### 4.8 Accommodation / place mapping
 
 - `hospedinPlaceSuiteMapService.findByEventoSuiteId(idEventoSuite)`
 - Exige mapa **ativo** e `PlaceSuiteMappingStatus.LINKED`
 - `place_id` do mapa; `place_type_id` via catálogo Hospedin Place
 - Erros: `SUITE_UNMAPPED`, `PLACE_INVALID`, `PLACE_TYPE_MISSING`
 
-### 4.8 Idempotência
+### 4.9 Idempotência
 
-`tryIdempotentSync` (`HospedinOutboundCreateService`):
+`tryResolveExistingLink` (`HospedinOutboundCreateService`):
 
-- Se já existe `ReservaHospedagem.idExterno` ou `hospedin_reservation_id` → `markSynced`, outcome `idempotent`, **sem POST**.
+- Se já existe `ReservaHospedagem.idExterno` ou `hospedin_reservation_id` → **sem POST** da reservation.
 - Backfill de `idExterno` na reserva se só a fila tiver o ID.
+- SALE é sincronizada em `finalizeCreateWithSaleSync` mesmo no path idempotente.
 
-### 4.9 Persistência dos IDs (ordem pós-POST)
+### 4.10 Persistência dos IDs (ordem pós-POST)
 
 1. `persistHospedinIds` na fila (`hospedin_reservation_id`, `hospedin_guest_id`)
 2. `ReservaHospedagem.update({ idExterno, codigoExterno })`
 3. `finalizeCreateAfterPost` (ver §7)
 
-### 4.10 Retries
+### 4.11 Retries
 
 - `maxRetries` default **5** — env `HOSPEDIN_OUTBOUND_SYNC_MAX_RETRIES`
 - Backoff base **30s** — env `HOSPEDIN_OUTBOUND_SYNC_BACKOFF_BASE_SECONDS`
 - Exponencial com cap 3600s (`integrations/core/types.ts`)
 - Excede max → `FAILED`
 
-### 4.11 Erros HTTP (`classifyOutboundHttpError`)
+### 4.12 Erros HTTP (`classifyOutboundHttpError`)
 
 | HTTP | Retry? | `error_code` típico |
 |------|--------|---------------------|
@@ -281,12 +297,13 @@ Incluídos em `buildSnapshotFromReserva` / hash (`HospedinOutboundSnapshot.ts`):
 - `idEventoSuite`
 - `observacoes` (operador + importada, conforme builder)
 - `adultos`, `criancas`
+- `valorTotalCents` — `ReservaHospedagem.valorTotal × 100` (detecta UPDATE financeiro via SALE)
 
 **Fora do hash (não disparam UPDATE):**
 
 - Status operacional Jango (Confirmada/Hospedada/Check-in)
 - Hóspedes / `guest_id`
-- Qualquer campo financeiro
+- Pagamentos (`valorPago`, `saldoPendente`)
 
 ### 5.2 Hash, snapshot, diff
 
@@ -310,6 +327,8 @@ Somente campos alterados (`HospedinOutboundReservationPatch`):
 - `note`
 
 Campos alterados mas não patcháveis → `UNSUPPORTED_CHANGE` → `FAILED`.
+
+**Financeiro:** PATCH da reservation **não** altera `daily_cents` / `total_amount`. Mudança de `valorTotalCents` dispara `replaceSale` (GET sales → DELETE todas com `item_id=810151` → POST nova SALE). UPDATE somente financeiro não faz PATCH de `note` (evita loop).
 
 ### 5.4 Política 409
 
@@ -665,7 +684,14 @@ Defaults (`HospedinOutboundSyncProvider.getEnvDefaults()`):
 
 Runner lê `max_retries` e `backoff_base_seconds` das mesmas env vars.
 
-**Valores atuais no banco:** NÃO DOCUMENTADO/CONFIRMAR (consultar `integration_provider_config`).
+### SALE financeira (constantes fixas)
+
+| Constante | Valor | Uso |
+|-----------|-------|-----|
+| `HOSPEDIN_JANGO_SALE_ITEM_ID` | **810151** | `sale_input.item_id` (item "Valor") |
+| `HOSPEDIN_JANGO_SALE_SELLING_POINT_ID` | **74977** | `sale_input.selling_point_id` (homologado) |
+
+Definidas em `src/integrations/hospedin/constants/saleConstants.ts`. Não configuráveis por `.env`.
 
 ---
 
@@ -681,6 +707,8 @@ Comandos (`ticket-node/package.json`):
 | `test:outbound-cancel` | `HospedinOutboundCancel.test.ts` | PATCH cancel; GET idempotente; enqueue helpers |
 | `test:outbound-create-race` | `HospedinOutboundCreateRace.test.ts` | Race CREATE×CANCEL; finalize; single POST |
 | `test:outbound-dispatcher` | `HospedinOutboundDispatcher.test.ts` + `.integration.test.ts` | Claimable; mutex; markDirty→dispatch; watchdog; disabled provider |
+| `test:outbound-sale-payload` | `HospedinOutboundSalePayloadBuilder.test.ts` | Centavos; payload SALE |
+| `test:outbound-sale-sync` | `HospedinOutboundSaleSyncService.test.ts` | CREATE/UPDATE SALE mockado |
 
 ### Resultados (última execução registrada em desenvolvimento, 2026-09-03)
 

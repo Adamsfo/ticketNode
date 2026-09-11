@@ -3554,6 +3554,11 @@ export async function atualizarValorTotalReservaAdmin(
     );
     await incrementarHospedagemRefreshVersion();
 
+    const { hospedinOutboundEnqueueService } = await import(
+        '../integrations/hospedin/outbound/HospedinOutboundEnqueueService'
+    );
+    await hospedinOutboundEnqueueService.markDirty(idReserva);
+
     return obterReservaAdminDetalhe(idReserva, idUsuario);
 }
 

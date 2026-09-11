@@ -4,7 +4,14 @@ import { TZ_HOSPEDAGEM } from '../../../utils/reservaSuiteUtils';
 import type { OutboundPayloadHashInput } from './HospedinOutboundSnapshot';
 import { normObs } from './HospedinOutboundSnapshot';
 
-/** Payload operacional enviado ao POST /reservations (sem financeiro/pagamentos). */
+/** Centavos financeiros enviados no POST /reservations (campos da reserva Hospedin). */
+export type OutboundFinanceCents = {
+    daily_cents: number;
+    total_daily_cents: number;
+    total_amount: number;
+};
+
+/** Payload enviado ao POST /reservations (operacional + totais mínimos da reserva). */
 export type HospedinOutboundReservationInput = {
     place_id: number;
     place_type_id: number;
@@ -18,6 +25,7 @@ export type HospedinOutboundReservationInput = {
     guest_id: number;
     daily_cents: number;
     total_daily_cents: number;
+    total_amount: number;
     has_payment_coming_from_ota: false;
     has_breakfast: false;
     sale_channel_id: null;
@@ -70,14 +78,37 @@ function normObsLocal(v: string | null | undefined): string | null {
     return normObs(v);
 }
 
+export function buildOutboundOriginControlLine(
+    idReservaHospedagem: number
+): string {
+    return `ORIGEM JANGO - Reserva Jango #${idReservaHospedagem} - Valor controlado pelo Jango.`;
+}
+
+export function buildOutboundReservationNote(
+    idReservaHospedagem: number,
+    observacoes?: string | null,
+    observacaoImportada?: string | null
+): string {
+    const baseNote =
+        normObsLocal(observacaoImportada) ?? normObsLocal(observacoes);
+    const jangoRef = `Reserva Jango #${idReservaHospedagem}`;
+    const origemLine = buildOutboundOriginControlLine(idReservaHospedagem);
+
+    let note = baseNote || '';
+    if (!note.includes(jangoRef)) {
+        note = note ? `${note}\n${jangoRef}` : jangoRef;
+    }
+    if (!note.includes(origemLine)) {
+        note = note ? `${note}\n${origemLine}` : origemLine;
+    }
+    return note;
+}
+
 export function buildOutboundNote(
     idReservaHospedagem: number,
     observacoes?: string | null
 ): string {
-    const baseNote = normObsLocal(observacoes);
-    const jangoRef = `Reserva Jango #${idReservaHospedagem}`;
-    if (!baseNote) return jangoRef;
-    return baseNote.includes(jangoRef) ? baseNote : `${baseNote}\n${jangoRef}`;
+    return buildOutboundReservationNote(idReservaHospedagem, observacoes);
 }
 
 export type OutboundHashInputDiff = {
@@ -158,10 +189,45 @@ export function buildOutboundUpdatePatch(
     return { changedFields, patch };
 }
 
-function toCents(value: unknown): number {
+/** UPDATE financeiro não deve ficar preso em loop de PATCH somente de `note`. */
+export function isNoteOnlyOperationalPatch(
+    patch: HospedinOutboundReservationPatch
+): boolean {
+    const keys = Object.keys(patch);
+    return keys.length === 1 && keys[0] === 'note';
+}
+
+export function toReaisCents(value: unknown): number {
     const n = Number(value);
     if (!Number.isFinite(n) || n < 0) return 0;
     return Math.round(n * 100);
+}
+
+/**
+ * Mapeia valores já persistidos em ReservaHospedagem para centavos Hospedin (CREATE).
+ *
+ * - daily_cents: diária média (preco / noites)
+ * - total_daily_cents: subtotal do período sem taxa (preco)
+ * - total_amount: valor total final da reserva (valorTotal)
+ */
+export function buildOutboundFinanceCentsFromReserva(input: {
+    preco?: unknown;
+    noites?: unknown;
+    valorTotal?: unknown;
+}): OutboundFinanceCents {
+    const preco = Number(input.preco);
+    const valorTotal = Number(input.valorTotal);
+    const noitesRaw = Math.floor(Number(input.noites) || 0);
+    const noites = noitesRaw >= 1 ? noitesRaw : 1;
+    const precoSafe = Number.isFinite(preco) && preco >= 0 ? preco : 0;
+    const valorTotalSafe =
+        Number.isFinite(valorTotal) && valorTotal >= 0 ? valorTotal : 0;
+
+    return {
+        daily_cents: toReaisCents(precoSafe / noites),
+        total_daily_cents: toReaisCents(precoSafe),
+        total_amount: toReaisCents(valorTotalSafe),
+    };
 }
 
 export type BuildOutboundPayloadInput = {
@@ -172,8 +238,6 @@ export type BuildOutboundPayloadInput = {
     observacoes?: string | null;
     adultos: number;
     criancas: number;
-    preco: number;
-    valorTotal: number;
     placeId: number;
     placeTypeId: number;
     guestId: number;
@@ -188,14 +252,11 @@ export function buildOutboundReservationPayload(
         throw new Error('Check-in/check-out inválidos para outbound Hospedin.');
     }
 
-    const baseNote =
-        normObsLocal(input.observacaoImportada) ?? normObsLocal(input.observacoes);
-    const jangoRef = `Reserva Jango #${input.idReservaHospedagem}`;
-    const note = baseNote
-        ? baseNote.includes(jangoRef)
-            ? baseNote
-            : `${baseNote}\n${jangoRef}`
-        : jangoRef;
+    const note = buildOutboundReservationNote(
+        input.idReservaHospedagem,
+        input.observacoes,
+        input.observacaoImportada
+    );
 
     const adults = Math.max(1, Math.floor(Number(input.adultos) || 0));
     const children = Math.max(0, Math.floor(Number(input.criancas) || 0));
@@ -211,8 +272,9 @@ export function buildOutboundReservationPayload(
         exempt: 0,
         note,
         guest_id: input.guestId,
-        daily_cents: toCents(input.preco),
-        total_daily_cents: toCents(input.valorTotal),
+        daily_cents: 0,
+        total_daily_cents: 0,
+        total_amount: 0,
         has_payment_coming_from_ota: false,
         has_breakfast: false,
         sale_channel_id: null,
