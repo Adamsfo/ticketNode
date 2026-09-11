@@ -114,6 +114,14 @@ import {
     splitOperadorFromTextoCompleto,
 } from '../utils/reservaObservacoesUtils';
 import { logger } from '../utils/logger';
+import {
+    todasLinhasReservaHospedadas,
+    linhaSuiteTemChegadaRegistrada,
+    resolverChegadaLinhaSuite,
+    resolverCheckinLinhaSuite,
+    resolverStatusOperacionalLinhaSuite,
+    type ReservaOperacionalAgregada,
+} from '../utils/reservaSuiteOperacaoUtils';
 
 function resolverOrigemReserva(
     reserva: ReservaHospedagem & {
@@ -837,7 +845,8 @@ export async function listarReservasAdmin(params: {
 export async function obterReservaAdminDetalhe(
     idReserva: number,
     idUsuario: number,
-    dataSelecionada?: string
+    dataSelecionada?: string,
+    opcoes?: { idReservaSuite?: number; idEventoSuite?: number }
 ) {
     const escopo = await resolverEscopoProdutor(idUsuario);
 
@@ -933,6 +942,10 @@ export async function obterReservaAdminDetalhe(
         descricao: taxa.descricao,
         valor: toNumber(taxa.valor),
         ordem: Number(taxa.ordem || 1),
+        idReservaSuite:
+            taxa.idReservaSuite != null && Number(taxa.idReservaSuite) > 0
+                ? Number(taxa.idReservaSuite)
+                : null,
     }));
     const valorTaxasAdicionais = taxasAdicionais.reduce(
         (acc, taxa) => acc + toNumber(taxa.valor),
@@ -1000,9 +1013,39 @@ export async function obterReservaAdminDetalhe(
             valorFinal:
                 suite.valorFinal != null ? toNumber(suite.valorFinal) : null,
             status: suite.status,
+            dataHoraChegadaReal:
+                (suite as ReservaSuite & {
+                    dataHoraChegadaReal?: Date | null;
+                }).dataHoraChegadaReal ?? null,
+            idUsuarioChegada:
+                (suite as ReservaSuite & {
+                    idUsuarioChegada?: number | null;
+                }).idUsuarioChegada ?? null,
+            dataHoraCheckinReal:
+                (suite as ReservaSuite & {
+                    dataHoraCheckinReal?: Date | null;
+                }).dataHoraCheckinReal ?? null,
+            idUsuarioCheckin:
+                (suite as ReservaSuite & {
+                    idUsuarioCheckin?: number | null;
+                }).idUsuarioCheckin ?? null,
             hospedes,
         };
     });
+
+    const totalSuitesReserva = (reserva.ReservaSuite ?? []).length;
+    const linhaFocoRaw =
+        opcoes?.idReservaSuite != null
+            ? (reserva.ReservaSuite ?? []).find(
+                  (s) => Number(s.id) === Number(opcoes.idReservaSuite)
+              ) ?? null
+            : opcoes?.idEventoSuite != null
+              ? (reserva.ReservaSuite ?? []).find(
+                    (s) =>
+                        Number(s.idEventoSuite) ===
+                        Number(opcoes.idEventoSuite)
+                ) ?? null
+              : (reserva.ReservaSuite ?? [])[0] ?? null;
 
     const pagamentosRows = await PagamentoHospedagem.findAll({
         where: { idReservaHospedagem: reserva.id },
@@ -1461,7 +1504,8 @@ export async function obterReservaAdminDetalhe(
         ? await carregarOrigemIntegracao(reserva.id)
         : null;
 
-    const idEventoSuiteOperacao = suites[0]?.idEventoSuite ?? null;
+    const idEventoSuiteOperacao =
+        linhaFocoRaw?.idEventoSuite ?? suites[0]?.idEventoSuite ?? null;
     const dataOp =
         dataSelecionada && /^\d{4}-\d{2}-\d{2}$/.test(dataSelecionada)
             ? dataSelecionada
@@ -1473,7 +1517,6 @@ export async function obterReservaAdminDetalhe(
           )
         : null;
 
-    // Ações do modal seguem a reserva em foco (reservaId), não só o badge da suíte.
     const hojeOp = formatInTimeZone(new Date(), TZ, 'yyyy-MM-dd');
     const periodoFoco = normalizarPeriodoHospedagem(
         reserva.checkin,
@@ -1482,18 +1525,40 @@ export async function obterReservaAdminDetalhe(
     );
     const checkinNorm = periodoFoco.checkin ?? new Date(reserva.checkin);
     const checkoutNorm = periodoFoco.checkout ?? new Date(reserva.checkout);
-    const dataHoraChegadaRealDetalhe =
-        (reserva as ReservaHospedagem & { dataHoraChegadaReal?: Date | null })
-            .dataHoraChegadaReal ?? null;
+    const reservaAgregada = reserva as ReservaHospedagem &
+        ReservaOperacionalAgregada;
+    const statusFocoLinha = linhaFocoRaw
+        ? resolverStatusOperacionalLinhaSuite(
+              linhaFocoRaw,
+              reservaAgregada,
+              totalSuitesReserva
+          )
+        : (reserva.status as StatusReservaDisponibilidade);
+    const chegadaFocoLinha = linhaFocoRaw
+        ? resolverChegadaLinhaSuite(
+              linhaFocoRaw,
+              reservaAgregada,
+              totalSuitesReserva
+          )
+        : (reserva as ReservaHospedagem & {
+              dataHoraChegadaReal?: Date | null;
+          }).dataHoraChegadaReal ?? null;
+    const checkinFocoLinha = linhaFocoRaw
+        ? resolverCheckinLinhaSuite(
+              linhaFocoRaw,
+              reservaAgregada,
+              totalSuitesReserva
+          )
+        : dataHoraCheckinReal;
     const acoesFoco = calcularAcoesOperacionaisDaReserva({
         reserva: {
-            status: reserva.status as StatusReservaDisponibilidade,
+            status: statusFocoLinha,
             checkin: checkinNorm,
             checkout: checkoutNorm,
             saldoPendente,
-            dataHoraCheckinReal,
+            dataHoraCheckinReal: checkinFocoLinha,
             dataHoraCheckoutRealizado,
-            dataHoraChegadaReal: dataHoraChegadaRealDetalhe,
+            dataHoraChegadaReal: chegadaFocoLinha,
         },
         dataSelecionada: dataOp,
         hoje: hojeOp,
@@ -1970,13 +2035,44 @@ function badgeParaStatusOperacional(
     }
 }
 
+async function carregarContagemSuitesPorReserva(
+    idsReservas: number[]
+): Promise<Map<number, number>> {
+    const ids = [...new Set(idsReservas.filter((id) => id > 0))];
+    if (ids.length === 0) return new Map();
+
+    const rows = (await ReservaSuite.findAll({
+        attributes: [
+            'idReservaHospedagem',
+            [Sequelize.fn('COUNT', Sequelize.col('id')), 'total'],
+        ],
+        where: { idReservaHospedagem: { [Op.in]: ids } },
+        group: ['idReservaHospedagem'],
+        raw: true,
+    })) as unknown as Array<{
+        idReservaHospedagem: number;
+        total: string | number;
+    }>;
+
+    const map = new Map<number, number>();
+    for (const row of rows) {
+        map.set(Number(row.idReservaHospedagem), Number(row.total));
+    }
+    return map;
+}
+
 function reservasParaDisponibilidade(
-    itens: ReservaSuiteComHospedagem[]
+    itens: ReservaSuiteComHospedagem[],
+    contagemSuitesPorReserva?: Map<number, number>
 ): ReservaDisponibilidadeInput[] {
     const out: ReservaDisponibilidadeInput[] = [];
     for (const item of itens) {
         const rh = item.ReservaHospedagem;
         if (!rh) continue;
+        const linha = item as ReservaSuite;
+        const totalSuites = contagemSuitesPorReserva?.get(rh.id) ?? 1;
+        const reservaAgregada = rh as ReservaHospedagem &
+            ReservaOperacionalAgregada;
         const financeiro = resolverFinanceiroReserva(
             rh as ReservaHospedagem & {
                 valorPago?: number;
@@ -1989,19 +2085,27 @@ function reservasParaDisponibilidade(
         );
         out.push({
             id: rh.id,
-            status: rh.status as StatusReservaDisponibilidade,
+            status: resolverStatusOperacionalLinhaSuite(
+                linha,
+                reservaAgregada,
+                totalSuites
+            ),
             checkin: periodo.checkin ?? rh.checkin,
             checkout: periodo.checkout ?? rh.checkout,
-            dataHoraCheckinReal:
-                (rh as ReservaHospedagem & { dataHoraCheckinReal?: Date | null })
-                    .dataHoraCheckinReal ?? null,
+            dataHoraCheckinReal: resolverCheckinLinhaSuite(
+                linha,
+                reservaAgregada,
+                totalSuites
+            ),
             dataHoraCheckoutRealizado:
                 (rh as ReservaHospedagem & {
                     dataHoraCheckoutRealizado?: Date | null;
                 }).dataHoraCheckoutRealizado ?? null,
-            dataHoraChegadaReal:
-                (rh as ReservaHospedagem & { dataHoraChegadaReal?: Date | null })
-                    .dataHoraChegadaReal ?? null,
+            dataHoraChegadaReal: resolverChegadaLinhaSuite(
+                linha,
+                reservaAgregada,
+                totalSuites
+            ),
             saldoPendente: financeiro.saldoPendente,
             responsavelNome: rh.Usuario?.nomeCompleto ?? null,
             origemReserva:
@@ -2156,14 +2260,18 @@ export function resolverStatusLimpezaSuiteCard(
 function mapearCardSuiteOperacional(
     suite: EventoSuite & { Evento?: { id: number; nome: string } | null },
     reservasSuite: ReservaSuiteComHospedagem[],
-    ref: RefDiaCuiaba
+    ref: RefDiaCuiaba,
+    contagemSuitesPorReserva?: Map<number, number>
 ) {
     const hojeStr = formatInTimeZone(new Date(), TZ, 'yyyy-MM-dd');
     const disp = calcularDisponibilidadeSuite({
         idEventoSuite: suite.id,
         dataSelecionada: ref.dataReferencia,
         hoje: hojeStr,
-        reservas: reservasParaDisponibilidade(reservasSuite),
+        reservas: reservasParaDisponibilidade(
+            reservasSuite,
+            contagemSuitesPorReserva
+        ),
     });
 
     const reservaAtualId = disp.reservaAtual?.id ?? null;
@@ -2196,9 +2304,38 @@ function mapearCardSuiteOperacional(
           )
         : null;
 
-    const dataHoraCheckinReal =
-        (rh as ReservaHospedagem & { dataHoraCheckinReal?: Date | null })
-            ?.dataHoraCheckinReal ?? null;
+    const totalSuitesReserva = rh
+        ? contagemSuitesPorReserva?.get(rh.id) ?? 1
+        : 1;
+    const reservaAgregada = rh as
+        | (ReservaHospedagem & ReservaOperacionalAgregada)
+        | null;
+    const dataHoraCheckinReal = reservaSuite && reservaAgregada
+        ? resolverCheckinLinhaSuite(
+              reservaSuite,
+              reservaAgregada,
+              totalSuitesReserva
+          )
+        : (rh as ReservaHospedagem & { dataHoraCheckinReal?: Date | null })
+              ?.dataHoraCheckinReal ?? null;
+    const dataHoraChegadaRealCard =
+        reservaSuite && reservaAgregada
+            ? resolverChegadaLinhaSuite(
+                  reservaSuite,
+                  reservaAgregada,
+                  totalSuitesReserva
+              )
+            : (rh as ReservaHospedagem & {
+                  dataHoraChegadaReal?: Date | null;
+              })?.dataHoraChegadaReal ?? null;
+    const statusLinhaReserva =
+        reservaSuite && reservaAgregada
+            ? resolverStatusOperacionalLinhaSuite(
+                  reservaSuite,
+                  reservaAgregada,
+                  totalSuitesReserva
+              )
+            : rh?.status ?? null;
 
     const statusOperacional = badgeParaStatusOperacional(disp.badge);
 
@@ -2292,9 +2429,13 @@ function mapearCardSuiteOperacional(
               null
             : null,
         valorSuite: reservaSuite ? toNumber(reservaSuite.valorTotal) : null,
+        idReservaSuite: reservaSuite?.id ?? null,
         idReservaHospedagem: rh?.id ?? null,
         numeroReserva: rh?.id ?? null,
-        statusReserva: rh ? statusExibicaoReserva(rh.status, rh.checkout) : null,
+        statusReserva: rh && statusLinhaReserva
+            ? statusExibicaoReserva(statusLinhaReserva, rh.checkout)
+            : null,
+        dataHoraChegadaReal: dataHoraChegadaRealCard,
         ocupadaAgora: disp.agendaOcupada,
         hospedada: disp.hospedada,
         checkinHoje: disp.checkinHoje,
@@ -2598,10 +2739,24 @@ export async function listarSituacaoSuites(params: {
     }
 
     const limpezasPorSuite = await carregarLimpezasPorSuite(idsSuites);
+    const idsReservasMes = [
+        ...new Set(
+            reservasMes
+                .map((item) => item.idReservaHospedagem)
+                .filter((id) => id > 0)
+        ),
+    ];
+    const contagemSuitesPorReserva =
+        await carregarContagemSuitesPorReserva(idsReservasMes);
 
     let cards = suites.map((suite) => {
         const reservasSuite = porSuite.get(suite.id) ?? [];
-        const card = mapearCardSuiteOperacional(suite, reservasSuite, ref);
+        const card = mapearCardSuiteOperacional(
+            suite,
+            reservasSuite,
+            ref,
+            contagemSuitesPorReserva
+        );
         return {
             ...card,
             statusLimpezaSuite: resolverStatusLimpezaSuiteCard(
@@ -2882,6 +3037,78 @@ async function garantirContaJangoHospedagem(
             { cause: detalhe }
         );
     }
+}
+
+type ReservaOperacaoSuiteCarregada = {
+    reserva: ReservaHospedagem & {
+        Evento?: { id: number; idProdutor?: number } | null;
+        ReservaSuite?: ReservaSuite[];
+        Pagamentos?: Array<{ valor?: number }>;
+    };
+    linha: ReservaSuite;
+    totalSuites: number;
+};
+
+async function carregarContextoOperacaoReservaSuite(
+    idReservaHospedagem: number,
+    idReservaSuite: number,
+    idUsuario: number
+): Promise<ReservaOperacaoSuiteCarregada> {
+    const idSuite = Number(idReservaSuite);
+    if (!Number.isFinite(idSuite) || idSuite <= 0) {
+        throw new CustomError('idReservaSuite inválido.', 400, '');
+    }
+
+    const escopo = await resolverEscopoProdutor(idUsuario);
+
+    const reserva = (await ReservaHospedagem.findByPk(idReservaHospedagem, {
+        include: [
+            {
+                model: Evento,
+                as: 'Evento',
+                attributes: ['id', 'idProdutor'],
+                required: true,
+            },
+            {
+                model: ReservaSuite,
+                as: 'ReservaSuite',
+                required: false,
+            },
+            {
+                model: PagamentoHospedagem,
+                as: 'Pagamentos',
+                attributes: ['id', 'valor'],
+                required: false,
+            },
+        ],
+    })) as ReservaOperacaoSuiteCarregada['reserva'] | null;
+
+    if (!reserva) {
+        throw new CustomError('Reserva de hospedagem não encontrada.', 404, '');
+    }
+
+    if (
+        !escopo.admGeral &&
+        !escopo.idsProdutor.includes(Number(reserva.Evento?.idProdutor))
+    ) {
+        throw new CustomError('Sem permissão para esta reserva.', 403, '');
+    }
+
+    const suites = reserva.ReservaSuite ?? [];
+    const linha = suites.find((s) => Number(s.id) === idSuite) ?? null;
+    if (!linha) {
+        throw new CustomError(
+            'Linha de suíte não pertence a esta reserva.',
+            404,
+            ''
+        );
+    }
+
+    return {
+        reserva,
+        linha,
+        totalSuites: suites.length > 0 ? suites.length : 1,
+    };
 }
 
 /** Registro de chegada física: mantém Confirmada (não é check-in operacional). */
@@ -3305,6 +3532,448 @@ export async function realizarCheckinAdmin(
     return obterReservaAdminDetalhe(idReservaHospedagem, idUsuario);
 }
 
+/** Registro de chegada física de UMA ReservaSuite (multi-suíte). */
+export async function registrarChegadaReservaSuiteAdmin(
+    idReservaHospedagem: number,
+    idReservaSuite: number,
+    idUsuario: number,
+    dataHoraChegadaInformada?: Date | null
+) {
+    const { reserva, linha, totalSuites } =
+        await carregarContextoOperacaoReservaSuite(
+            idReservaHospedagem,
+            idReservaSuite,
+            idUsuario
+        );
+
+    const chegadaExistenteLinha = linha.dataHoraChegadaReal ?? null;
+    const idVendaJangoExistente = (
+        reserva as ReservaHospedagem & { idVendaJango?: number | null }
+    ).idVendaJango;
+
+    if (chegadaExistenteLinha && idVendaJangoValido(idVendaJangoExistente)) {
+        const suitesComChegada = (reserva.ReservaSuite ?? []).filter((s) =>
+            Boolean(s.dataHoraChegadaReal)
+        );
+        const esperadoIngressos =
+            calcularTotaisHospedesReserva(suitesComChegada);
+        if (esperadoIngressos.adultos + esperadoIngressos.criancas > 0) {
+            const existentesIngressos = await contarIngressosHospedagemPdv(
+                Number(idVendaJangoExistente)
+            );
+            if (
+                ingressosHospedagemChegadaCompletos(
+                    existentesIngressos,
+                    esperadoIngressos
+                )
+            ) {
+                return obterReservaAdminDetalhe(
+                    idReservaHospedagem,
+                    idUsuario,
+                    undefined,
+                    { idReservaSuite }
+                );
+            }
+        }
+    }
+
+    if (reserva.status !== StatusReservaHospedagem.Confirmada) {
+        throw new CustomError(
+            'Somente reservas confirmadas podem registrar chegada.',
+            400,
+            ''
+        );
+    }
+
+    if (linha.status !== StatusReservaSuite.Confirmada) {
+        throw new CustomError(
+            'Somente suítes confirmadas podem registrar chegada.',
+            400,
+            ''
+        );
+    }
+
+    const financeiroChegada = resolverFinanceiroReserva(
+        reserva as ReservaHospedagem & {
+            valorPago?: number;
+            saldoPendente?: number | null;
+            Pagamentos?: Array<{ valor?: number }>;
+        }
+    );
+    if (financeiroChegada.saldoPendente > 0.009) {
+        throw new CustomError(
+            'Não é possível registrar a chegada enquanto houver saldo pendente. Receba o pagamento antes de prosseguir.',
+            400,
+            ''
+        );
+    }
+
+    const hojeLocal = toZonedTime(new Date(), TZ);
+    const checkinLocal = toZonedTime(new Date(reserva.checkin), TZ);
+    const inicioHoje = startOfDay(hojeLocal);
+    const inicioCheckin = startOfDay(checkinLocal);
+    if (inicioHoje.getTime() < inicioCheckin.getTime()) {
+        const dd = String(checkinLocal.getDate()).padStart(2, '0');
+        const mm = String(checkinLocal.getMonth() + 1).padStart(2, '0');
+        throw new CustomError(
+            `Registro de chegada disponível em ${dd}/${mm}.`,
+            400,
+            ''
+        );
+    }
+
+    const titular = await Usuario.findByPk(reserva.idUsuario, {
+        attributes: [
+            'id',
+            'id_cliente',
+            'cpf',
+            'nomeCompleto',
+            'sobreNome',
+            'telefone',
+            'email',
+        ],
+    });
+    if (!titular) {
+        throw new CustomError('Usuário responsável da reserva não encontrado.', 404, '');
+    }
+
+    let idClienteTitular = Number(titular.id_cliente);
+
+    if (!Number.isFinite(idClienteTitular) || idClienteTitular <= 0) {
+        const cpfDigits = String(titular.cpf ?? '').replace(/\D/g, '');
+        if (!isValidCpf(cpfDigits)) {
+            throw new CustomError(
+                'O responsável da reserva precisa estar vinculado a um cliente Jango antes de registrar a chegada. Utilize "Cadastrar cliente" para vincular o id_cliente.',
+                400,
+                ''
+            );
+        }
+
+        const dadosJango = await apiJango().getCliente(cpfDigits);
+        let clienteJango = Array.isArray(dadosJango) ? dadosJango[0] : undefined;
+
+        if (!clienteJango) {
+            const nomeCompletoJango = [titular.nomeCompleto, titular.sobreNome]
+                .map((parte) => String(parte ?? '').trim())
+                .filter(Boolean)
+                .join(' ');
+
+            await apiJango().atualizarCliente({
+                CPF_CNPJ: cpfDigits,
+                NOME: nomeCompletoJango,
+                TELEFONE_CELULAR: String(titular.telefone ?? '').replace(
+                    /\D/g,
+                    ''
+                ),
+                EMAIL: titular.email ? String(titular.email) : '',
+            });
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+            const dadosNovos = await apiJango().getCliente(cpfDigits);
+            if (!Array.isArray(dadosNovos) && dadosNovos?.error) {
+                throw new CustomError(String(dadosNovos.error), 400, '');
+            }
+            clienteJango = Array.isArray(dadosNovos) ? dadosNovos[0] : undefined;
+        }
+
+        if (clienteJango?.error) {
+            throw new CustomError(String(clienteJango.error), 400, '');
+        }
+
+        const idClienteResolvido = Number(clienteJango?.id_cliente);
+        if (!Number.isFinite(idClienteResolvido) || idClienteResolvido <= 0) {
+            throw new CustomError(
+                'O responsável da reserva precisa estar vinculado a um cliente Jango antes de registrar a chegada. Utilize "Cadastrar cliente" para vincular o id_cliente.',
+                400,
+                ''
+            );
+        }
+
+        await titular.update({ id_cliente: idClienteResolvido });
+        idClienteTitular = idClienteResolvido;
+    }
+
+    const dataHoraChegada = chegadaExistenteLinha
+        ? null
+        : resolverDataHoraOperacaoRetroativa(
+              dataHoraChegadaInformada,
+              'registro de chegada'
+          );
+
+    let houveAlteracao = false;
+
+    await connection.transaction(async (t: Transaction) => {
+        const reservaLocked = await ReservaHospedagem.findByPk(
+            idReservaHospedagem,
+            {
+                lock: t.LOCK.UPDATE,
+                transaction: t,
+            }
+        );
+        const linhaLocked = await ReservaSuite.findByPk(idReservaSuite, {
+            lock: t.LOCK.UPDATE,
+            transaction: t,
+        });
+
+        if (!reservaLocked || !linhaLocked) {
+            throw new CustomError('Reserva de hospedagem não encontrada.', 404, '');
+        }
+        if (Number(linhaLocked.idReservaHospedagem) !== idReservaHospedagem) {
+            throw new CustomError(
+                'Linha de suíte não pertence a esta reserva.',
+                404,
+                ''
+            );
+        }
+
+        const idVendaJango = await garantirContaJangoHospedagem(
+            reservaLocked.idVendaJango,
+            idClienteTitular
+        );
+
+        const outrasComChegada = (reserva.ReservaSuite ?? []).filter(
+            (s) =>
+                Number(s.id) !== Number(linhaLocked.id) &&
+                Boolean(s.dataHoraChegadaReal)
+        );
+        const { alterouIngressos } = await garantirIngressosPdvHospedagemChegada(
+            {
+                idReservaHospedagem,
+                idVenda: idVendaJango,
+                idCliente: idClienteTitular,
+                suites: [...outrasComChegada, linhaLocked],
+            }
+        );
+
+        const payloadReserva: {
+            idVendaJango: number;
+            dataHoraChegadaReal?: Date;
+            idUsuarioChegada?: number;
+        } = { idVendaJango };
+
+        if (!reservaLocked.dataHoraChegadaReal && dataHoraChegada) {
+            payloadReserva.dataHoraChegadaReal = dataHoraChegada;
+            payloadReserva.idUsuarioChegada = idUsuario;
+        }
+
+        const payloadLinha: {
+            dataHoraChegadaReal?: Date;
+            idUsuarioChegada?: number;
+        } = {};
+        if (!linhaLocked.dataHoraChegadaReal && dataHoraChegada) {
+            payloadLinha.dataHoraChegadaReal = dataHoraChegada;
+            payloadLinha.idUsuarioChegada = idUsuario;
+        }
+
+        const needsUpdateReserva =
+            Number(reservaLocked.idVendaJango) !== idVendaJango ||
+            Boolean(payloadReserva.dataHoraChegadaReal);
+        const needsUpdateLinha = Boolean(payloadLinha.dataHoraChegadaReal);
+
+        if (needsUpdateReserva) {
+            await reservaLocked.update(payloadReserva, { transaction: t });
+        }
+        if (needsUpdateLinha) {
+            await linhaLocked.update(payloadLinha, { transaction: t });
+        }
+
+        if (needsUpdateReserva || needsUpdateLinha || alterouIngressos) {
+            houveAlteracao = true;
+        }
+    });
+
+    if (houveAlteracao) {
+        const { incrementarHospedagemRefreshVersion } = await import(
+            './hospedagemRefreshVersionService'
+        );
+        await incrementarHospedagemRefreshVersion();
+    }
+
+    return obterReservaAdminDetalhe(
+        idReservaHospedagem,
+        idUsuario,
+        undefined,
+        { idReservaSuite, idEventoSuite: linha.idEventoSuite }
+    );
+}
+
+/** Check-in operacional de UMA ReservaSuite (multi-suíte). */
+export async function realizarCheckinReservaSuiteAdmin(
+    idReservaHospedagem: number,
+    idReservaSuite: number,
+    idUsuario: number,
+    dataHoraCheckinInformada?: Date | null
+) {
+    const { reserva, linha, totalSuites } =
+        await carregarContextoOperacaoReservaSuite(
+            idReservaHospedagem,
+            idReservaSuite,
+            idUsuario
+        );
+
+    if (
+        linha.status === StatusReservaSuite.Hospedada ||
+        linha.dataHoraCheckinReal
+    ) {
+        throw new CustomError('Check-in já realizado para esta suíte.', 400, '');
+    }
+
+    if (reserva.status === StatusReservaHospedagem.CheckOutRealizado) {
+        throw new CustomError('Check-out já realizado para esta reserva.', 400, '');
+    }
+
+    if (
+        reserva.status !== StatusReservaHospedagem.Confirmada &&
+        reserva.status !== StatusReservaHospedagem.Hospedada
+    ) {
+        throw new CustomError(
+            'Somente reservas confirmadas podem realizar check-in.',
+            400,
+            ''
+        );
+    }
+
+    if (linha.status !== StatusReservaSuite.Confirmada) {
+        throw new CustomError(
+            'Somente suítes confirmadas podem realizar check-in.',
+            400,
+            ''
+        );
+    }
+
+    const reservaAgregada = reserva as ReservaHospedagem &
+        ReservaOperacionalAgregada;
+    if (
+        !linhaSuiteTemChegadaRegistrada(linha, reservaAgregada, totalSuites)
+    ) {
+        throw new CustomError(
+            'Registre a chegada do hóspede antes de realizar o check-in.',
+            400,
+            ''
+        );
+    }
+
+    const idVendaJangoReserva = (
+        reserva as ReservaHospedagem & { idVendaJango?: number | null }
+    ).idVendaJango;
+    if (!idVendaJangoValido(idVendaJangoReserva)) {
+        throw new CustomError(
+            'A conta Jango da hospedagem não está vinculada à reserva. Registre ou regularize a chegada antes do check-in.',
+            400,
+            ''
+        );
+    }
+
+    const financeiroCheckin = resolverFinanceiroReserva(
+        reserva as ReservaHospedagem & {
+            valorPago?: number;
+            saldoPendente?: number | null;
+            Pagamentos?: Array<{ valor?: number }>;
+        }
+    );
+    if (financeiroCheckin.saldoPendente > 0.009) {
+        throw new CustomError(
+            'Não é possível realizar o check-in enquanto houver saldo pendente. Receba o pagamento antes de prosseguir.',
+            400,
+            ''
+        );
+    }
+
+    const hojeLocal = toZonedTime(new Date(), TZ);
+    const checkinLocal = toZonedTime(new Date(reserva.checkin), TZ);
+    const inicioHoje = startOfDay(hojeLocal);
+    const inicioCheckin = startOfDay(checkinLocal);
+    if (inicioHoje.getTime() < inicioCheckin.getTime()) {
+        const dd = String(checkinLocal.getDate()).padStart(2, '0');
+        const mm = String(checkinLocal.getMonth() + 1).padStart(2, '0');
+        throw new CustomError(
+            `Check-in disponível em ${dd}/${mm}.`,
+            400,
+            ''
+        );
+    }
+
+    await assertSuitesSemLimpezaAbertaParaCheckin([linha.idEventoSuite]);
+
+    const dataHoraCheckin = resolverDataHoraOperacaoRetroativa(
+        dataHoraCheckinInformada,
+        'check-in'
+    );
+
+    await connection.transaction(async (t: Transaction) => {
+        const linhaLocked = await ReservaSuite.findByPk(idReservaSuite, {
+            lock: t.LOCK.UPDATE,
+            transaction: t,
+        });
+        const reservaLocked = await ReservaHospedagem.findByPk(
+            idReservaHospedagem,
+            {
+                lock: t.LOCK.UPDATE,
+                transaction: t,
+            }
+        );
+
+        if (!linhaLocked || !reservaLocked) {
+            throw new CustomError('Reserva de hospedagem não encontrada.', 404, '');
+        }
+        if (Number(linhaLocked.idReservaHospedagem) !== idReservaHospedagem) {
+            throw new CustomError(
+                'Linha de suíte não pertence a esta reserva.',
+                404,
+                ''
+            );
+        }
+
+        await linhaLocked.update(
+            {
+                status: StatusReservaSuite.Hospedada,
+                dataHoraCheckinReal: dataHoraCheckin,
+                idUsuarioCheckin: idUsuario,
+            },
+            { transaction: t }
+        );
+
+        const todasLinhas = await ReservaSuite.findAll({
+            where: { idReservaHospedagem },
+            transaction: t,
+        });
+
+        if (todasLinhasReservaHospedadas(todasLinhas)) {
+            await reservaLocked.update(
+                {
+                    status: StatusReservaHospedagem.Hospedada,
+                    dataHoraCheckinReal: dataHoraCheckin,
+                    idUsuarioCheckin: idUsuario,
+                },
+                { transaction: t }
+            );
+
+            if (reservaLocked.idTransacao) {
+                await HistoricoTransacao.create(
+                    {
+                        idTransacao: reservaLocked.idTransacao,
+                        idUsuario,
+                        data: dataHoraCheckin,
+                        descricao: 'Check-in realizado',
+                    },
+                    { transaction: t }
+                );
+            }
+        }
+    });
+
+    const { incrementarHospedagemRefreshVersion } = await import(
+        './hospedagemRefreshVersionService'
+    );
+    await incrementarHospedagemRefreshVersion();
+
+    return obterReservaAdminDetalhe(
+        idReservaHospedagem,
+        idUsuario,
+        undefined,
+        { idReservaSuite, idEventoSuite: linha.idEventoSuite }
+    );
+}
+
 /** Check-out operacional: Hospedada → CheckOutRealizado. */
 export async function realizarCheckoutAdmin(
     idReservaHospedagem: number,
@@ -3712,6 +4381,162 @@ export async function atualizarValorSuitesReservaAdmin(
         await recalcularFinanceiroReservaComServicos(idReserva, t, {
             idUsuarioHistorico: idUsuario,
             descricaoHistorico: `Valor das suítes ajustado para ${valorSuites.toFixed(2)}`,
+        });
+    });
+
+    const { incrementarHospedagemRefreshVersion } = await import(
+        './hospedagemRefreshVersionService'
+    );
+    await incrementarHospedagemRefreshVersion();
+
+    const { hospedinOutboundEnqueueService } = await import(
+        '../integrations/hospedin/outbound/HospedinOutboundEnqueueService'
+    );
+    await hospedinOutboundEnqueueService.markDirty(idReserva);
+
+    return obterReservaAdminDetalhe(idReserva, idUsuario);
+}
+
+/** Ajuste manual do valor base de UMA ReservaSuite; demais suítes e taxas preservadas. */
+export async function atualizarValorBaseReservaSuiteAdmin(
+    idReserva: number,
+    idReservaSuite: number,
+    idUsuario: number,
+    valorInformado: number
+) {
+    await obterReservaAdminDetalhe(idReserva, idUsuario);
+
+    const idSuite = Number(idReservaSuite);
+    if (!Number.isFinite(idSuite) || idSuite <= 0) {
+        throw new CustomError('idReservaSuite inválido.', 400, '');
+    }
+
+    const reserva = (await ReservaHospedagem.findByPk(idReserva, {
+        include: [
+            {
+                model: PagamentoHospedagem,
+                as: 'Pagamentos',
+                required: false,
+            },
+            {
+                model: ReservaHospedagemTaxaAdicional,
+                as: 'TaxaAdicional',
+                required: false,
+                separate: true,
+            },
+            {
+                model: ReservaSuite,
+                as: 'ReservaSuite',
+                required: false,
+                include: [
+                    {
+                        model: ReservaSuiteItemServico,
+                        as: 'ItemServico',
+                        required: false,
+                        separate: true,
+                    },
+                ],
+            },
+        ],
+    })) as
+        | (ReservaHospedagem & {
+              Pagamentos?: PagamentoHospedagem[];
+              TaxaAdicional?: ReservaHospedagemTaxaAdicional[];
+              ReservaSuite?: Array<
+                  ReservaSuite & {
+                      ItemServico?: ReservaSuiteItemServico[];
+                  }
+              >;
+          })
+        | null;
+
+    if (!reserva) {
+        throw new CustomError('Reserva não encontrada.', 404, '');
+    }
+
+    const linha = (reserva.ReservaSuite ?? []).find((s) => Number(s.id) === idSuite);
+    if (!linha) {
+        throw new CustomError(
+            'Linha de suíte não pertence a esta reserva.',
+            404,
+            ''
+        );
+    }
+
+    const valorBase = Math.round(Number(valorInformado) * 100) / 100;
+    if (!(valorBase > 0)) {
+        throw new CustomError(
+            'Valor da suíte deve ser maior que zero.',
+            400,
+            ''
+        );
+    }
+
+    const {
+        aplicarAjusteValorBaseReservaSuite,
+        calcularTotaisReservaComServicos,
+        recalcularFinanceiroReservaComServicos,
+        somarTaxasAdicionaisGeraisReserva,
+    } = await import('./reservaSuiteFinanceiroService');
+
+    const taxas = reserva.TaxaAdicional ?? [];
+    const suites = reserva.ReservaSuite ?? [];
+    const totaisBaseAtuais = calcularTotaisReservaComServicos(suites, []);
+    const linhaBaseAtual = totaisBaseAtuais.suites.find(
+        (s) => s.idReservaSuite === idSuite
+    );
+    if (!linhaBaseAtual) {
+        throw new CustomError(
+            'Linha de suíte não pertence a esta reserva.',
+            404,
+            ''
+        );
+    }
+
+    const totaisComTaxasAtuais = calcularTotaisReservaComServicos(suites, taxas);
+    const valorTaxasVinculadas = Math.round(
+        (totaisComTaxasAtuais.valorTotal - totaisBaseAtuais.valorTotal) * 100
+    ) / 100;
+    const valorTaxasGerais = somarTaxasAdicionaisGeraisReserva(taxas);
+    const novoSomaBases = Math.round(
+        (totaisBaseAtuais.valorTotal -
+            linhaBaseAtual.valorTotal +
+            valorBase) *
+            100
+    ) / 100;
+    const novoValorTotalReserva = Math.round(
+        (novoSomaBases + valorTaxasVinculadas + valorTaxasGerais) * 100
+    ) / 100;
+
+    const financeiro = resolverFinanceiroReserva({
+        valorTotal: reserva.valorTotal,
+        valorPago: reserva.valorPago,
+        saldoPendente: reserva.saldoPendente,
+        Pagamentos: (reserva.Pagamentos ?? []).map((p) => ({ valor: p.valor })),
+    } as ReservaHospedagem & {
+        valorPago?: number;
+        saldoPendente?: number | null;
+        Pagamentos?: Array<{ valor?: number }>;
+    });
+
+    if (novoValorTotalReserva < financeiro.valorPago - 0.009) {
+        throw new CustomError(
+            'Valor total não pode ser menor que o valor já recebido.',
+            400,
+            ''
+        );
+    }
+
+    await connection.transaction(async (t: Transaction) => {
+        await aplicarAjusteValorBaseReservaSuite(
+            idReserva,
+            idSuite,
+            valorBase,
+            t
+        );
+        await recalcularFinanceiroReservaComServicos(idReserva, t, {
+            idUsuarioHistorico: idUsuario,
+            descricaoHistorico: `Valor base da suíte ajustado para ${valorBase.toFixed(2)}`,
         });
     });
 

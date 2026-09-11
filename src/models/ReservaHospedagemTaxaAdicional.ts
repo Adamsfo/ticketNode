@@ -1,10 +1,12 @@
 import { DataTypes, Model, Optional, Sequelize } from 'sequelize';
 import { ReservaHospedagem } from './ReservaHospedagem';
+import { ReservaSuite } from './ReservaSuite';
 import { Usuario } from './Usuario';
 
 interface ReservaHospedagemTaxaAdicionalAttributes {
     id: number;
     idReservaHospedagem: number;
+    idReservaSuite?: number | null;
     descricao: string;
     valor: number;
     ordem: number;
@@ -28,6 +30,7 @@ class ReservaHospedagemTaxaAdicional
 {
     public id!: number;
     public idReservaHospedagem!: number;
+    public idReservaSuite?: number | null;
     public descricao!: string;
     public valor!: number;
     public ordem!: number;
@@ -48,6 +51,14 @@ class ReservaHospedagemTaxaAdicional
                     allowNull: false,
                     references: {
                         model: 'ReservaHospedagem',
+                        key: 'id',
+                    },
+                },
+                idReservaSuite: {
+                    type: DataTypes.INTEGER,
+                    allowNull: true,
+                    references: {
+                        model: 'ReservaSuite',
                         key: 'id',
                     },
                 },
@@ -90,6 +101,14 @@ class ReservaHospedagemTaxaAdicional
         ReservaHospedagemTaxaAdicional.belongsTo(Usuario, {
             foreignKey: 'idUsuarioCriacao',
             as: 'UsuarioCriacao',
+        });
+        ReservaHospedagemTaxaAdicional.belongsTo(ReservaSuite, {
+            foreignKey: 'idReservaSuite',
+            as: 'ReservaSuite',
+        });
+        ReservaSuite.hasMany(ReservaHospedagemTaxaAdicional, {
+            foreignKey: 'idReservaSuite',
+            as: 'TaxaAdicional',
         });
         ReservaHospedagem.hasMany(ReservaHospedagemTaxaAdicional, {
             foreignKey: 'idReservaHospedagem',

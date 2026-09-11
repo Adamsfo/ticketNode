@@ -199,6 +199,7 @@ export type TaxaAdicionalCheckoutInput = {
     descricao: string;
     valor: number;
     ordem: number;
+    idEventoSuite: number;
 };
 
 function intervaloHospedagem(h: ReservaHospedagem): IntervaloDateTime {
@@ -742,6 +743,25 @@ function validarSuitesSemDuplicata(suites: SuiteCheckoutItem[]): void {
     }
 }
 
+/** Fonte imutável por linha: id da suíte resolvido na cotação (DB), não no item mutável. */
+export function resolverIdEventoSuiteCheckoutLinha(cotacao: {
+    idEventoSuite: number;
+}): number {
+    const idEventoSuite = Number(cotacao.idEventoSuite);
+    if (!Number.isFinite(idEventoSuite) || idEventoSuite <= 0) {
+        throw new CustomError('Suíte inválida na cotação do checkout.', 400, '');
+    }
+    return idEventoSuite;
+}
+
+export function montarItemSuiteCheckoutLinha(
+    item: SuiteCheckoutItem,
+    cotacao: { idEventoSuite: number }
+): SuiteCheckoutItem {
+    const idEventoSuite = resolverIdEventoSuiteCheckoutLinha(cotacao);
+    return { ...item, idEventoSuite };
+}
+
 export async function calcularCotacao(params: {
     idEventoSuite: number;
     checkin: Date;
@@ -1091,15 +1111,16 @@ export async function checkoutHospedagem(params: {
     };
 
     const suitesComTotais: SuiteComTotais[] = cotacoes.map(({ item, cotacao }) => {
+        const itemLinha = montarItemSuiteCheckoutLinha(item, cotacao);
         const precoOriginal = roundMoney(cotacao.totais.preco);
         const taxaOriginal = roundMoney(cotacao.totais.taxaServico);
         const valorOriginalTotal = roundMoney(cotacao.totais.valorTotal);
 
-        if (isRecepcao && item.desconto) {
-            validarDescontoRecepcao(valorOriginalTotal, item.desconto);
+        if (isRecepcao && itemLinha.desconto) {
+            validarDescontoRecepcao(valorOriginalTotal, itemLinha.desconto);
             const valorFinalDesconto = calcularValorFinalComDesconto(
                 valorOriginalTotal,
-                item.desconto
+                itemLinha.desconto
             );
             const repartido = aplicarDescontoProporcional(
                 precoOriginal,
@@ -1107,20 +1128,20 @@ export async function checkoutHospedagem(params: {
                 valorFinalDesconto
             );
             return {
-                item,
+                item: itemLinha,
                 cotacao,
                 preco: repartido.preco,
                 taxaServico: repartido.taxaServico,
                 valorTotal: repartido.valorTotal,
                 valorOriginal: valorOriginalTotal,
-                descontoTipo: item.desconto.tipo,
-                descontoValor: item.desconto.valor,
+                descontoTipo: itemLinha.desconto.tipo,
+                descontoValor: itemLinha.desconto.valor,
                 valorFinal: repartido.valorTotal,
             };
         }
 
         return {
-            item,
+            item: itemLinha,
             cotacao,
             preco: precoOriginal,
             taxaServico: taxaOriginal,
@@ -1131,6 +1152,21 @@ export async function checkoutHospedagem(params: {
             valorFinal: null,
         };
     });
+
+    if (taxasAdicionais.length > 0) {
+        const idsEventoSuiteCheckout = new Set(
+            suitesComTotais.map((suite) => Number(suite.item.idEventoSuite))
+        );
+        for (const taxa of taxasAdicionais) {
+            if (!idsEventoSuiteCheckout.has(Number(taxa.idEventoSuite))) {
+                throw new CustomError(
+                    'idEventoSuite da taxa não pertence às suítes da reserva.',
+                    400,
+                    ''
+                );
+            }
+        }
+    }
 
     const totaisSuites = suitesComTotais.reduce(
         (acc, suite) => ({
@@ -1244,14 +1280,16 @@ export async function checkoutHospedagem(params: {
             { transaction: t }
         );
 
-        const itens: ReservaSuite[] = [];
+        const itens: Array<{ reservaItem: ReservaSuite; idEventoSuite: number }> =
+            [];
 
         for (const suite of suitesComTotais) {
             const { item, cotacao } = suite;
+            const idEventoSuite = resolverIdEventoSuiteCheckoutLinha(cotacao);
             const reservaItem = await ReservaSuite.create(
                 {
                     idReservaHospedagem: hospedagem.id,
-                    idEventoSuite: item.idEventoSuite,
+                    idEventoSuite,
                     adultos: item.adultos,
                     criancas: item.criancas,
                     preco: suite.preco,
@@ -1283,13 +1321,26 @@ export async function checkoutHospedagem(params: {
                 );
             }
 
-            itens.push(reservaItem);
+            itens.push({ reservaItem, idEventoSuite });
         }
 
+        const { resolverIdReservaSuitePorEventoSuite } = await import(
+            './reservaHospedagemTaxaAdicionalService'
+        );
+
         for (const taxa of taxasAdicionais) {
+            const idReservaSuite = resolverIdReservaSuitePorEventoSuite(
+                itens.map((linha) => ({
+                    id: linha.reservaItem.id,
+                    idEventoSuite: linha.idEventoSuite,
+                })),
+                taxa.idEventoSuite
+            );
+
             await ReservaHospedagemTaxaAdicional.create(
                 {
                     idReservaHospedagem: hospedagem.id,
+                    idReservaSuite,
                     descricao: taxa.descricao,
                     valor: taxa.valor,
                     ordem: taxa.ordem,
@@ -1333,6 +1384,7 @@ export async function checkoutHospedagem(params: {
 
         for (const suite of suitesComTotais) {
             const { item, cotacao } = suite;
+            const idEventoSuite = resolverIdEventoSuiteCheckoutLinha(cotacao);
             const precoOriginalTransacao = roundMoney(cotacao.totais.preco);
             const valorDescontoTransacao =
                 suite.valorOriginal != null
@@ -1342,7 +1394,7 @@ export async function checkoutHospedagem(params: {
             await EventoSuiteTransacao.create(
                 {
                     idTransacao: transacao.id,
-                    idEventoSuite: item.idEventoSuite,
+                    idEventoSuite,
                     precoOriginal: precoOriginalTransacao,
                     preco: suite.preco,
                     taxaServico: suite.taxaServico,
@@ -1441,7 +1493,7 @@ export async function checkoutHospedagem(params: {
 
         return {
             hospedagem,
-            itens,
+            itens: itens.map((linha) => linha.reservaItem),
             cotacoes: cotacoes.map((c) => c.cotacao),
             transacao,
         };
@@ -1564,8 +1616,21 @@ export function parseTaxasAdicionaisCheckout(body: unknown): TaxaAdicionalChecko
     }
 
     return raw.map((item: unknown, index: number) => {
-        const row = item as { descricao?: unknown; valor?: unknown; ordem?: unknown };
+        const row = item as {
+            descricao?: unknown;
+            valor?: unknown;
+            ordem?: unknown;
+            idEventoSuite?: unknown;
+        };
         const validado = validarInputTaxaAdicional(row);
+        const idEventoSuite = Number(row.idEventoSuite);
+        if (!Number.isFinite(idEventoSuite) || idEventoSuite <= 0) {
+            throw new CustomError(
+                'idEventoSuite da taxa adicional é obrigatório.',
+                400,
+                ''
+            );
+        }
         const ordemInformada = Number(row.ordem);
         const ordem =
             Number.isFinite(ordemInformada) && ordemInformada > 0
@@ -1575,6 +1640,7 @@ export function parseTaxasAdicionaisCheckout(body: unknown): TaxaAdicionalChecko
             descricao: validado.descricao,
             valor: validado.valor,
             ordem,
+            idEventoSuite,
         };
     });
 }

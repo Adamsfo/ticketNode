@@ -107,6 +107,35 @@ function podeEspelharValorNaSuiteLinha(linha: {
     return true;
 }
 
+/**
+ * Localiza a ReservaSuite que corresponde à reservation Hospedin em processamento.
+ * Multi-suíte: exige match por hospedinReservationId (nunca suites[0]).
+ * Legado (1 suíte): usa a única linha mesmo sem hospedinReservationId.
+ */
+export function resolveLinkedExistingSuiteLine(
+    suites: any[],
+    reservationId: number
+): { linha: any | null; noMatch: boolean } {
+    if (!suites.length) {
+        return { linha: null, noMatch: false };
+    }
+
+    if (suites.length === 1) {
+        return { linha: suites[0], noMatch: false };
+    }
+
+    const reservationIdNorm = String(reservationId).trim();
+    const matched = suites.find(
+        (suite) =>
+            String(suite.hospedinReservationId ?? '').trim() === reservationIdNorm
+    );
+    if (matched) {
+        return { linha: matched, noMatch: false };
+    }
+
+    return { linha: null, noMatch: true };
+}
+
 function readStagingPayload(staging: HospedinReservation): Record<string, unknown> | null {
     const raw = staging.payload_json;
     if (!raw) return null;
@@ -196,7 +225,8 @@ export class LinkedExistingSuiteSyncService {
         }
 
         const suites = ((hospedagem as any).ReservaSuite || []) as any[];
-        const linha = suites[0] ?? null;
+        const { linha, noMatch: suiteLineNoMatch } =
+            resolveLinkedExistingSuiteLine(suites, reservationId);
         const changes: LinkedExistingAllowedChangesResult['changes'] = [];
         let suiteSkipped: LinkedExistingAllowedChangesResult['suiteSkipped'];
         let beforeIdEventoSuite: number | null | undefined;
@@ -218,6 +248,15 @@ export class LinkedExistingSuiteSyncService {
             });
         } else if (!linha) {
             suiteSkipped = 'NO_SUITE_LINE';
+            if (suiteLineNoMatch) {
+                HospedinLogger.warn('linked_existing:suite_line_not_found', {
+                    reservation_id: reservationId,
+                    correlation_id: input.correlationId,
+                    idReservaHospedagem,
+                    reason: 'hospedin_reservation_id_not_matched',
+                    suite_count: suites.length,
+                });
+            }
         } else {
             beforeIdEventoSuite = Number(linha.idEventoSuite) || null;
             afterIdEventoSuite = Number(resolved.idEventoSuite);

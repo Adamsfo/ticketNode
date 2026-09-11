@@ -6,8 +6,10 @@ import {
     obterReservaAdminDetalhe,
     obterSituacaoSuite,
     realizarCheckinAdmin,
+    realizarCheckinReservaSuiteAdmin,
     realizarCheckoutAdmin,
     registrarChegadaAdmin,
+    registrarChegadaReservaSuiteAdmin,
     criarReservaRecepcaoAdmin,
     reenviarLinkPagamentoReservaAdmin,
     trocarSuiteReservaAdmin,
@@ -15,6 +17,7 @@ import {
     atualizarObservacoesReservaAdmin,
     atualizarValorTotalReservaAdmin,
     atualizarValorSuitesReservaAdmin,
+    atualizarValorBaseReservaSuiteAdmin,
     atualizarUsuarioReserva as atualizarUsuarioReservaService,
 } from '../services/hospedagemAdminService';
 import {
@@ -93,10 +96,26 @@ module.exports = {
             const dataSelecionada = req.query?.data
                 ? String(req.query.data)
                 : undefined;
+            const idReservaSuite = req.query?.idReservaSuite
+                ? Number(req.query.idReservaSuite)
+                : undefined;
+            const idEventoSuite = req.query?.idEventoSuite
+                ? Number(req.query.idEventoSuite)
+                : undefined;
             const data = await obterReservaAdminDetalhe(
                 idReserva,
                 idUsuario,
-                dataSelecionada
+                dataSelecionada,
+                {
+                    idReservaSuite:
+                        idReservaSuite && idReservaSuite > 0
+                            ? idReservaSuite
+                            : undefined,
+                    idEventoSuite:
+                        idEventoSuite && idEventoSuite > 0
+                            ? idEventoSuite
+                            : undefined,
+                }
             );
             return res.status(200).json({ data });
         } catch (error) {
@@ -125,6 +144,84 @@ module.exports = {
 
             const data = await realizarCheckinAdmin(
                 idReserva,
+                idUsuario,
+                dataHoraCheckin
+            );
+            return res.status(200).json({
+                success: true,
+                message: 'Check-in realizado com sucesso.',
+                data,
+            });
+        } catch (error) {
+            next(error);
+        }
+    },
+
+    async registrarChegadaSuite(req: any, res: any, next: any) {
+        try {
+            const idUsuario = Number(req.user?.id);
+            const idReserva = Number(req.params.id);
+            const idReservaSuite = Number(req.params.idReservaSuite);
+
+            if (!idUsuario) {
+                throw new CustomError('Usuário não autenticado.', 401, '');
+            }
+            if (!idReserva) {
+                throw new CustomError('id da reserva é obrigatório.', 400, '');
+            }
+            if (!idReservaSuite) {
+                throw new CustomError('idReservaSuite é obrigatório.', 400, '');
+            }
+
+            const rawDataHora =
+                req.body?.dataHora ?? req.body?.dataHoraChegada ?? null;
+            const dataHoraChegada =
+                rawDataHora != null && rawDataHora !== ''
+                    ? parseDateTimeParam(rawDataHora, 'dataHora')
+                    : null;
+
+            const data = await registrarChegadaReservaSuiteAdmin(
+                idReserva,
+                idReservaSuite,
+                idUsuario,
+                dataHoraChegada
+            );
+            return res.status(200).json({
+                success: true,
+                message: 'Chegada registrada com sucesso.',
+                data,
+            });
+        } catch (error) {
+            next(error);
+        }
+    },
+
+    async realizarCheckinSuite(req: any, res: any, next: any) {
+        try {
+            const idUsuario = Number(req.user?.id);
+            const idReserva = Number(req.params.id);
+            const idReservaSuite = Number(req.params.idReservaSuite);
+
+            if (!idUsuario) {
+                throw new CustomError('Usuário não autenticado.', 401, '');
+            }
+            if (!idReserva) {
+                throw new CustomError('id da reserva é obrigatório.', 400, '');
+            }
+            if (!idReservaSuite) {
+                throw new CustomError('idReservaSuite é obrigatório.', 400, '');
+            }
+
+            const rawDataHora =
+                req.body?.dataHora ?? req.body?.dataHoraCheckin ?? null;
+            const dataHoraCheckin =
+                rawDataHora != null && rawDataHora !== ''
+                    ? parseDateTimeParam(rawDataHora, 'dataHora')
+                    : null;
+
+            const data = await realizarCheckinReservaSuiteAdmin(
+                idReserva,
+                idReservaSuite,
                 idUsuario,
                 dataHoraCheckin
             );
@@ -584,6 +681,51 @@ module.exports = {
         }
     },
 
+    async atualizarValorBaseReservaSuite(req: any, res: any, next: any) {
+        try {
+            const idUsuario = Number(req.user?.id);
+            const idReserva = Number(req.params.id);
+            const idReservaSuite = Number(req.params.idReservaSuite);
+            if (!idUsuario) {
+                throw new CustomError('Usuário não autenticado.', 401, '');
+            }
+            if (!idReserva) {
+                throw new CustomError('id da reserva é obrigatório.', 400, '');
+            }
+            if (!idReservaSuite) {
+                throw new CustomError(
+                    'idReservaSuite é obrigatório.',
+                    400,
+                    ''
+                );
+            }
+
+            const valor = Number(req.body?.valor ?? NaN);
+            if (!Number.isFinite(valor)) {
+                throw new CustomError(
+                    'valor é obrigatório no corpo da requisição.',
+                    400,
+                    ''
+                );
+            }
+
+            const data = await atualizarValorBaseReservaSuiteAdmin(
+                idReserva,
+                idReservaSuite,
+                idUsuario,
+                valor
+            );
+
+            return res.status(200).json({
+                success: true,
+                message: 'Valor base da suíte atualizado.',
+                data,
+            });
+        } catch (error) {
+            next(error);
+        }
+    },
+
     async atualizarUsuarioReserva(req: any, res: any, next: any) {
         try {
             const idUsuario = Number(req.user?.id);
@@ -725,6 +867,7 @@ module.exports = {
                 idUsuario,
                 descricao: req.body?.descricao,
                 valor: req.body?.valor,
+                idReservaSuite: req.body?.idReservaSuite,
             });
 
             return res.status(200).json({
@@ -759,6 +902,7 @@ module.exports = {
                 idUsuario,
                 descricao: req.body?.descricao,
                 valor: req.body?.valor,
+                idReservaSuite: req.body?.idReservaSuite,
             });
 
             return res.status(200).json({

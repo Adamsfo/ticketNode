@@ -31,6 +31,16 @@ router.post(
     HospedagemAdminController.registrarChegada
 );
 router.post(
+    '/hospedagem/reservas/:id/suites/:idReservaSuite/registrar-chegada',
+    authenticate,
+    HospedagemAdminController.registrarChegadaSuite
+);
+router.post(
+    '/hospedagem/reservas/:id/suites/:idReservaSuite/checkin',
+    authenticate,
+    HospedagemAdminController.realizarCheckinSuite
+);
+router.post(
     '/hospedagem/reservas/:id/checkout',
     authenticate,
     HospedagemAdminController.realizarCheckout
@@ -85,6 +95,11 @@ router.patch(
     '/hospedagem/reservas/:id/valor-suites',
     authenticate,
     HospedagemAdminController.atualizarValorSuites
+);
+router.patch(
+    '/hospedagem/reservas/:id/suites/:idReservaSuite/valor',
+    authenticate,
+    HospedagemAdminController.atualizarValorBaseReservaSuite
 );
 router.post(
     '/hospedagem/reservas/:id/suites/:idReservaSuite/servicos',
@@ -150,6 +165,16 @@ router.post(
     HospedagemAdminController.registrarChegada
 );
 router.post(
+    '/hospedagem-admin/reservas/:id/suites/:idReservaSuite/registrar-chegada',
+    authenticate,
+    HospedagemAdminController.registrarChegadaSuite
+);
+router.post(
+    '/hospedagem-admin/reservas/:id/suites/:idReservaSuite/checkin',
+    authenticate,
+    HospedagemAdminController.realizarCheckinSuite
+);
+router.post(
     '/hospedagem-admin/reservas/:id/checkout',
     authenticate,
     HospedagemAdminController.realizarCheckout
@@ -203,6 +228,11 @@ router.patch(
     '/hospedagem-admin/reservas/:id/valor-suites',
     authenticate,
     HospedagemAdminController.atualizarValorSuites
+);
+router.patch(
+    '/hospedagem-admin/reservas/:id/suites/:idReservaSuite/valor',
+    authenticate,
+    HospedagemAdminController.atualizarValorBaseReservaSuite
 );
 router.post(
     '/hospedagem-admin/reservas/:id/suites/:idReservaSuite/servicos',

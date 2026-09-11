@@ -78,11 +78,29 @@ export function calcularTotaisReservaComServicos(
         ReservaSuite & {
             ItemServico?: ReservaSuiteItemServico[];
         }
-    >
+    >,
+    taxasAdicionais: Array<{
+        idReservaSuite?: number | null;
+        valor?: unknown;
+    }> = []
 ): TotaisFinanceirosReserva {
-    const linhas = suites.map((suite) =>
-        calcularTotaisSuiteComServicos(suite, suite.ItemServico ?? [])
-    );
+    const linhas = suites.map((suite) => {
+        const base = calcularTotaisSuiteComServicos(
+            suite,
+            suite.ItemServico ?? []
+        );
+        const taxasVinculadas = somarTaxasAdicionaisVinculadasSuite(
+            taxasAdicionais,
+            Number(suite.id)
+        );
+        if (taxasVinculadas <= 0) {
+            return base;
+        }
+        return {
+            ...base,
+            valorTotal: roundMoney(base.valorTotal + taxasVinculadas),
+        };
+    });
 
     return {
         preco: roundMoney(linhas.reduce((acc, l) => acc + l.preco, 0)),
@@ -151,6 +169,29 @@ export function somarValorTaxasAdicionais(
     itens: Array<{ valor?: unknown }>
 ): number {
     return somarValorServicos(itens);
+}
+
+/** Taxas vinculadas a uma ReservaSuite específica (idReservaSuite). */
+export function somarTaxasAdicionaisVinculadasSuite(
+    taxas: Array<{ idReservaSuite?: number | null; valor?: unknown }>,
+    idReservaSuite: number
+): number {
+    const id = Number(idReservaSuite);
+    return somarValorServicos(
+        taxas.filter((taxa) => Number(taxa.idReservaSuite ?? 0) === id)
+    );
+}
+
+/** Taxas gerais da reserva (sem vínculo com ReservaSuite). */
+export function somarTaxasAdicionaisGeraisReserva(
+    taxas: Array<{ idReservaSuite?: number | null; valor?: unknown }>
+): number {
+    return somarValorServicos(
+        taxas.filter((taxa) => {
+            const id = Number(taxa.idReservaSuite ?? 0);
+            return !Number.isFinite(id) || id <= 0;
+        })
+    );
 }
 
 /**
@@ -310,12 +351,12 @@ export async function recalcularFinanceiroReservaComServicos(
         throw new CustomError('Reserva sem suíte vinculada.', 400, '');
     }
 
-    const totais = calcularTotaisReservaComServicos(suites);
-    const valorTaxasAdicionais = somarValorTaxasAdicionais(
-        reserva.TaxaAdicional ?? []
-    );
+    const taxas = reserva.TaxaAdicional ?? [];
+    const totais = calcularTotaisReservaComServicos(suites, taxas);
+    const valorTaxasGerais = somarTaxasAdicionaisGeraisReserva(taxas);
+    const valorTaxasAdicionaisTotal = somarValorTaxasAdicionais(taxas);
     const valorTotalReserva = roundMoney(
-        totais.valorTotal + valorTaxasAdicionais
+        totais.valorTotal + valorTaxasGerais
     );
     const valorPago = roundMoney(toNumber(reserva.valorPago ?? 0));
 
@@ -357,7 +398,7 @@ export async function recalcularFinanceiroReservaComServicos(
             precoHospedagem: totais.preco,
             taxaServicoHospedagem: totais.taxaServico,
             valorServicos: roundMoney(
-                totais.valorServicos + valorTaxasAdicionais
+                totais.valorServicos + valorTaxasAdicionaisTotal
             ),
         });
 
@@ -434,6 +475,65 @@ export function calcularValorTotalReservaAposSuites(
     return roundMoney(
         roundMoney(valorSuites) + roundMoney(valorTaxasAdicionais)
     );
+}
+
+/** Ajusta o valor base (hospedagem + serviços) de UMA ReservaSuite, sem alterar as demais. */
+export async function aplicarAjusteValorBaseReservaSuite(
+    idReservaHospedagem: number,
+    idReservaSuite: number,
+    novoValorBase: number,
+    transaction: Transaction
+): Promise<void> {
+    const reserva = await carregarReservaParaRecalculo(
+        idReservaHospedagem,
+        transaction
+    );
+    const suites = reserva.ReservaSuite ?? [];
+    const suite = suites.find((s) => Number(s.id) === Number(idReservaSuite));
+    if (!suite) {
+        throw new CustomError(
+            'Linha de suíte não pertence a esta reserva.',
+            404,
+            ''
+        );
+    }
+
+    const totais = calcularTotaisSuiteComServicos(
+        suite,
+        suite.ItemServico ?? []
+    );
+    const valorBaseAtual = totais.valorTotal;
+    const valorInformado = roundMoney(novoValorBase);
+
+    if (!(valorInformado > 0)) {
+        throw new CustomError(
+            'Valor da suíte deve ser maior que zero.',
+            400,
+            ''
+        );
+    }
+    if (valorBaseAtual <= 0) {
+        throw new CustomError(
+            'Suíte sem valor base para ajustar.',
+            400,
+            ''
+        );
+    }
+    if (Math.abs(valorBaseAtual - valorInformado) <= 0.009) {
+        return;
+    }
+
+    const fator = valorInformado / valorBaseAtual;
+    const preco = roundMoney(toNumber(suite.preco) * fator);
+    const taxaServico = roundMoney(toNumber(suite.taxaServico) * fator);
+    await suite.update({ preco, taxaServico }, { transaction });
+
+    for (const item of suite.ItemServico ?? []) {
+        await item.update(
+            { valor: roundMoney(toNumber(item.valor) * fator) },
+            { transaction }
+        );
+    }
 }
 
 export async function aplicarAjusteProporcionalValorSuites(

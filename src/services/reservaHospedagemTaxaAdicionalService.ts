@@ -4,6 +4,7 @@ import { Evento } from '../models/Evento';
 import { ProdutorAcesso, TipoAcesso } from '../models/Produtor';
 import { ReservaHospedagem } from '../models/ReservaHospedagem';
 import { ReservaHospedagemTaxaAdicional } from '../models/ReservaHospedagemTaxaAdicional';
+import { ReservaSuite } from '../models/ReservaSuite';
 import { CustomError } from '../utils/customError';
 import {
     recalcularFinanceiroReservaComServicos,
@@ -129,6 +130,74 @@ async function carregarContextoTaxa(params: {
     return { permissoes, reserva };
 }
 
+export async function validarIdReservaSuiteParaTaxa(params: {
+    idReservaHospedagem: number;
+    idReservaSuite?: unknown;
+    obrigatorio?: boolean;
+}): Promise<number | null> {
+    const bruto = params.idReservaSuite;
+    const informado =
+        bruto !== undefined && bruto !== null && String(bruto).trim() !== '';
+
+    if (!informado) {
+        if (params.obrigatorio) {
+            throw new CustomError('idReservaSuite é obrigatório.', 400, '');
+        }
+        return null;
+    }
+
+    const idReservaSuite = Number(bruto);
+    if (!Number.isFinite(idReservaSuite) || idReservaSuite <= 0) {
+        throw new CustomError('idReservaSuite inválido.', 400, '');
+    }
+
+    const suite = await ReservaSuite.findOne({
+        where: { id: idReservaSuite },
+        attributes: ['id', 'idReservaHospedagem'],
+    });
+
+    if (!suite) {
+        throw new CustomError('Suíte da reserva não encontrada.', 404, '');
+    }
+
+    if (Number(suite.idReservaHospedagem) !== Number(params.idReservaHospedagem)) {
+        throw new CustomError(
+            'A suíte informada não pertence a esta reserva.',
+            400,
+            ''
+        );
+    }
+
+    return idReservaSuite;
+}
+
+export function resolverIdReservaSuitePorEventoSuite(
+    suitesCriadas: Array<{ id: number; idEventoSuite: number }>,
+    idEventoSuite: number
+): number {
+    const idEvento = Number(idEventoSuite);
+    if (!Number.isFinite(idEvento) || idEvento <= 0) {
+        throw new CustomError(
+            'idEventoSuite da taxa adicional é obrigatório.',
+            400,
+            ''
+        );
+    }
+
+    const suite = suitesCriadas.find(
+        (item) => Number(item.idEventoSuite) === idEvento
+    );
+    if (!suite) {
+        throw new CustomError(
+            'idEventoSuite da taxa não pertence às suítes da reserva.',
+            400,
+            ''
+        );
+    }
+
+    return suite.id;
+}
+
 async function proximaOrdemTaxa(
     idReservaHospedagem: number,
     transaction: Transaction
@@ -158,8 +227,14 @@ export async function adicionarTaxaAdicionalReserva(params: {
     idUsuario: number;
     descricao: string;
     valor: number;
+    idReservaSuite?: unknown;
 }) {
     const { descricao, valor } = validarInputTaxaAdicional(params);
+    const idReservaSuite = await validarIdReservaSuiteParaTaxa({
+        idReservaHospedagem: params.idReservaHospedagem,
+        idReservaSuite: params.idReservaSuite,
+        obrigatorio: true,
+    });
     await carregarContextoTaxa({
         idReservaHospedagem: params.idReservaHospedagem,
         idUsuario: params.idUsuario,
@@ -174,6 +249,7 @@ export async function adicionarTaxaAdicionalReserva(params: {
         await ReservaHospedagemTaxaAdicional.create(
             {
                 idReservaHospedagem: params.idReservaHospedagem,
+                idReservaSuite,
                 descricao,
                 valor,
                 ordem,
@@ -207,6 +283,7 @@ export async function editarTaxaAdicionalReserva(params: {
     idUsuario: number;
     descricao: string;
     valor: number;
+    idReservaSuite?: unknown;
 }) {
     const { descricao, valor } = validarInputTaxaAdicional(params);
     await carregarContextoTaxa({
@@ -225,8 +302,24 @@ export async function editarTaxaAdicionalReserva(params: {
         throw new CustomError('Taxa adicional não encontrada.', 404, '');
     }
 
+    let idReservaSuite: number | null | undefined;
+    if (params.idReservaSuite !== undefined) {
+        idReservaSuite = await validarIdReservaSuiteParaTaxa({
+            idReservaHospedagem: params.idReservaHospedagem,
+            idReservaSuite: params.idReservaSuite,
+            obrigatorio: false,
+        });
+    }
+
     await connection.transaction(async (transaction: Transaction) => {
-        await taxa.update({ descricao, valor }, { transaction });
+        await taxa.update(
+            {
+                descricao,
+                valor,
+                ...(idReservaSuite !== undefined ? { idReservaSuite } : {}),
+            },
+            { transaction }
+        );
 
         await recalcularFinanceiroReservaComServicos(
             params.idReservaHospedagem,

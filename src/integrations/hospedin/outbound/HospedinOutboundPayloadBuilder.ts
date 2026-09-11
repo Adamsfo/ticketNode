@@ -1,7 +1,10 @@
 import { formatInTimeZone } from 'date-fns-tz';
 import { StatusReservaHospedagem } from '../../../models/ReservaHospedagem';
 import { TZ_HOSPEDAGEM } from '../../../utils/reservaSuiteUtils';
-import type { OutboundPayloadHashInput } from './HospedinOutboundSnapshot';
+import type {
+    OutboundPayloadHashInput,
+    OutboundSuiteHashInput,
+} from './HospedinOutboundSnapshot';
 import { normObs } from './HospedinOutboundSnapshot';
 
 /** Centavos financeiros enviados no POST /reservations (campos da reserva Hospedin). */
@@ -142,6 +145,80 @@ export function diffOutboundHashInputs(
     ];
 
     return fields.filter((field) => before[field] !== after[field]);
+}
+
+export function buildSharedOutboundUpdatePatch(input: {
+    idReservaHospedagem: number;
+    before: OutboundPayloadHashInput;
+    after: OutboundPayloadHashInput;
+}): HospedinOutboundReservationPatch {
+    const patch: HospedinOutboundReservationPatch = {};
+    const { before, after } = input;
+
+    if (before.checkin !== after.checkin && after.checkin) {
+        patch.check_in = after.checkin;
+    }
+    if (before.checkout !== after.checkout && after.checkout) {
+        patch.check_out = after.checkout;
+    }
+    if (before.observacoes !== after.observacoes) {
+        patch.note = buildOutboundNote(
+            input.idReservaHospedagem,
+            after.observacoes
+        );
+    }
+
+    return patch;
+}
+
+export function buildSuiteOutboundUpdatePatch(input: {
+    beforeSuite: OutboundSuiteHashInput | null;
+    afterSuite: OutboundSuiteHashInput;
+    placeId?: number;
+    placeTypeId?: number;
+}): HospedinOutboundReservationPatch {
+    const patch: HospedinOutboundReservationPatch = {};
+    const beforeSuite = input.beforeSuite;
+
+    if (
+        beforeSuite?.idEventoSuite !== input.afterSuite.idEventoSuite
+    ) {
+        const placeId = Number(input.placeId);
+        const placeTypeId = Number(input.placeTypeId);
+        if (
+            !Number.isFinite(placeId) ||
+            placeId <= 0 ||
+            !Number.isFinite(placeTypeId) ||
+            placeTypeId <= 0
+        ) {
+            throw new Error(
+                'place_id/place_type_id obrigatórios para UPDATE de suíte.'
+            );
+        }
+        patch.place_id = placeId;
+        patch.place_type_id = placeTypeId;
+    }
+
+    if (beforeSuite?.adultos !== input.afterSuite.adultos) {
+        patch.adults = Math.max(
+            1,
+            Math.floor(Number(input.afterSuite.adultos) || 0)
+        );
+    }
+    if (beforeSuite?.criancas !== input.afterSuite.criancas) {
+        patch.children = Math.max(
+            0,
+            Math.floor(Number(input.afterSuite.criancas) || 0)
+        );
+    }
+
+    return patch;
+}
+
+export function mergeOutboundPatches(
+    ...patches: HospedinOutboundReservationPatch[]
+): HospedinOutboundReservationPatch {
+    return Object.assign({}, ...patches);
 }
 
 export function buildOutboundUpdatePatch(

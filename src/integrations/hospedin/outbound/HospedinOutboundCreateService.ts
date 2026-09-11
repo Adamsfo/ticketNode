@@ -10,6 +10,7 @@ import { PlaceSuiteMappingStatus } from '../../../models/HospedinPlaceSuiteMap';
 import { ReservaHospedagem, StatusReservaHospedagem } from '../../../models/ReservaHospedagem';
 import { ReservaHospede } from '../../../models/ReservaHospede';
 import { ReservaSuite } from '../../../models/ReservaSuite';
+import { Usuario } from '../../../models/Usuario';
 import { hospedinPlaceSuiteMapService } from '../services/HospedinPlaceSuiteMapService';
 import {
     hospedinReservationService,
@@ -22,13 +23,14 @@ import {
     OUTBOUND_CREATE_ELIGIBLE_STATUSES,
     OUTBOUND_CREATE_TERMINAL_STATUSES,
 } from './HospedinOutboundPayloadBuilder';
+import { resolveSuiteExistingHospedinReservationId } from './hospedinOutboundCreateSuiteLink';
 import {
     hospedinOutboundGuestService,
     HospedinOutboundGuestService,
 } from './HospedinOutboundGuestService';
 import { hospedinOutboundStateService } from './HospedinOutboundStateService';
 import {
-    buildSaleSyncContextFromReserva,
+    buildSaleSyncContextFromSuite,
     hospedinOutboundSaleSyncService,
     HospedinOutboundSaleSyncService,
 } from './HospedinOutboundSaleSyncService';
@@ -71,6 +73,35 @@ function titularGuestName(
     return named[0] ?? null;
 }
 
+function formatUsuarioGuestName(
+    usuario: { nomeCompleto?: string | null; sobreNome?: string | null } | null
+): string | null {
+    if (!usuario) {
+        return null;
+    }
+    const nome = [usuario.nomeCompleto, usuario.sobreNome]
+        .map((part) => String(part || '').trim())
+        .filter(Boolean)
+        .join(' ')
+        .trim();
+    return nome || null;
+}
+
+type SuiteLine = ReservaSuite & {
+    ReservaHospede?: ReservaHospede[];
+    hospedinReservationId?: string | null;
+};
+
+function firstNamedGuestFromSuites(suites: SuiteLine[]): string | null {
+    for (const linha of suites) {
+        const nome = titularGuestName(linha.ReservaHospede ?? []);
+        if (nome) {
+            return nome;
+        }
+    }
+    return null;
+}
+
 /**
  * CREATE real outbound Jango → Hospedin (HTTP somente aqui).
  */
@@ -79,12 +110,17 @@ type LoadedReserva = ReservaHospedagem & {
     observacaoOperador?: string | null;
     observacoes?: string | null;
     origemReserva?: string | null;
+    idExterno?: string | null;
+    codigoExterno?: string | null;
     Evento?: { tipo?: string | null } | null;
-    ReservaSuite?: Array<
-        ReservaSuite & {
-            ReservaHospede?: ReservaHospede[];
-        }
-    >;
+    ReservaSuite?: SuiteLine[];
+};
+
+type SuiteCreateResult = {
+    reservationId: string;
+    codigoExterno: string | null;
+    guestId: string;
+    wasCreated: boolean;
 };
 
 export class HospedinOutboundCreateService {
@@ -155,37 +191,267 @@ export class HospedinOutboundCreateService {
         const freshState = await HospedinOutboundSyncState.findByPk(stateId);
         const stateRow = freshState ?? state;
 
-        const existingLink = await this.tryResolveExistingLink(
-            stateRow,
-            hospedagem
-        );
-
-        let hospedinReservationId: string;
-        let codigoExterno: string | null =
-            String(hospedagem.codigoExterno || '').trim() || null;
-        let hospedinGuestId = String(stateRow.hospedin_guest_id || '').trim();
-
-        if (existingLink) {
-            hospedinReservationId = existingLink;
-        } else {
-        const suites = (hospedagem as any).ReservaSuite ?? [];
-        const linha = suites[0] as
-            | (ReservaSuite & { ReservaHospede?: ReservaHospede[] })
-            | undefined;
-
-        if (!linha) {
+        const suites = this.sortSuites(hospedagem.ReservaSuite ?? []);
+        if (!suites.length) {
             return this.block(stateId, idReserva, {
                 errorCode: 'SUITE_LINE_MISSING',
                 message: 'Reserva sem linha de suíte para outbound.',
             });
         }
 
-        const guestName = titularGuestName(linha.ReservaHospede ?? []);
-        if (!guestName) {
+        const reservaTitularGuestName =
+            await this.resolveReservaTitularGuestName(hospedagem, suites);
+        if (!reservaTitularGuestName) {
             return this.block(stateId, idReserva, {
                 errorCode: 'GUEST_NAME_MISSING',
                 message: 'Reserva sem hóspede titular com nome.',
             });
+        }
+
+        let resolvedGuestId: number;
+        try {
+            resolvedGuestId = await this.guestService.resolveOrCreateGuestId({
+                outboundStateId: stateId,
+                existingGuestId: stateRow.hospedin_guest_id,
+                guestName: reservaTitularGuestName,
+            });
+        } catch (error: unknown) {
+            return this.handleHttpError(stateRow, error, options);
+        }
+
+        const primaryGuestId = String(resolvedGuestId);
+        stateRow.hospedin_guest_id = primaryGuestId;
+
+        const reservaIds = await this.loadReservaExternalIds(hospedagem.id);
+        let codigoExterno =
+            reservaIds.codigoExterno ??
+            (String(hospedagem.codigoExterno || '').trim() || null);
+        let anyReservationCreated = false;
+        const suiteResults: SuiteCreateResult[] = [];
+
+        for (let suiteIndex = 0; suiteIndex < suites.length; suiteIndex++) {
+            const linha = suites[suiteIndex];
+            const suiteResult = await this.ensureSuiteReservation({
+                linha,
+                suiteIndex,
+                suites,
+                hospedagem,
+                idReserva,
+                stateId,
+                stateRow,
+                reservaTitularGuestId: resolvedGuestId,
+                reservaIdExterno: reservaIds.idExterno,
+                queueReservationId: stateRow.hospedin_reservation_id,
+                options,
+            });
+
+            if ('outcome' in suiteResult) {
+                return suiteResult;
+            }
+
+            suiteResults.push(suiteResult);
+            if (suiteResult.wasCreated) {
+                anyReservationCreated = true;
+            }
+            if (suiteResult.codigoExterno) {
+                codigoExterno = suiteResult.codigoExterno;
+            }
+        }
+
+        const primaryReservationId = suiteResults[0]?.reservationId;
+        if (!primaryReservationId) {
+            return this.failPermanent(stateId, idReserva, {
+                errorCode: 'HOSPEDIN_ID_MISSING',
+                message: 'Nenhuma reservation Hospedin vinculada após CREATE.',
+            });
+        }
+
+        await this.syncReservaHospedagemExternalIds({
+            idReserva,
+            suites,
+            primaryReservationId,
+            codigoExterno,
+            reservaIdExterno: reservaIds.idExterno,
+            queueReservationId: stateRow.hospedin_reservation_id,
+        });
+
+        if (primaryGuestId) {
+            await hospedinOutboundStateService.persistHospedinIds(stateId, {
+                hospedinReservationId: primaryReservationId,
+                hospedinGuestId: primaryGuestId,
+            });
+        }
+
+        return this.finalizeCreateWithSaleSync({
+            state,
+            stateRow,
+            hospedagem,
+            suites,
+            idReserva,
+            stateId,
+            hospedinReservationId: primaryReservationId,
+            hospedinGuestId: primaryGuestId,
+            codigoExterno,
+            options,
+            reservationWasCreated: anyReservationCreated,
+        });
+    }
+
+    private sortSuites(suites: SuiteLine[]): SuiteLine[] {
+        return [...suites].sort((a, b) => Number(a.id) - Number(b.id));
+    }
+
+    private async loadReserva(idReserva: number): Promise<LoadedReserva | null> {
+        return (await ReservaHospedagem.findByPk(idReserva, {
+            include: [
+                {
+                    model: Evento,
+                    as: 'Evento',
+                    attributes: ['id', 'tipo'],
+                    required: false,
+                },
+                {
+                    model: ReservaSuite,
+                    as: 'ReservaSuite',
+                    include: [
+                        {
+                            model: ReservaHospede,
+                            as: 'ReservaHospede',
+                        },
+                    ],
+                },
+            ],
+        })) as LoadedReserva | null;
+    }
+
+    private async resolveReservaTitularGuestName(
+        hospedagem: LoadedReserva,
+        suites: SuiteLine[]
+    ): Promise<string | null> {
+        const idUsuario = Number(hospedagem.idUsuario);
+        if (Number.isFinite(idUsuario) && idUsuario > 0) {
+            const usuario = await Usuario.findByPk(idUsuario, {
+                attributes: ['id', 'nomeCompleto', 'sobreNome'],
+            });
+            const nomeUsuario = formatUsuarioGuestName(usuario);
+            if (nomeUsuario) {
+                return nomeUsuario;
+            }
+        }
+
+        return firstNamedGuestFromSuites(suites);
+    }
+
+    private async loadReservaExternalIds(idReserva: number): Promise<{
+        idExterno: string | null;
+        codigoExterno: string | null;
+    }> {
+        const fresh = await ReservaHospedagem.findByPk(idReserva, {
+            attributes: ['id', 'idExterno', 'codigoExterno'],
+        });
+        return {
+            idExterno: String(fresh?.idExterno || '').trim() || null,
+            codigoExterno:
+                fresh?.codigoExterno != null
+                    ? String(fresh.codigoExterno)
+                    : null,
+        };
+    }
+
+    private async persistSuiteHospedinReservationId(
+        linha: SuiteLine,
+        reservationId: string
+    ): Promise<void> {
+        const current = String(linha.hospedinReservationId || '').trim();
+        if (current === reservationId) {
+            return;
+        }
+        await ReservaSuite.update(
+            { hospedinReservationId: reservationId },
+            { where: { id: linha.id } }
+        );
+        linha.hospedinReservationId = reservationId;
+    }
+
+    private async syncReservaHospedagemExternalIds(input: {
+        idReserva: number;
+        suites: SuiteLine[];
+        primaryReservationId: string;
+        codigoExterno: string | null;
+        reservaIdExterno: string | null;
+        queueReservationId: string | null;
+    }): Promise<void> {
+        const patch: Record<string, string | null> = {};
+
+        if (input.suites.length === 1) {
+            patch.idExterno = input.primaryReservationId;
+            if (input.codigoExterno) {
+                patch.codigoExterno = input.codigoExterno;
+            }
+        } else if (!input.reservaIdExterno && !input.queueReservationId) {
+            patch.idExterno = input.primaryReservationId;
+            if (input.codigoExterno) {
+                patch.codigoExterno = input.codigoExterno;
+            }
+        } else if (!input.reservaIdExterno) {
+            const legacyId =
+                String(input.queueReservationId || '').trim() ||
+                input.primaryReservationId;
+            patch.idExterno = legacyId;
+        }
+
+        if (!Object.keys(patch).length) {
+            return;
+        }
+
+        await ReservaHospedagem.update(patch, {
+            where: { id: input.idReserva },
+        });
+    }
+
+    private async ensureSuiteReservation(input: {
+        linha: SuiteLine;
+        suiteIndex: number;
+        suites: SuiteLine[];
+        hospedagem: LoadedReserva;
+        idReserva: number;
+        stateId: number;
+        stateRow: HospedinOutboundSyncState;
+        reservaTitularGuestId: number;
+        reservaIdExterno: string | null;
+        queueReservationId: string | null;
+        options?: OutboundCreateRunOptions;
+    }): Promise<SuiteCreateResult | OutboundCreateResult> {
+        const {
+            linha,
+            suiteIndex,
+            suites,
+            hospedagem,
+            idReserva,
+            stateId,
+            stateRow,
+            reservaTitularGuestId,
+            reservaIdExterno,
+            queueReservationId,
+            options,
+        } = input;
+
+        const existingId = resolveSuiteExistingHospedinReservationId({
+            linha,
+            suiteIndex,
+            suites,
+            reservaIdExterno,
+            queueReservationId,
+        });
+
+        if (existingId) {
+            await this.persistSuiteHospedinReservationId(linha, existingId);
+            return {
+                reservationId: existingId,
+                codigoExterno: null,
+                guestId: String(reservaTitularGuestId),
+                wasCreated: false,
+            };
         }
 
         const idEventoSuite = Number(linha.idEventoSuite);
@@ -232,17 +498,6 @@ export class HospedinOutboundCreateService {
             });
         }
 
-        let guestId: number;
-        try {
-            guestId = await this.guestService.resolveOrCreateGuestId({
-                outboundStateId: stateId,
-                existingGuestId: stateRow.hospedin_guest_id,
-                guestName,
-            });
-        } catch (error: unknown) {
-            return this.handleHttpError(state, error, options);
-        }
-
         const payload = buildOutboundReservationPayload({
             idReservaHospedagem: idReserva,
             checkin: new Date(hospedagem.checkin),
@@ -253,119 +508,42 @@ export class HospedinOutboundCreateService {
             criancas: Number(linha.criancas || 0),
             placeId,
             placeTypeId,
-            guestId,
+            guestId: reservaTitularGuestId,
         });
 
         log.info('outbound:create:post-reservation', {
             correlationId: options?.correlationId,
             idReservaHospedagem: idReserva,
+            idReservaSuite: linha.id,
             outboundStateId: stateId,
             placeId,
             placeTypeId,
-            guestId,
+            guestId: reservaTitularGuestId,
         });
 
         let created;
         try {
             created = await this.reservationService.createReservation(payload);
         } catch (error: unknown) {
-            return this.handleHttpError(state, error, options);
+            return this.handleHttpError(stateRow, error, options);
         }
 
-        hospedinReservationId = String(created.reservationId);
-        codigoExterno = created.searchableCode ?? null;
+        const reservationId = String(created.reservationId);
+        await this.persistSuiteHospedinReservationId(linha, reservationId);
 
-        hospedinGuestId = String(guestId);
-        await hospedinOutboundStateService.persistHospedinIds(stateId, {
-            hospedinReservationId,
-            hospedinGuestId,
-        });
-
-        await ReservaHospedagem.update(
-            {
-                idExterno: hospedinReservationId,
-                codigoExterno,
-            },
-            { where: { id: idReserva } }
-        );
-        }
-
-        return this.finalizeCreateWithSaleSync({
-            state,
-            stateRow,
-            hospedagem,
-            idReserva,
-            stateId,
-            hospedinReservationId,
-            hospedinGuestId,
-            codigoExterno,
-            options,
-            reservationWasCreated: !existingLink,
-        });
-    }
-
-    private async loadReserva(idReserva: number): Promise<LoadedReserva | null> {
-        return (await ReservaHospedagem.findByPk(idReserva, {
-            include: [
-                {
-                    model: Evento,
-                    as: 'Evento',
-                    attributes: ['id', 'tipo'],
-                    required: false,
-                },
-                {
-                    model: ReservaSuite,
-                    as: 'ReservaSuite',
-                    include: [
-                        {
-                            model: ReservaHospede,
-                            as: 'ReservaHospede',
-                        },
-                    ],
-                },
-            ],
-        })) as LoadedReserva | null;
-    }
-
-    private async tryResolveExistingLink(
-        state: HospedinOutboundSyncState,
-        hospedagem: ReservaHospedagem
-    ): Promise<string | null> {
-        const fresh = await ReservaHospedagem.findByPk(hospedagem.id, {
-            attributes: ['id', 'idExterno', 'codigoExterno'],
-        });
-        const idExterno = String(fresh?.idExterno || '').trim();
-        const queueReservationId = String(
-            state.hospedin_reservation_id || ''
-        ).trim();
-        const externalId = idExterno || queueReservationId;
-
-        if (!externalId) {
-            return null;
-        }
-
-        const codigoExterno =
-            fresh?.codigoExterno != null
-                ? String(fresh.codigoExterno)
-                : null;
-
-        if (!idExterno) {
-            await ReservaHospedagem.update(
-                {
-                    idExterno: externalId,
-                    ...(codigoExterno ? { codigoExterno } : {}),
-                },
-                { where: { id: hospedagem.id } }
-            );
-        }
-
-        return externalId;
+        return {
+            reservationId,
+            codigoExterno: created.searchableCode ?? null,
+            guestId: String(reservaTitularGuestId),
+            wasCreated: true,
+        };
     }
 
     private async finalizeCreateWithSaleSync(input: {
         state: HospedinOutboundSyncState;
         stateRow: HospedinOutboundSyncState;
         hospedagem: LoadedReserva;
+        suites: SuiteLine[];
         idReserva: number;
         stateId: number;
         hospedinReservationId: string;
@@ -378,6 +556,7 @@ export class HospedinOutboundCreateService {
             state,
             stateRow,
             hospedagem,
+            suites,
             idReserva,
             stateId,
             hospedinReservationId,
@@ -393,13 +572,22 @@ export class HospedinOutboundCreateService {
 
         try {
             if (this.saleSyncService.shouldSyncSale(hospedagem)) {
-                await this.saleSyncService.ensureSaleAfterCreate(
-                    buildSaleSyncContextFromReserva(
-                        hospedagem,
-                        hospedinReservationId,
-                        options?.correlationId
-                    )
-                );
+                for (const linha of suites) {
+                    const suiteReservationId = String(
+                        linha.hospedinReservationId || ''
+                    ).trim();
+                    if (!suiteReservationId) {
+                        continue;
+                    }
+                    await this.saleSyncService.ensureSaleAfterCreate(
+                        buildSaleSyncContextFromSuite(
+                            hospedagem,
+                            linha,
+                            suiteReservationId,
+                            options?.correlationId
+                        )
+                    );
+                }
             }
 
             const finalizeOutcome =
@@ -439,6 +627,7 @@ export class HospedinOutboundCreateService {
                 idReservaHospedagem: idReserva,
                 hospedinReservationId,
                 codigoExterno,
+                suites: suites.length,
             }
         );
 

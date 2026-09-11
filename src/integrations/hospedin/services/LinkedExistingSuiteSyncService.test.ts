@@ -11,7 +11,10 @@ import { ReservaHospedagem } from '../../../models/ReservaHospedagem';
 import * as reservaSuiteService from '../../../services/reservaSuiteService';
 import * as hospedagemRefreshVersionService from '../../../services/hospedagemRefreshVersionService';
 import { placeSuiteResolver } from './PlaceSuiteResolver';
-import { linkedExistingSuiteSyncService } from './LinkedExistingSuiteSyncService';
+import {
+    linkedExistingSuiteSyncService,
+    resolveLinkedExistingSuiteLine,
+} from './LinkedExistingSuiteSyncService';
 
 const RESERVATION_ID = 30328851;
 const ID_RESERVA = 66;
@@ -113,6 +116,109 @@ function setupCommonMocks(
 
     return { hospedagem, linha };
 }
+
+function setupMultiSuiteMocks(
+    suites: Array<Record<string, unknown>>,
+    options: {
+        reservationId: number;
+        placeId: number;
+        idEventoSuite: number;
+        hospedagemOverrides?: Record<string, unknown>;
+    }
+) {
+    mock.method(HospedinReservation, 'findOne', async () => {
+        const staging = baseStaging({
+            id: options.reservationId,
+            place_id: options.placeId,
+        });
+        return {
+            ...staging,
+            reservation_id: options.reservationId,
+            payload_json: {
+                ...(staging.payload_json as Record<string, unknown>),
+                id: options.reservationId,
+                place_id: options.placeId,
+            },
+        };
+    });
+    mock.method(placeSuiteResolver, 'resolveInternalSuite', async () =>
+        baseResolver(options.idEventoSuite)
+    );
+    mock.method(reservaSuiteService, 'suiteTemConflito', async () => false);
+    mock.method(
+        hospedagemRefreshVersionService,
+        'incrementarHospedagemRefreshVersion',
+        async () => undefined
+    );
+    mock.method(connection, 'transaction', async (fn: (t: unknown) => Promise<void>) =>
+        fn({})
+    );
+
+    const suiteLines = suites.map((overrides) => ({
+        id: overrides.id,
+        idEventoSuite: overrides.idEventoSuite,
+        hospedinReservationId: overrides.hospedinReservationId ?? null,
+        valorTotal: overrides.valorTotal ?? 500,
+        preco: overrides.preco ?? overrides.valorTotal ?? 500,
+        valorFinal: overrides.valorFinal ?? overrides.valorTotal ?? 500,
+        descontoTipo: null,
+        descontoValor: null,
+        update: mock.fn(async () => undefined),
+    }));
+
+    const hospedagem = {
+        id: ID_RESERVA,
+        checkin: new Date('2026-09-06T17:00:00.000Z'),
+        checkout: new Date('2026-09-07T15:00:00.000Z'),
+        origemReserva: 'ATENDENTE',
+        Evento: { tipo: 'Pousada' },
+        valorTotal: 1010,
+        valorPago: 0,
+        saldoPendente: 1010,
+        observacaoImportada: 'Reserva\nNota Hospedin',
+        observacaoOperador: null,
+        observacoes: 'Reserva\nNota Hospedin',
+        update: mock.fn(async () => undefined),
+        ReservaSuite: suiteLines,
+        ...options.hospedagemOverrides,
+    };
+
+    mock.method(ReservaHospedagem, 'findByPk', async () => hospedagem);
+
+    return { hospedagem, suiteLines };
+}
+
+describe('resolveLinkedExistingSuiteLine', () => {
+    it('legado: 1 suíte sem hospedinReservationId usa a única linha', () => {
+        const suites = [{ id: 1, hospedinReservationId: null }];
+        const { linha, noMatch } = resolveLinkedExistingSuiteLine(suites, 111);
+        assert.equal(linha?.id, 1);
+        assert.equal(noMatch, false);
+    });
+
+    it('multi-suíte: encontra linha pelo hospedinReservationId', () => {
+        const suites = [
+            { id: 190, hospedinReservationId: '30438980' },
+            { id: 191, hospedinReservationId: '30438981' },
+        ];
+        const a = resolveLinkedExistingSuiteLine(suites, 30438980);
+        const b = resolveLinkedExistingSuiteLine(suites, 30438981);
+        assert.equal(a.linha?.id, 190);
+        assert.equal(b.linha?.id, 191);
+        assert.equal(a.noMatch, false);
+        assert.equal(b.noMatch, false);
+    });
+
+    it('multi-suíte sem match: não retorna suites[0]', () => {
+        const suites = [
+            { id: 190, hospedinReservationId: '111' },
+            { id: 191, hospedinReservationId: '222' },
+        ];
+        const { linha, noMatch } = resolveLinkedExistingSuiteLine(suites, 999);
+        assert.equal(linha, null);
+        assert.equal(noMatch, true);
+    });
+});
 
 describe('LinkedExistingSuiteSyncService', () => {
     afterEach(() => {
@@ -438,6 +544,237 @@ describe('LinkedExistingSuiteSyncService', () => {
 
         assert.equal(result.applied, true);
         assert.equal(linha.update.mock.callCount(), 1);
+    });
+
+    describe('multi-suíte — hospedinReservationId', () => {
+        it('processa Hospedin 111 alterando somente a linha A', async () => {
+            const { suiteLines } = setupMultiSuiteMocks(
+                [
+                    {
+                        id: 10,
+                        idEventoSuite: 6,
+                        hospedinReservationId: '111',
+                    },
+                    {
+                        id: 11,
+                        idEventoSuite: 7,
+                        hospedinReservationId: '222',
+                    },
+                ],
+                { reservationId: 111, placeId: 445905, idEventoSuite: 16 }
+            );
+
+            const result =
+                await linkedExistingSuiteSyncService.syncLinkedExistingAllowedChanges(
+                    {
+                        reservationId: 111,
+                        internalEntityId: ID_RESERVA,
+                    }
+                );
+
+            assert.equal(result.applied, true);
+            assert.equal(suiteLines[0].update.mock.callCount(), 1);
+            assert.equal(suiteLines[1].update.mock.callCount(), 0);
+            assert.deepEqual(suiteLines[0].update.mock.calls[0].arguments[0], {
+                idEventoSuite: 16,
+            });
+        });
+
+        it('processa Hospedin 222 alterando somente a linha B', async () => {
+            const { suiteLines } = setupMultiSuiteMocks(
+                [
+                    {
+                        id: 10,
+                        idEventoSuite: 6,
+                        hospedinReservationId: '111',
+                    },
+                    {
+                        id: 11,
+                        idEventoSuite: 7,
+                        hospedinReservationId: '222',
+                    },
+                ],
+                { reservationId: 222, placeId: 445904, idEventoSuite: 18 }
+            );
+
+            const result =
+                await linkedExistingSuiteSyncService.syncLinkedExistingAllowedChanges(
+                    {
+                        reservationId: 222,
+                        internalEntityId: ID_RESERVA,
+                    }
+                );
+
+            assert.equal(result.applied, true);
+            assert.equal(suiteLines[0].update.mock.callCount(), 0);
+            assert.equal(suiteLines[1].update.mock.callCount(), 1);
+            assert.deepEqual(suiteLines[1].update.mock.calls[0].arguments[0], {
+                idEventoSuite: 18,
+            });
+        });
+
+        it('processar 222 não altera a linha A (regressão suites[0])', async () => {
+            const { suiteLines } = setupMultiSuiteMocks(
+                [
+                    {
+                        id: 10,
+                        idEventoSuite: 6,
+                        hospedinReservationId: '111',
+                    },
+                    {
+                        id: 11,
+                        idEventoSuite: 7,
+                        hospedinReservationId: '222',
+                    },
+                ],
+                { reservationId: 222, placeId: 445904, idEventoSuite: 7 }
+            );
+
+            await linkedExistingSuiteSyncService.syncLinkedExistingAllowedChanges({
+                reservationId: 222,
+                internalEntityId: ID_RESERVA,
+            });
+
+            assert.equal(suiteLines[0].idEventoSuite, 6);
+            assert.equal(suiteLines[0].update.mock.callCount(), 0);
+            assert.equal(suiteLines[1].update.mock.callCount(), 0);
+        });
+
+        it('multi-suíte sem hospedinReservationId correspondente não altera suites[0]', async () => {
+            const { suiteLines } = setupMultiSuiteMocks(
+                [
+                    {
+                        id: 10,
+                        idEventoSuite: 6,
+                        hospedinReservationId: '111',
+                    },
+                    {
+                        id: 11,
+                        idEventoSuite: 7,
+                        hospedinReservationId: '222',
+                    },
+                ],
+                { reservationId: 999, placeId: 445904, idEventoSuite: 7 }
+            );
+
+            const result =
+                await linkedExistingSuiteSyncService.syncLinkedExistingAllowedChanges(
+                    {
+                        reservationId: 999,
+                        internalEntityId: ID_RESERVA,
+                    }
+                );
+
+            assert.equal(result.applied, false);
+            assert.equal(result.suiteSkipped, 'NO_SUITE_LINE');
+            assert.equal(suiteLines[0].update.mock.callCount(), 0);
+            assert.equal(suiteLines[1].update.mock.callCount(), 0);
+        });
+
+        it('caso reserva 176 — 30438980 e 30438981 mantêm suítes distintas', async () => {
+            const suiteDefs = [
+                {
+                    id: 190,
+                    idEventoSuite: 6,
+                    hospedinReservationId: '30438980',
+                    valorTotal: 280,
+                },
+                {
+                    id: 191,
+                    idEventoSuite: 7,
+                    hospedinReservationId: '30438981',
+                    valorTotal: 730,
+                },
+            ];
+
+            const first = setupMultiSuiteMocks(suiteDefs, {
+                reservationId: 30438980,
+                placeId: 445905,
+                idEventoSuite: 6,
+            });
+
+            const resultA =
+                await linkedExistingSuiteSyncService.syncLinkedExistingAllowedChanges(
+                    {
+                        reservationId: 30438980,
+                        internalEntityId: ID_RESERVA,
+                    }
+                );
+
+            assert.equal(resultA.applied, false);
+            assert.equal(resultA.suiteSkipped, 'ALREADY_ALIGNED');
+            assert.equal(first.suiteLines[0].update.mock.callCount(), 0);
+            assert.equal(first.suiteLines[1].update.mock.callCount(), 0);
+
+            mock.restoreAll();
+
+            const second = setupMultiSuiteMocks(suiteDefs, {
+                reservationId: 30438981,
+                placeId: 445904,
+                idEventoSuite: 7,
+            });
+
+            const resultB =
+                await linkedExistingSuiteSyncService.syncLinkedExistingAllowedChanges(
+                    {
+                        reservationId: 30438981,
+                        internalEntityId: ID_RESERVA,
+                    }
+                );
+
+            assert.equal(resultB.applied, false);
+            assert.equal(resultB.suiteSkipped, 'ALREADY_ALIGNED');
+            assert.equal(second.suiteLines[0].update.mock.callCount(), 0);
+            assert.equal(second.suiteLines[1].update.mock.callCount(), 0);
+            assert.equal(second.suiteLines[0].idEventoSuite, 6);
+            assert.equal(second.suiteLines[1].idEventoSuite, 7);
+        });
+
+        it('caso reserva 176 — divergência corrige só a linha vinculada', async () => {
+            const suiteDefs = [
+                {
+                    id: 190,
+                    idEventoSuite: 6,
+                    hospedinReservationId: '30438980',
+                    valorTotal: 280,
+                },
+                {
+                    id: 191,
+                    idEventoSuite: 7,
+                    hospedinReservationId: '30438981',
+                    valorTotal: 730,
+                },
+            ];
+
+            const corrupted = setupMultiSuiteMocks(
+                [
+                    { ...suiteDefs[0], idEventoSuite: 7 },
+                    suiteDefs[1],
+                ],
+                {
+                    reservationId: 30438980,
+                    placeId: 445905,
+                    idEventoSuite: 6,
+                }
+            );
+
+            const result =
+                await linkedExistingSuiteSyncService.syncLinkedExistingAllowedChanges(
+                    {
+                        reservationId: 30438980,
+                        internalEntityId: ID_RESERVA,
+                    }
+                );
+
+            assert.equal(result.applied, true);
+            assert.equal(corrupted.suiteLines[0].update.mock.callCount(), 1);
+            assert.equal(corrupted.suiteLines[1].update.mock.callCount(), 0);
+            assert.deepEqual(
+                corrupted.suiteLines[0].update.mock.calls[0].arguments[0],
+                { idEventoSuite: 6 }
+            );
+            assert.equal(corrupted.suiteLines[1].idEventoSuite, 7);
+        });
     });
 
     describe('financeiro inbound — origem Jango vs HOSPEDIN', () => {

@@ -3,6 +3,7 @@ import { DataTypes, Model, Optional, Sequelize } from 'sequelize';
 import { EventoSuite } from './EventoSuite';
 
 import { ReservaHospedagem } from './ReservaHospedagem';
+import { Usuario } from './Usuario';
 
 
 
@@ -45,6 +46,17 @@ interface ReservaSuiteAttributes {
 
     status: StatusReservaSuite;
 
+    /** ID da reservation Hospedin vinculada a esta linha (outbound). */
+    hospedinReservationId?: string | null;
+
+    dataHoraChegadaReal?: Date | null;
+
+    idUsuarioChegada?: number | null;
+
+    dataHoraCheckinReal?: Date | null;
+
+    idUsuarioCheckin?: number | null;
+
 }
 
 
@@ -53,7 +65,18 @@ interface ReservaSuiteCreationAttributes
 
     extends Optional<
         ReservaSuiteAttributes,
-        'id' | 'criancas' | 'status' | 'valorOriginal' | 'descontoTipo' | 'descontoValor' | 'valorFinal'
+        | 'id'
+        | 'criancas'
+        | 'status'
+        | 'valorOriginal'
+        | 'descontoTipo'
+        | 'descontoValor'
+        | 'valorFinal'
+        | 'hospedinReservationId'
+        | 'dataHoraChegadaReal'
+        | 'idUsuarioChegada'
+        | 'dataHoraCheckinReal'
+        | 'idUsuarioCheckin'
     > {}
 
 
@@ -92,7 +115,15 @@ class ReservaSuite
 
     public status!: StatusReservaSuite;
 
+    public hospedinReservationId?: string | null;
 
+    public dataHoraChegadaReal?: Date | null;
+
+    public idUsuarioChegada?: number | null;
+
+    public dataHoraCheckinReal?: Date | null;
+
+    public idUsuarioCheckin?: number | null;
 
     static initialize(sequelize: Sequelize) {
 
@@ -237,6 +268,50 @@ class ReservaSuite
                 allowNull: false,
 
                 defaultValue: StatusReservaSuite.AguardandoPagamento,
+
+            },
+
+            hospedinReservationId: {
+
+                type: DataTypes.STRING(64),
+
+                allowNull: true,
+
+            },
+
+            dataHoraChegadaReal: {
+
+                type: DataTypes.DATE,
+
+                allowNull: true,
+
+            },
+
+            idUsuarioChegada: {
+
+                type: DataTypes.INTEGER,
+
+                allowNull: true,
+
+                references: { model: Usuario, key: 'id' },
+
+            },
+
+            dataHoraCheckinReal: {
+
+                type: DataTypes.DATE,
+
+                allowNull: true,
+
+            },
+
+            idUsuarioCheckin: {
+
+                type: DataTypes.INTEGER,
+
+                allowNull: true,
+
+                references: { model: Usuario, key: 'id' },
 
             },
 

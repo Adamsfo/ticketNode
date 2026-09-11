@@ -23,12 +23,53 @@ import {
 const baseInput = (): OutboundPayloadHashInput => ({
     checkin: '2026-10-18T10:00',
     checkout: '2026-10-20T08:00',
-    idEventoSuite: 3,
     observacoes: 'Obs base',
+    suites: [
+        {
+            idReservaSuite: 10,
+            idEventoSuite: 3,
+            adultos: 2,
+            criancas: 0,
+            valorTotalCents: 0,
+        },
+    ],
+    idEventoSuite: 3,
     adultos: 2,
     criancas: 0,
     valorTotalCents: 0,
 });
+
+function reservaDuasSuites(overrides?: {
+    suite1?: Record<string, unknown>;
+    suite2?: Record<string, unknown>;
+    shared?: Record<string, unknown>;
+}) {
+    return {
+        checkin: new Date('2026-10-18T14:00:00.000Z'),
+        checkout: new Date('2026-10-20T12:00:00.000Z'),
+        observacoes: 'Obs',
+        valorTotal: 1300,
+        ...overrides?.shared,
+        ReservaSuite: [
+            {
+                id: 10,
+                idEventoSuite: 101,
+                adultos: 2,
+                criancas: 0,
+                valorTotal: 500,
+                ...overrides?.suite1,
+            } as any,
+            {
+                id: 11,
+                idEventoSuite: 102,
+                adultos: 2,
+                criancas: 0,
+                valorTotal: 800,
+                ...overrides?.suite2,
+            } as any,
+        ],
+    };
+}
 
 describe('hash outbound — campos suportados', () => {
     it('não inclui status nem hospedes no JSON do hash', () => {
@@ -37,8 +78,9 @@ describe('hash outbound — campos suportados', () => {
         assert.deepEqual(keys, [
             'checkin',
             'checkout',
-            'idEventoSuite',
             'observacoes',
+            'suites',
+            'idEventoSuite',
             'adultos',
             'criancas',
             'valorTotalCents',
@@ -115,17 +157,155 @@ describe('hash outbound — campos suportados', () => {
         );
     });
 
-    it('normaliza baseline legado removendo status e hospedes', () => {
-        const legacy = JSON.stringify({
-            ...baseInput(),
+    it('TESTE 6 — normaliza baseline legado removendo status e hospedes', () => {
+        const legacyFlat = {
+            checkin: '2026-10-18T10:00',
+            checkout: '2026-10-20T08:00',
+            idEventoSuite: 3,
+            observacoes: 'Obs base',
+            adultos: 2,
+            criancas: 0,
+            valorTotalCents: 88000,
             status: 'Hospedada',
             hospedes: [{ nome: 'X', tipo: 'Adulto', dataNascimento: null }],
-        });
+        };
+        const legacy = JSON.stringify(legacyFlat);
         const parsed = parseSyncedHashInputJson(legacy);
-        assert.deepEqual(parsed, baseInput());
+        assert.ok(parsed);
+        assert.deepEqual(parsed!.suites, [
+            {
+                idReservaSuite: 0,
+                idEventoSuite: 3,
+                adultos: 2,
+                criancas: 0,
+                valorTotalCents: 88000,
+            },
+        ]);
+        assert.equal(parsed!.idEventoSuite, 3);
+        assert.equal(parsed!.valorTotalCents, 88000);
         assert.deepEqual(
             normalizeHashInput(JSON.parse(legacy)),
-            baseInput()
+            parsed
+        );
+    });
+});
+
+describe('hash multi-suíte — baseline suites[]', () => {
+    it('TESTE 1 — uma suíte: baseline com suites[] e campos legados', () => {
+        const baseline = buildSyncBaselineFromReserva({
+            valorTotal: 500,
+            checkin: new Date('2026-10-18T14:00:00.000Z'),
+            checkout: new Date('2026-10-20T12:00:00.000Z'),
+            observacoes: 'Obs',
+            ReservaSuite: [
+                {
+                    id: 10,
+                    idEventoSuite: 3,
+                    adultos: 2,
+                    criancas: 0,
+                    valorTotal: 500,
+                } as any,
+            ],
+        } as any);
+
+        assert.equal(baseline.suites.length, 1);
+        assert.equal(baseline.suites[0].idReservaSuite, 10);
+        assert.equal(baseline.suites[0].valorTotalCents, 50000);
+        assert.equal(baseline.idEventoSuite, 3);
+        assert.equal(baseline.valorTotalCents, 50000);
+    });
+
+    it('TESTE 2 — alteração somente na suíte 1 altera o hash', () => {
+        const before = buildSyncBaselineFromReserva(reservaDuasSuites() as any);
+        const after = buildSyncBaselineFromReserva(
+            reservaDuasSuites({
+                suite1: { adultos: 3 },
+            }) as any
+        );
+
+        assert.notEqual(
+            hashOutboundPayload(before),
+            hashOutboundPayload(after)
+        );
+        assert.equal(before.suites[0].adultos, 2);
+        assert.equal(after.suites[0].adultos, 3);
+        assert.deepEqual(before.suites[1], after.suites[1]);
+    });
+
+    it('TESTE 2b — alteração somente na suíte 2 altera o hash', () => {
+        const before = buildSyncBaselineFromReserva(reservaDuasSuites() as any);
+        const after = buildSyncBaselineFromReserva(
+            reservaDuasSuites({
+                suite2: { idEventoSuite: 999 },
+            }) as any
+        );
+
+        assert.notEqual(
+            hashOutboundPayload(before),
+            hashOutboundPayload(after)
+        );
+        assert.equal(before.suites[1].idEventoSuite, 102);
+        assert.equal(after.suites[1].idEventoSuite, 999);
+        assert.deepEqual(before.suites[0], after.suites[0]);
+    });
+
+    it('TESTE 3 — alteração de valor da suíte 1 altera o hash', () => {
+        const before = buildSyncBaselineFromReserva(reservaDuasSuites() as any);
+        const after = buildSyncBaselineFromReserva(
+            reservaDuasSuites({
+                suite1: { valorTotal: 600 },
+                shared: { valorTotal: 1400 },
+            }) as any
+        );
+
+        assert.notEqual(
+            hashOutboundPayload(before),
+            hashOutboundPayload(after)
+        );
+        assert.equal(before.suites[0].valorTotalCents, 50000);
+        assert.equal(after.suites[0].valorTotalCents, 60000);
+    });
+
+    it('adicionar segunda suíte altera o hash', () => {
+        const before = buildSyncBaselineFromReserva({
+            valorTotal: 500,
+            checkin: new Date('2026-10-18T14:00:00.000Z'),
+            checkout: new Date('2026-10-20T12:00:00.000Z'),
+            observacoes: 'Obs',
+            ReservaSuite: [
+                {
+                    id: 10,
+                    idEventoSuite: 101,
+                    adultos: 2,
+                    criancas: 0,
+                    valorTotal: 500,
+                } as any,
+            ],
+        } as any);
+        const after = buildSyncBaselineFromReserva(reservaDuasSuites() as any);
+
+        assert.equal(before.suites.length, 1);
+        assert.equal(after.suites.length, 2);
+        assert.notEqual(
+            hashOutboundPayload(before),
+            hashOutboundPayload(after)
+        );
+    });
+
+    it('datas compartilhadas alteram o hash de todas as suítes na baseline', () => {
+        const before = buildSyncBaselineFromReserva(reservaDuasSuites() as any);
+        const after = buildSyncBaselineFromReserva(
+            reservaDuasSuites({
+                shared: {
+                    checkin: new Date('2026-10-19T14:00:00.000Z'),
+                },
+            }) as any
+        );
+
+        assert.notEqual(before.checkin, after.checkin);
+        assert.notEqual(
+            hashOutboundPayload(before),
+            hashOutboundPayload(after)
         );
     });
 });
@@ -217,14 +397,30 @@ describe('hash financeiro', () => {
             checkin: new Date('2026-10-18T14:00:00.000Z'),
             checkout: new Date('2026-10-20T12:00:00.000Z'),
             observacoes: 'Obs',
-            ReservaSuite: [{ idEventoSuite: 3, adultos: 2, criancas: 0 } as any],
+            ReservaSuite: [
+                {
+                    id: 10,
+                    idEventoSuite: 3,
+                    adultos: 2,
+                    criancas: 0,
+                    valorTotal: 500,
+                } as any,
+            ],
         } as any);
         const after = buildSyncBaselineFromReserva({
             valorTotal: 880,
             checkin: new Date('2026-10-18T14:00:00.000Z'),
             checkout: new Date('2026-10-20T12:00:00.000Z'),
             observacoes: 'Obs',
-            ReservaSuite: [{ idEventoSuite: 3, adultos: 2, criancas: 0 } as any],
+            ReservaSuite: [
+                {
+                    id: 10,
+                    idEventoSuite: 3,
+                    adultos: 2,
+                    criancas: 0,
+                    valorTotal: 880,
+                } as any,
+            ],
         } as any);
 
         assert.notEqual(
@@ -233,6 +429,8 @@ describe('hash financeiro', () => {
         );
         assert.equal(before.valorTotalCents, 50000);
         assert.equal(after.valorTotalCents, 88000);
+        assert.equal(before.suites[0].valorTotalCents, 50000);
+        assert.equal(after.suites[0].valorTotalCents, 88000);
     });
 
     it('valorTotal zerado permanece 0 no hash (sem fallback preco/taxaServico)', () => {

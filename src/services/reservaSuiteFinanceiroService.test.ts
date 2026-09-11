@@ -8,7 +8,10 @@ import {
     recalcularTransacaoComServicos,
     calcularValorTotalReservaAposSuites,
     resolverStatusTransacaoAposRecalculoValor,
+    somarTaxasAdicionaisGeraisReserva,
+    somarTaxasAdicionaisVinculadasSuite,
     somarValorServicos,
+    somarValorTaxasAdicionais,
 } from './reservaSuiteFinanceiroService';
 import { resolverPermissoesServicosSuite } from './reservaSuiteItemServicoService';
 import { TipoAcesso } from '../models/Produtor';
@@ -223,6 +226,258 @@ describe('reservaSuiteFinanceiroService', () => {
         assert.equal(calcularValorTotalReservaAposSuites(500, 200), 700);
         assert.equal(calcularValorTotalReservaAposSuites(600, 200), 800);
         assert.equal(calcularValorTotalReservaAposSuites(1200, 270), 1470);
+    });
+});
+
+describe('calcularTotaisReservaComServicos — taxas adicionais por suíte', () => {
+    const suite1 = { id: 1, preco: 400, taxaServico: 30 } as const;
+    const suite2 = { id: 2, preco: 700, taxaServico: 30 } as const;
+    const duasSuites = [suite1, suite2];
+
+    function totaisReserva(
+        taxas: Array<{ idReservaSuite?: number | null; valor: number }> = []
+    ) {
+        const totais = calcularTotaisReservaComServicos(
+            duasSuites as any,
+            taxas
+        );
+        const gerais = somarTaxasAdicionaisGeraisReserva(taxas);
+        const valorTotalReserva = totais.valorTotal + gerais;
+        const transacao = recalcularTransacaoComServicos({
+            precoHospedagem: totais.preco,
+            taxaServicoHospedagem: totais.taxaServico,
+            valorServicos: totais.valorServicos + somarValorTaxasAdicionais(taxas),
+        });
+        return { totais, gerais, valorTotalReserva, transacao };
+    }
+
+    it('1. sem taxa: Suite 1=430, Suite 2=730, Total=1160', () => {
+        const { totais, valorTotalReserva, transacao } = totaisReserva();
+        assert.equal(totais.suites[0].valorTotal, 430);
+        assert.equal(totais.suites[1].valorTotal, 730);
+        assert.equal(valorTotalReserva, 1160);
+        assert.equal(transacao.valorTotal, 1160);
+    });
+
+    it('2. taxa vinculada à Suite 1: 530 / 730 / Total=1260', () => {
+        const { totais, gerais, valorTotalReserva, transacao } = totaisReserva([
+            { idReservaSuite: 1, valor: 100 },
+        ]);
+        assert.equal(totais.suites[0].valorTotal, 530);
+        assert.equal(totais.suites[1].valorTotal, 730);
+        assert.equal(gerais, 0);
+        assert.equal(valorTotalReserva, 1260);
+        assert.equal(transacao.valorTotal, 1260);
+        assert.equal(
+            somarTaxasAdicionaisVinculadasSuite(
+                [{ idReservaSuite: 1, valor: 100 }],
+                1
+            ),
+            100
+        );
+    });
+
+    it('3. taxa vinculada à Suite 2: 430 / 830 / Total=1260', () => {
+        const { totais, valorTotalReserva } = totaisReserva([
+            { idReservaSuite: 2, valor: 100 },
+        ]);
+        assert.equal(totais.suites[0].valorTotal, 430);
+        assert.equal(totais.suites[1].valorTotal, 830);
+        assert.equal(valorTotalReserva, 1260);
+    });
+
+    it('4. duas taxas vinculadas (uma por suíte): 530 / 830 / Total=1360', () => {
+        const { totais, valorTotalReserva } = totaisReserva([
+            { idReservaSuite: 1, valor: 100 },
+            { idReservaSuite: 2, valor: 100 },
+        ]);
+        assert.equal(totais.suites[0].valorTotal, 530);
+        assert.equal(totais.suites[1].valorTotal, 830);
+        assert.equal(valorTotalReserva, 1360);
+    });
+
+    it('5. taxa geral sem idReservaSuite: suítes inalteradas, Total=1260', () => {
+        const { totais, gerais, valorTotalReserva } = totaisReserva([
+            { idReservaSuite: null, valor: 100 },
+        ]);
+        assert.equal(totais.suites[0].valorTotal, 430);
+        assert.equal(totais.suites[1].valorTotal, 730);
+        assert.equal(gerais, 100);
+        assert.equal(valorTotalReserva, 1260);
+    });
+
+    it('6. mistura: vinculada Suite 1 + taxa geral 50 → Total=1310', () => {
+        const { totais, gerais, valorTotalReserva, transacao } = totaisReserva([
+            { idReservaSuite: 1, valor: 100 },
+            { idReservaSuite: null, valor: 50 },
+        ]);
+        assert.equal(totais.suites[0].valorTotal, 530);
+        assert.equal(totais.suites[1].valorTotal, 730);
+        assert.equal(gerais, 50);
+        assert.equal(valorTotalReserva, 1310);
+        assert.equal(transacao.valorTotal, 1310);
+    });
+
+    it('7. taxa vinculada não é contada duas vezes no total da reserva', () => {
+        const taxas = [{ idReservaSuite: 1, valor: 100 }];
+        const totais = calcularTotaisReservaComServicos(
+            duasSuites as any,
+            taxas
+        );
+        const gerais = somarTaxasAdicionaisGeraisReserva(taxas);
+        const total = totais.valorTotal + gerais;
+        assert.equal(total, 1260);
+        assert.notEqual(total, 1360);
+    });
+
+    it('8. taxa geral não entra em nenhuma ReservaSuite.valorTotal', () => {
+        const { totais } = totaisReserva([{ idReservaSuite: null, valor: 100 }]);
+        assert.equal(totais.suites[0].valorTotal, 430);
+        assert.equal(totais.suites[1].valorTotal, 730);
+    });
+
+    it('9. valorRecebido preservado e saldo recalculado após aumento de total', () => {
+        const valorRecebido = 1000;
+        const totalAntes = 1160;
+        const totalDepois = 1260;
+        const saldoAntes = totalAntes - valorRecebido;
+        const saldoDepois = totalDepois - valorRecebido;
+        assert.equal(saldoAntes, 160);
+        assert.equal(saldoDepois, 260);
+        assert.equal(
+            resolverStatusTransacaoAposRecalculoValor(
+                totalDepois,
+                valorRecebido,
+                'Aguardando pagamento'
+            ),
+            'Aguardando pagamento'
+        );
+    });
+
+    it('10. taxaServico das suítes permanece inalterada com taxa vinculada', () => {
+        const { totais } = totaisReserva([{ idReservaSuite: 1, valor: 100 }]);
+        assert.equal(totais.suites[0].taxaServico, 30);
+        assert.equal(totais.suites[1].taxaServico, 30);
+        assert.equal(totais.taxaServico, 60);
+    });
+});
+
+describe('aplicarAjusteValorBaseReservaSuite — isolamento multi-suíte', () => {
+    function simularAjusteBaseSuite(
+        suite: { id: number; preco: number; taxaServico: number },
+        itens: Array<{ valor: number }>,
+        novoValorBase: number
+    ) {
+        const antes = calcularTotaisSuiteComServicos(suite, itens);
+        const fator = novoValorBase / antes.valorTotal;
+        return calcularTotaisSuiteComServicos(
+            {
+                id: suite.id,
+                preco: Math.round(suite.preco * fator * 100) / 100,
+                taxaServico: Math.round(suite.taxaServico * fator * 100) / 100,
+            },
+            itens.map((item) => ({
+                valor: Math.round(item.valor * fator * 100) / 100,
+            }))
+        );
+    }
+
+    it('1. multi-suíte: editar A→450 mantém B=730', () => {
+        const suiteA = { id: 1, preco: 400, taxaServico: 30 };
+        const suiteB = { id: 2, preco: 700, taxaServico: 30 };
+        const depoisA = simularAjusteBaseSuite(suiteA, [], 450);
+        const baseB = calcularTotaisSuiteComServicos(suiteB, []);
+        assert.equal(depoisA.valorTotal, 450);
+        assert.equal(baseB.valorTotal, 730);
+    });
+
+    it('2. sequência: A=450 e depois B=800', () => {
+        const depoisA = simularAjusteBaseSuite(
+            { id: 1, preco: 400, taxaServico: 30 },
+            [],
+            450
+        );
+        const depoisB = simularAjusteBaseSuite(
+            { id: 2, preco: 700, taxaServico: 30 },
+            [],
+            800
+        );
+        assert.equal(depoisA.valorTotal, 450);
+        assert.equal(depoisB.valorTotal, 800);
+    });
+
+    it('3. taxa vinculada: base 450 + taxa 100 = valorTotal 550', () => {
+        const depois = simularAjusteBaseSuite(
+            { id: 1, preco: 400, taxaServico: 30 },
+            [],
+            450
+        );
+        const totais = calcularTotaisReservaComServicos(
+            [
+                {
+                    id: 1,
+                    preco: depois.preco,
+                    taxaServico: depois.taxaServico,
+                    ItemServico: [],
+                } as any,
+                {
+                    id: 2,
+                    preco: 700,
+                    taxaServico: 30,
+                    ItemServico: [],
+                } as any,
+            ],
+            [{ idReservaSuite: 1, valor: 100 }]
+        );
+        assert.equal(totais.suites[0].valorTotal, 550);
+        assert.equal(totais.suites[1].valorTotal, 730);
+    });
+
+    it('4. taxa da outra suíte permanece intacta', () => {
+        const totais = calcularTotaisReservaComServicos(
+            [
+                { id: 1, preco: 450, taxaServico: 0, ItemServico: [] } as any,
+                { id: 2, preco: 730, taxaServico: 0, ItemServico: [] } as any,
+            ],
+            [
+                { idReservaSuite: 1, valor: 100 },
+                { idReservaSuite: 2, valor: 220 },
+            ]
+        );
+        assert.equal(totais.suites[0].valorTotal, 550);
+        assert.equal(totais.suites[1].valorTotal, 950);
+        assert.equal(totais.valorTotal, 1500);
+    });
+
+    it('5. total da reserva após editar A: 450+730+100+220=1500', () => {
+        const totaisBase = calcularTotaisReservaComServicos(
+            [
+                { id: 1, preco: 450, taxaServico: 0, ItemServico: [] } as any,
+                { id: 2, preco: 730, taxaServico: 0, ItemServico: [] } as any,
+            ],
+            []
+        );
+        const totais = calcularTotaisReservaComServicos(
+            [
+                { id: 1, preco: 450, taxaServico: 0, ItemServico: [] } as any,
+                { id: 2, preco: 730, taxaServico: 0, ItemServico: [] } as any,
+            ],
+            [
+                { idReservaSuite: 1, valor: 100 },
+                { idReservaSuite: 2, valor: 220 },
+            ]
+        );
+        const geral = somarTaxasAdicionaisGeraisReserva([
+            { idReservaSuite: 1, valor: 100 },
+            { idReservaSuite: 2, valor: 220 },
+        ]);
+        assert.equal(totaisBase.valorTotal, 1180);
+        assert.equal(totais.valorTotal, 1500);
+        assert.equal(geral, 0);
+        assert.equal(
+            totais.valorTotal + geral,
+            1500
+        );
     });
 });
 

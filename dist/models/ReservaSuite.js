@@ -4,6 +4,7 @@ exports.ReservaSuite = exports.ReservaSuiteInit = exports.StatusReservaSuite = v
 const sequelize_1 = require("sequelize");
 const EventoSuite_1 = require("./EventoSuite");
 const ReservaHospedagem_1 = require("./ReservaHospedagem");
+const Usuario_1 = require("./Usuario");
 var StatusReservaSuite;
 (function (StatusReservaSuite) {
     StatusReservaSuite["AguardandoPagamento"] = "AguardandoPagamento";
@@ -86,6 +87,28 @@ class ReservaSuite extends sequelize_1.Model {
                 type: sequelize_1.DataTypes.ENUM(...Object.values(StatusReservaSuite)),
                 allowNull: false,
                 defaultValue: StatusReservaSuite.AguardandoPagamento,
+            },
+            hospedinReservationId: {
+                type: sequelize_1.DataTypes.STRING(64),
+                allowNull: true,
+            },
+            dataHoraChegadaReal: {
+                type: sequelize_1.DataTypes.DATE,
+                allowNull: true,
+            },
+            idUsuarioChegada: {
+                type: sequelize_1.DataTypes.INTEGER,
+                allowNull: true,
+                references: { model: Usuario_1.Usuario, key: 'id' },
+            },
+            dataHoraCheckinReal: {
+                type: sequelize_1.DataTypes.DATE,
+                allowNull: true,
+            },
+            idUsuarioCheckin: {
+                type: sequelize_1.DataTypes.INTEGER,
+                allowNull: true,
+                references: { model: Usuario_1.Usuario, key: 'id' },
             },
         }, {
             sequelize,

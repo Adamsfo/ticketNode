@@ -27,8 +27,17 @@ import { OUTBOUND_UPDATE_409_POLICY } from './HospedinOutboundUpdateService';
 const baseBefore: OutboundPayloadHashInput = {
     checkin: '2026-10-18T14:00',
     checkout: '2026-10-20T12:00',
-    idEventoSuite: 10,
     observacoes: 'Obs original',
+    suites: [
+        {
+            idReservaSuite: 0,
+            idEventoSuite: 10,
+            adultos: 2,
+            criancas: 0,
+            valorTotalCents: 88000,
+        },
+    ],
+    idEventoSuite: 10,
     adultos: 2,
     criancas: 0,
     valorTotalCents: 88000,

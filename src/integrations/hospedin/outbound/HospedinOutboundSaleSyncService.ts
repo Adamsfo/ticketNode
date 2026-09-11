@@ -153,3 +153,23 @@ export function buildSaleSyncContextFromReserva(
         correlationId,
     };
 }
+
+/** CREATE outbound — SALE usa o valor da linha de suíte, não o total da reserva. */
+export function buildSaleSyncContextFromSuite(
+    hospedagem: ReservaHospedagem & {
+        origemReserva?: string | null;
+        Evento?: { tipo?: string | null } | null;
+    },
+    linha: { valorTotal?: unknown },
+    hospedinReservationId: string,
+    correlationId?: string
+): SaleSyncContext {
+    return {
+        idReservaHospedagem: Number(hospedagem.id),
+        hospedinReservationId,
+        valorTotal: linha.valorTotal,
+        origemReserva: hospedagem.origemReserva,
+        eventoTipo: hospedagem.Evento?.tipo ?? null,
+        correlationId,
+    };
+}

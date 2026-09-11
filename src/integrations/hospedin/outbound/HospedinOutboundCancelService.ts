@@ -4,6 +4,7 @@ import {
     HospedinOutboundSyncState,
 } from '../../../models/HospedinOutboundSyncState';
 import { ReservaHospedagem, StatusReservaHospedagem } from '../../../models/ReservaHospedagem';
+import { ReservaSuite } from '../../../models/ReservaSuite';
 import { HospedinApiError } from '../types/errors';
 import { isHospedinCancelledStatus } from '../sync/hospedinReservationStatus';
 import {
@@ -13,6 +14,11 @@ import {
 import { classifyOutboundHttpError } from './hospedinOutboundErrorClassification';
 import { buildOutboundCancelPatch } from './HospedinOutboundPayloadBuilder';
 import { hospedinOutboundStateService } from './HospedinOutboundStateService';
+import {
+    collectDistinctHospedinReservationIds,
+    sortOutboundSuites,
+    type OutboundSuiteLine,
+} from './hospedinOutboundSuiteReservationService';
 
 const log = logger.child('HospedinOutboundCancel');
 
@@ -37,8 +43,12 @@ export type OutboundCancelRunOptions = {
     backoffBaseSeconds?: number;
 };
 
+type LoadedReserva = ReservaHospedagem & {
+    ReservaSuite?: OutboundSuiteLine[];
+};
+
 /**
- * CANCEL real outbound Jango → Hospedin (PATCH { status: "canceled" }).
+ * CANCEL real outbound Jango → Hospedin (PATCH { status: "canceled" } por suíte).
  */
 export class HospedinOutboundCancelService {
     constructor(
@@ -52,7 +62,7 @@ export class HospedinOutboundCancelService {
         const stateId = Number(state.id);
         const idReserva = Number(state.id_reserva_hospedagem);
 
-        const hospedagem = await ReservaHospedagem.findByPk(idReserva);
+        const hospedagem = await this.loadReserva(idReserva);
         if (!hospedagem) {
             return this.failPermanent(stateId, idReserva, {
                 errorCode: 'RESERVA_NOT_FOUND',
@@ -75,11 +85,19 @@ export class HospedinOutboundCancelService {
         const freshState =
             (await HospedinOutboundSyncState.findByPk(stateId)) ?? state;
 
-        const hospedinReservationId = this.resolveHospedinReservationId(
-            hospedagem,
-            freshState
-        );
-        if (!hospedinReservationId) {
+        const suites = sortOutboundSuites(hospedagem.ReservaSuite ?? []);
+        const reservaIdExterno =
+            String(hospedagem.idExterno || '').trim() || null;
+        const queueReservationId =
+            String(freshState.hospedin_reservation_id || '').trim() || null;
+
+        const reservationIds = collectDistinctHospedinReservationIds({
+            suites,
+            reservaIdExterno,
+            queueReservationId,
+        });
+
+        if (!reservationIds.length) {
             await hospedinOutboundStateService.markAborted(stateId, {
                 errorCode: 'HOSPEDIN_ID_MISSING',
                 errorMessage:
@@ -93,60 +111,67 @@ export class HospedinOutboundCancelService {
             };
         }
 
-        let remoteStatus: string | null = null;
-        try {
-            const remote = await this.reservationService.getReservationDto(
-                hospedinReservationId
-            );
-            remoteStatus = String(remote.status || '');
-        } catch (error: unknown) {
-            return this.handleHttpError(freshState, error, options, {
-                hospedinReservationId,
-            });
-        }
-
-        if (isHospedinCancelledStatus(remoteStatus)) {
-            return this.markIdempotent(
-                stateId,
-                idReserva,
-                hospedinReservationId,
-                freshState
-            );
-        }
-
+        const primaryReservationId = reservationIds[0];
+        let anyPatched = false;
         const patch = buildOutboundCancelPatch();
 
-        log.info('outbound:cancel:patch-reservation', {
-            correlationId: options?.correlationId,
-            idReservaHospedagem: idReserva,
-            outboundStateId: stateId,
-            hospedinReservationId,
-            patchKeys: Object.keys(patch),
-        });
-
-        try {
-            const patched = await this.reservationService.cancelReservation(
-                hospedinReservationId,
-                patch
-            );
-            if (!isHospedinCancelledStatus(patched.status)) {
-                await hospedinOutboundStateService.markFailed(stateId, {
-                    errorCode: 'CANCEL_NOT_CONFIRMED',
-                    errorMessage: `PATCH ok mas status remoto inesperado: ${patched.status}`,
+        for (const hospedinReservationId of reservationIds) {
+            let remoteStatus: string | null = null;
+            try {
+                const remote = await this.reservationService.getReservationDto(
+                    hospedinReservationId
+                );
+                remoteStatus = String(remote.status || '');
+            } catch (error: unknown) {
+                return this.handleHttpError(freshState, error, options, {
                     hospedinReservationId,
                 });
-                return {
-                    outcome: 'failed',
-                    idReservaHospedagem: idReserva,
-                    hospedinReservationId,
-                    errorCode: 'CANCEL_NOT_CONFIRMED',
-                    message: `Status Hospedin após PATCH: ${patched.status}`,
-                };
             }
-        } catch (error: unknown) {
-            return this.handleHttpError(freshState, error, options, {
+
+            if (isHospedinCancelledStatus(remoteStatus)) {
+                log.info('outbound:cancel:already-cancelled', {
+                    correlationId: options?.correlationId,
+                    idReservaHospedagem: idReserva,
+                    outboundStateId: stateId,
+                    hospedinReservationId,
+                });
+                continue;
+            }
+
+            log.info('outbound:cancel:patch-reservation', {
+                correlationId: options?.correlationId,
+                idReservaHospedagem: idReserva,
+                outboundStateId: stateId,
                 hospedinReservationId,
+                patchKeys: Object.keys(patch),
             });
+
+            try {
+                const patched = await this.reservationService.cancelReservation(
+                    hospedinReservationId,
+                    patch
+                );
+                if (!isHospedinCancelledStatus(patched.status)) {
+                    await hospedinOutboundStateService.markFailed(stateId, {
+                        errorCode: 'CANCEL_NOT_CONFIRMED',
+                        errorMessage: `PATCH ok mas status remoto inesperado: ${patched.status}`,
+                        hospedinReservationId,
+                    });
+                    return {
+                        outcome: 'failed',
+                        idReservaHospedagem: idReserva,
+                        hospedinReservationId,
+                        errorCode: 'CANCEL_NOT_CONFIRMED',
+                        message: `Status Hospedin após PATCH: ${patched.status}`,
+                    };
+                }
+            } catch (error: unknown) {
+                return this.handleHttpError(freshState, error, options, {
+                    hospedinReservationId,
+                });
+            }
+
+            anyPatched = true;
         }
 
         const reloaded = await ReservaHospedagem.findByPk(idReserva);
@@ -155,7 +180,7 @@ export class HospedinOutboundCancelService {
             return {
                 outcome: 'aborted',
                 idReservaHospedagem: idReserva,
-                hospedinReservationId,
+                hospedinReservationId: primaryReservationId,
                 message:
                     'PATCH Hospedin ok mas Jango deixou de estar Cancelada — reenfileirado.',
             };
@@ -163,7 +188,7 @@ export class HospedinOutboundCancelService {
 
         try {
             await hospedinOutboundStateService.markSynced(stateId, {
-                hospedinReservationId,
+                hospedinReservationId: primaryReservationId,
                 hospedinGuestId: freshState.hospedin_guest_id,
             });
         } catch (persistError: unknown) {
@@ -174,61 +199,55 @@ export class HospedinOutboundCancelService {
             await hospedinOutboundStateService.markFailed(stateId, {
                 errorCode: 'RECONCILE_REQUIRED',
                 errorMessage: `PATCH cancel Hospedin ok mas falha ao persistir: ${message}`,
-                hospedinReservationId,
+                hospedinReservationId: primaryReservationId,
             });
             return {
                 outcome: 'failed',
                 idReservaHospedagem: idReserva,
-                hospedinReservationId,
+                hospedinReservationId: primaryReservationId,
                 errorCode: 'RECONCILE_REQUIRED',
                 message,
             };
         }
 
-        log.info('outbound:cancel:success', {
-            correlationId: options?.correlationId,
-            idReservaHospedagem: idReserva,
-            hospedinReservationId,
-        });
+        if (anyPatched) {
+            log.info('outbound:cancel:success', {
+                correlationId: options?.correlationId,
+                idReservaHospedagem: idReserva,
+                hospedinReservationId: primaryReservationId,
+                reservationCount: reservationIds.length,
+            });
 
-        return {
-            outcome: 'cancelled',
-            idReservaHospedagem: idReserva,
-            hospedinReservationId,
-        };
-    }
-
-    private resolveHospedinReservationId(
-        hospedagem: ReservaHospedagem,
-        state: HospedinOutboundSyncState
-    ): string | null {
-        const idExterno = String(hospedagem.idExterno || '').trim();
-        const queueId = String(state.hospedin_reservation_id || '').trim();
-        return idExterno || queueId || null;
-    }
-
-    private async markIdempotent(
-        stateId: number,
-        idReserva: number,
-        hospedinReservationId: string,
-        state: HospedinOutboundSyncState
-    ): Promise<OutboundCancelResult> {
-        await hospedinOutboundStateService.markSynced(stateId, {
-            hospedinReservationId,
-            hospedinGuestId: state.hospedin_guest_id,
-        });
+            return {
+                outcome: 'cancelled',
+                idReservaHospedagem: idReserva,
+                hospedinReservationId: primaryReservationId,
+            };
+        }
 
         log.info('outbound:cancel:idempotent', {
             idReservaHospedagem: idReserva,
-            hospedinReservationId,
+            hospedinReservationId: primaryReservationId,
+            reservationCount: reservationIds.length,
         });
 
         return {
             outcome: 'idempotent',
             idReservaHospedagem: idReserva,
-            hospedinReservationId,
+            hospedinReservationId: primaryReservationId,
             message: 'Hospedin já cancelado — PATCH ignorado.',
         };
+    }
+
+    private async loadReserva(idReserva: number): Promise<LoadedReserva | null> {
+        return (await ReservaHospedagem.findByPk(idReserva, {
+            include: [
+                {
+                    model: ReservaSuite,
+                    as: 'ReservaSuite',
+                },
+            ],
+        })) as LoadedReserva | null;
     }
 
     private async failPermanent(
@@ -264,10 +283,10 @@ export class HospedinOutboundCancelService {
 
         const stateId = Number(state.id);
         const idReserva = Number(state.id_reserva_hospedagem);
-        const maxRetries = Math.max(0, Number(options?.maxRetries) ?? 5);
+        const maxRetries = Math.max(0, Number(options?.maxRetries ?? 5));
         const backoffBaseSeconds = Math.max(
             1,
-            Number(options?.backoffBaseSeconds) ?? 30
+            Number(options?.backoffBaseSeconds ?? 30)
         );
         const nextRetryCount = Number(state.retry_count || 0) + 1;
         const hospedinReservationId =

@@ -16,6 +16,10 @@ import {
 } from './HospedinOutboundSnapshot';
 import { hospedinOutboundStateService } from './HospedinOutboundStateService';
 import { notifyOutboundPendingIfClaimable } from './hospedinOutboundDispatchTrigger';
+import {
+    collectDistinctHospedinReservationIds,
+    sortOutboundSuites,
+} from './hospedinOutboundSuiteReservationService';
 
 /**
  * Validação de status da reserva para CREATE outbound.
@@ -99,13 +103,52 @@ async function evaluateOutboundPreconditions(
     return { ok: true, errorCode: null, lastError: null };
 }
 
+function sortReservaSuites(
+    suites: Array<
+        ReservaSuite & {
+            hospedinReservationId?: string | null;
+        }
+    >
+): Array<ReservaSuite & { hospedinReservationId?: string | null }> {
+    return [...suites].sort((a, b) => Number(a.id) - Number(b.id));
+}
+
+/**
+ * CREATE quando ainda não houve envio efetivo.
+ * 1 suíte: preserva fallback legado (idExterno / fila).
+ * Multi-suíte: exige hospedinReservationId em TODAS as linhas ativas.
+ */
 function resolveNeverSent(
-    hospedagem: ReservaHospedagem,
+    hospedagem: ReservaHospedagem & {
+        idExterno?: string | null;
+        ReservaSuite?: Array<
+            ReservaSuite & {
+                hospedinReservationId?: string | null;
+            }
+        >;
+    },
     existing: HospedinOutboundSyncState | null
 ): boolean {
     const idExterno = String(hospedagem.idExterno || '').trim();
     const hospedinId = String(existing?.hospedin_reservation_id || '').trim();
-    return !idExterno && !hospedinId;
+    const suites = sortReservaSuites(hospedagem.ReservaSuite ?? []);
+
+    if (!suites.length) {
+        return !idExterno && !hospedinId;
+    }
+
+    if (suites.length === 1) {
+        const linha = suites[0];
+        const fromSuite = String(linha.hospedinReservationId || '').trim();
+        if (fromSuite) {
+            return false;
+        }
+        return !idExterno && !hospedinId;
+    }
+
+    return suites.some(
+        (linha) => !String(linha.hospedinReservationId || '').trim()
+    );
 }
 
 function hasHospedinLink(
@@ -113,6 +156,34 @@ function hasHospedinLink(
     existing: HospedinOutboundSyncState | null
 ): boolean {
     return !resolveNeverSent(hospedagem, existing);
+}
+
+/**
+ * CANCEL: existe ao menos uma reservation Hospedin vinculada (multi-suíte parcial incluído).
+ */
+export function hasAnyHospedinReservationToCancel(
+    hospedagem: ReservaHospedagem & {
+        idExterno?: string | null;
+        ReservaSuite?: Array<
+            ReservaSuite & {
+                hospedinReservationId?: string | null;
+            }
+        >;
+    },
+    existing: HospedinOutboundSyncState | null
+): boolean {
+    const suites = sortOutboundSuites(hospedagem.ReservaSuite ?? []);
+    const reservaIdExterno = String(hospedagem.idExterno || '').trim() || null;
+    const queueReservationId =
+        String(existing?.hospedin_reservation_id || '').trim() || null;
+
+    return (
+        collectDistinctHospedinReservationIds({
+            suites,
+            reservaIdExterno,
+            queueReservationId,
+        }).length > 0
+    );
 }
 
 function shouldSkipMarkDirty(
@@ -348,11 +419,20 @@ export async function markOutboundCancelled(
                 attributes: ['id', 'tipo'],
                 required: false,
             },
+            {
+                model: ReservaSuite,
+                as: 'ReservaSuite',
+            },
         ],
     })) as
         | (ReservaHospedagem & {
               origemReserva?: string | null;
               Evento?: { tipo?: string | null } | null;
+              ReservaSuite?: Array<
+                  ReservaSuite & {
+                      hospedinReservationId?: string | null;
+                  }
+              >;
           })
         | null;
 
@@ -372,7 +452,7 @@ export async function markOutboundCancelled(
     const existing = await HospedinOutboundSyncState.findOne({
         where: { id_reserva_hospedagem: id },
     });
-    const linked = hasHospedinLink(hospedagem, existing);
+    const linked = hasAnyHospedinReservationToCancel(hospedagem, existing);
     const idExterno = String(hospedagem.idExterno || '').trim() || null;
 
     if (!linked) {
@@ -432,6 +512,7 @@ export const hospedinOutboundEnqueueService = {
 export const outboundEnqueueTestHelpers = {
     resolveNeverSent,
     hasHospedinLink,
+    hasAnyHospedinReservationToCancel,
     shouldSkipMarkDirty,
     resolveNextQueueState,
 };
