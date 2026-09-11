@@ -4,9 +4,116 @@ import { Transaction } from 'sequelize';
 import { StatusEventoSuiteLimpeza } from '../models/EventoSuiteLimpeza';
 import { CustomError } from '../utils/customError';
 import {
+    filtrarTarefasAtuaisPorFiltro,
+    paginarTarefasAtuais,
+    selecionarTarefasAtuaisPorSuite,
     validarConclusaoLimpeza,
     validarInicioLimpeza,
 } from './eventoSuiteLimpezaAdminService';
+
+function limpeza(
+    id: number,
+    idEventoSuite: number,
+    status: StatusEventoSuiteLimpeza,
+    createdAt: string
+) {
+    return {
+        id,
+        idEventoSuite,
+        status,
+        createdAt: new Date(createdAt),
+    };
+}
+
+describe('situação atual por suíte — filtros de listagem', () => {
+    it('1. suíte com apenas uma tarefa Concluída aparece em Concluídas', () => {
+        const rows = [limpeza(1, 101, StatusEventoSuiteLimpeza.Concluida, '2026-09-10')];
+        const atuais = selecionarTarefasAtuaisPorSuite(rows);
+        const filtradas = filtrarTarefasAtuaisPorFiltro(atuais, 'concluida');
+        assert.equal(filtradas.length, 1);
+        assert.equal(filtradas[0].id, 1);
+    });
+
+    it('2. Concluída antiga + Pendente mais nova: Pendentes sim, Concluídas não', () => {
+        const rows = [
+            limpeza(1, 101, StatusEventoSuiteLimpeza.Concluida, '2026-09-09'),
+            limpeza(2, 101, StatusEventoSuiteLimpeza.Pendente, '2026-09-10'),
+        ];
+        const atuais = selecionarTarefasAtuaisPorSuite(rows);
+        assert.equal(atuais.length, 1);
+        assert.equal(atuais[0].id, 2);
+
+        const pendentes = filtrarTarefasAtuaisPorFiltro(atuais, 'pendente');
+        const concluidas = filtrarTarefasAtuaisPorFiltro(atuais, 'concluida');
+        assert.equal(pendentes.length, 1);
+        assert.equal(concluidas.length, 0);
+    });
+
+    it('3. Concluída antiga + EmAndamento mais nova não aparece em Concluídas', () => {
+        const rows = [
+            limpeza(1, 101, StatusEventoSuiteLimpeza.Concluida, '2026-09-09'),
+            limpeza(2, 101, StatusEventoSuiteLimpeza.EmAndamento, '2026-09-10'),
+        ];
+        const atuais = selecionarTarefasAtuaisPorSuite(rows);
+        const concluidas = filtrarTarefasAtuaisPorFiltro(atuais, 'concluida');
+        const pendentes = filtrarTarefasAtuaisPorFiltro(atuais, 'pendente');
+        assert.equal(concluidas.length, 0);
+        assert.equal(pendentes.length, 1);
+        assert.equal(pendentes[0].id, 2);
+    });
+
+    it('4. três tarefas: Concluídas mostra somente a mais nova Concluída', () => {
+        const rows = [
+            limpeza(1, 101, StatusEventoSuiteLimpeza.Concluida, '2026-09-09'),
+            limpeza(2, 101, StatusEventoSuiteLimpeza.Pendente, '2026-09-10'),
+            limpeza(3, 101, StatusEventoSuiteLimpeza.Concluida, '2026-09-11'),
+        ];
+        const atuais = selecionarTarefasAtuaisPorSuite(rows);
+        const concluidas = filtrarTarefasAtuaisPorFiltro(atuais, 'concluida');
+        assert.equal(atuais.length, 1);
+        assert.equal(atuais[0].id, 3);
+        assert.equal(concluidas.length, 1);
+        assert.equal(concluidas[0].id, 3);
+    });
+
+    it('5. duas suítes diferentes: cada uma aparece uma única vez em Todas', () => {
+        const rows = [
+            limpeza(1, 101, StatusEventoSuiteLimpeza.Concluida, '2026-09-09'),
+            limpeza(2, 101, StatusEventoSuiteLimpeza.Pendente, '2026-09-10'),
+            limpeza(3, 202, StatusEventoSuiteLimpeza.Concluida, '2026-09-08'),
+            limpeza(4, 202, StatusEventoSuiteLimpeza.EmAndamento, '2026-09-11'),
+        ];
+        const atuais = selecionarTarefasAtuaisPorSuite(rows);
+        const todas = filtrarTarefasAtuaisPorFiltro(atuais, 'todas');
+        assert.equal(atuais.length, 2);
+        assert.equal(todas.length, 2);
+        assert.deepEqual(
+            todas.map((t) => t.id).sort(),
+            [2, 4]
+        );
+    });
+
+    it('6. paginação/total refletem tarefas atuais após filtro', () => {
+        const rows = [
+            limpeza(1, 101, StatusEventoSuiteLimpeza.Concluida, '2026-09-09'),
+            limpeza(2, 102, StatusEventoSuiteLimpeza.Concluida, '2026-09-10'),
+            limpeza(3, 103, StatusEventoSuiteLimpeza.Concluida, '2026-09-11'),
+            limpeza(4, 104, StatusEventoSuiteLimpeza.Pendente, '2026-09-12'),
+        ];
+        const atuais = selecionarTarefasAtuaisPorSuite(rows);
+        const concluidas = filtrarTarefasAtuaisPorFiltro(atuais, 'concluida');
+        const pagina1 = paginarTarefasAtuais(concluidas, 1, 2);
+        const pagina2 = paginarTarefasAtuais(concluidas, 2, 2);
+
+        assert.equal(concluidas.length, 3);
+        assert.equal(pagina1.total, 3);
+        assert.equal(pagina1.data.length, 2);
+        assert.equal(pagina1.totalPages, 2);
+        assert.equal(pagina1.hasMore, true);
+        assert.equal(pagina2.data.length, 1);
+        assert.equal(pagina2.hasMore, false);
+    });
+});
 
 describe('validarInicioLimpeza', () => {
     it('Pendente pode iniciar', () => {

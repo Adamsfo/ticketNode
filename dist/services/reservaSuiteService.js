@@ -39,6 +39,7 @@ exports.checkoutHospedagem = checkoutHospedagem;
 exports.parseParamsDisponibilidade = parseParamsDisponibilidade;
 exports.parseParamsCotacao = parseParamsCotacao;
 exports.parseSuitesCheckout = parseSuitesCheckout;
+exports.parseTaxasAdicionaisCheckout = parseTaxasAdicionaisCheckout;
 exports.obterResumoPagamentoPorTransacao = obterResumoPagamentoPorTransacao;
 exports.obterReservaConfirmadaPorTransacao = obterReservaConfirmadaPorTransacao;
 exports.assertReservaEditavelPorLink = assertReservaEditavelPorLink;
@@ -56,6 +57,8 @@ const EventoSuite_1 = require("../models/EventoSuite");
 const ReservaSuite_1 = require("../models/ReservaSuite");
 const ReservaHospedagem_1 = require("../models/ReservaHospedagem");
 const ReservaHospede_1 = require("../models/ReservaHospede");
+const ReservaHospedagemTaxaAdicional_1 = require("../models/ReservaHospedagemTaxaAdicional");
+const reservaSuiteFinanceiroService_1 = require("./reservaSuiteFinanceiroService");
 const Transacao_1 = require("../models/Transacao");
 const CupomPromocional_1 = require("../models/CupomPromocional");
 const PagamentoHospedagem_1 = require("../models/PagamentoHospedagem");
@@ -64,6 +67,7 @@ const customError_1 = require("../utils/customError");
 const jwtUtils_1 = require("../utils/jwtUtils");
 const hospedagemDescontoRecepcao_1 = require("../utils/hospedagemDescontoRecepcao");
 const hospedagemPagamentoRecepcao_1 = require("../utils/hospedagemPagamentoRecepcao");
+const reservaSuiteFinanceiroService_2 = require("./reservaSuiteFinanceiroService");
 const reservaSuiteUtils_1 = require("../utils/reservaSuiteUtils");
 const suiteDisponibilidadeService_1 = require("./suiteDisponibilidadeService");
 const hospedagemConfirmacaoNotificacao_1 = require("./hospedagemConfirmacaoNotificacao");
@@ -649,7 +653,7 @@ async function listarSuitesDisponiveis(params) {
     };
 }
 async function checkoutHospedagem(params) {
-    const { idEvento, idUsuario, checkin, checkout, suites, origem = 'online', enviarParaCliente = false, observacoes, idUsuarioOperador, pagamento = null, } = params;
+    const { idEvento, idUsuario, checkin, checkout, suites, origem = 'online', enviarParaCliente = false, observacoes, idUsuarioOperador, pagamento = null, taxasAdicionais = [], } = params;
     if (!suites?.length) {
         throw new customError_1.CustomError('Informe ao menos uma suíte no checkout.', 400, '');
     }
@@ -664,6 +668,9 @@ async function checkoutHospedagem(params) {
     }
     if (isLinkCliente && pagamento) {
         throw new customError_1.CustomError('Pagamento antecipado não permitido ao enviar a reserva para o cliente finalizar.', 400, '');
+    }
+    if (!isRecepcao && taxasAdicionais.length > 0) {
+        throw new customError_1.CustomError('Taxas adicionais não permitidas na reserva online.', 400, '');
     }
     // Site (origem online): janela oficial, data e capacidade.
     // Recepção / Hospedin / internos: não aplicam essas validações.
@@ -733,22 +740,26 @@ async function checkoutHospedagem(params) {
             valorFinal: null,
         };
     });
-    const totaisHospedagem = suitesComTotais.reduce((acc, suite) => ({
+    const totaisSuites = suitesComTotais.reduce((acc, suite) => ({
         preco: (0, reservaSuiteUtils_1.roundMoney)(acc.preco + suite.preco),
         taxaServico: (0, reservaSuiteUtils_1.roundMoney)(acc.taxaServico + suite.taxaServico),
         valorTotal: (0, reservaSuiteUtils_1.roundMoney)(acc.valorTotal + suite.valorTotal),
     }), { preco: 0, taxaServico: 0, valorTotal: 0 });
+    const valorTaxasAdicionais = (0, reservaSuiteUtils_1.roundMoney)(taxasAdicionais.reduce((acc, taxa) => acc + Number(taxa.valor), 0));
+    const financeiroReserva = (0, reservaSuiteFinanceiroService_1.aplicarTaxasAdicionaisCheckout)(totaisSuites, valorTaxasAdicionais);
+    const valorTotalReserva = financeiroReserva.valorTotalReserva;
+    const transacaoCheckout = financeiroReserva.transacao;
     if (confirmaImediatamente) {
-        (0, hospedagemPagamentoRecepcao_1.validarPagamentoRecepcao)(totaisHospedagem.valorTotal, pagamento);
+        (0, hospedagemPagamentoRecepcao_1.validarPagamentoRecepcao)(valorTotalReserva, pagamento);
     }
     const valorPagoRecepcao = confirmaImediatamente && pagamento ? (0, reservaSuiteUtils_1.roundMoney)(pagamento.valor) : 0;
     const saldoPendenteRecepcao = confirmaImediatamente
-        ? (0, hospedagemPagamentoRecepcao_1.calcularSaldoPendente)(totaisHospedagem.valorTotal, valorPagoRecepcao)
+        ? (0, hospedagemPagamentoRecepcao_1.calcularSaldoPendente)(valorTotalReserva, valorPagoRecepcao)
         : isLinkCliente
-            ? totaisHospedagem.valorTotal
+            ? valorTotalReserva
             : null;
     const quitada = confirmaImediatamente &&
-        (0, hospedagemPagamentoRecepcao_1.reservaQuitada)(totaisHospedagem.valorTotal, valorPagoRecepcao);
+        (0, hospedagemPagamentoRecepcao_1.reservaQuitada)(valorTotalReserva, valorPagoRecepcao);
     const tokenPagamento = isLinkCliente ? gerarTokenPagamentoReserva() : null;
     let idPagamentoCheckoutCriado = null;
     const mapTipoPagamentoTransacao = (forma) => {
@@ -773,13 +784,13 @@ async function checkoutHospedagem(params) {
             checkin,
             checkout,
             noites,
-            preco: totaisHospedagem.preco,
-            taxaServico: totaisHospedagem.taxaServico,
-            valorTotal: totaisHospedagem.valorTotal,
+            preco: totaisSuites.preco,
+            taxaServico: totaisSuites.taxaServico,
+            valorTotal: valorTotalReserva,
             valorPago: confirmaImediatamente ? valorPagoRecepcao : 0,
             saldoPendente: confirmaImediatamente
                 ? saldoPendenteRecepcao
-                : totaisHospedagem.valorTotal,
+                : valorTotalReserva,
             formaPagamentoRecepcao: confirmaImediatamente && valorPagoRecepcao > 0
                 ? pagamento?.formaPagamento ?? null
                 : null,
@@ -846,13 +857,24 @@ async function checkoutHospedagem(params) {
             }
             itens.push(reservaItem);
         }
+        for (const taxa of taxasAdicionais) {
+            await ReservaHospedagemTaxaAdicional_1.ReservaHospedagemTaxaAdicional.create({
+                idReservaHospedagem: hospedagem.id,
+                descricao: taxa.descricao,
+                valor: taxa.valor,
+                ordem: taxa.ordem,
+                idUsuarioCriacao: isRecepcao
+                    ? idUsuarioOperador || null
+                    : null,
+            }, { transaction: t });
+        }
         const dataTransacao = agora;
         const transacao = await Transacao_1.Transacao.create({
             idUsuario,
             dataTransacao,
-            preco: totaisHospedagem.preco,
-            taxaServico: totaisHospedagem.taxaServico,
-            valorTotal: totaisHospedagem.valorTotal,
+            preco: transacaoCheckout.preco,
+            taxaServico: transacaoCheckout.taxaServico,
+            valorTotal: transacaoCheckout.valorTotal,
             status: confirmaImediatamente
                 ? quitada
                     ? 'Pago'
@@ -923,8 +945,12 @@ async function checkoutHospedagem(params) {
         if (isRecepcao && linhasDescontoHistorico.length > 0) {
             descricaoHistorico += `\n\nDesconto aplicado:\n${linhasDescontoHistorico.join('\n')}`;
         }
+        if (taxasAdicionais.length > 0) {
+            const linhasTaxas = taxasAdicionais.map((taxa) => `${taxa.descricao}: ${(0, hospedagemPagamentoRecepcao_1.formatarMoedaHistorico)(taxa.valor)}`);
+            descricaoHistorico += `\n\nTaxas adicionais:\n${linhasTaxas.join('\n')}`;
+        }
         if (confirmaImediatamente) {
-            descricaoHistorico += `\n\nValor total:\n${(0, hospedagemPagamentoRecepcao_1.formatarMoedaHistorico)(totaisHospedagem.valorTotal)}\n\nPagamento recebido:\n${(0, hospedagemPagamentoRecepcao_1.formatarMoedaHistorico)(valorPagoRecepcao)}\n\nSaldo pendente:\n${(0, hospedagemPagamentoRecepcao_1.formatarMoedaHistorico)(saldoPendenteRecepcao ?? 0)}`;
+            descricaoHistorico += `\n\nValor total:\n${(0, hospedagemPagamentoRecepcao_1.formatarMoedaHistorico)(valorTotalReserva)}\n\nPagamento recebido:\n${(0, hospedagemPagamentoRecepcao_1.formatarMoedaHistorico)(valorPagoRecepcao)}\n\nSaldo pendente:\n${(0, hospedagemPagamentoRecepcao_1.formatarMoedaHistorico)(saldoPendenteRecepcao ?? 0)}`;
         }
         if (isLinkCliente && tokenPagamento) {
             descricaoHistorico += `\n\nLink de pagamento gerado:\n${(0, hospedagemConfirmacaoNotificacao_1.montarUrlPublicaReserva)(tokenPagamento)}`;
@@ -1001,6 +1027,28 @@ function parseSuitesCheckout(body, options) {
         const hospedes = parseHospedesSuite(s, index, adultos, criancas, nomeOpcional);
         const desconto = (0, hospedagemDescontoRecepcao_1.parseDescontoRecepcao)(s?.desconto, index);
         return { idEventoSuite, adultos, criancas, hospedes, desconto };
+    });
+}
+function parseTaxasAdicionaisCheckout(body) {
+    const raw = body?.taxasAdicionais;
+    if (raw == null) {
+        return [];
+    }
+    if (!Array.isArray(raw)) {
+        throw new customError_1.CustomError('taxasAdicionais deve ser um array.', 400, '');
+    }
+    return raw.map((item, index) => {
+        const row = item;
+        const validado = (0, reservaSuiteFinanceiroService_2.validarInputTaxaAdicional)(row);
+        const ordemInformada = Number(row.ordem);
+        const ordem = Number.isFinite(ordemInformada) && ordemInformada > 0
+            ? Math.floor(ordemInformada)
+            : index + 1;
+        return {
+            descricao: validado.descricao,
+            valor: validado.valor,
+            ordem,
+        };
     });
 }
 function parseHospedesSuite(suite, index, adultos, criancas, nomeOpcional = false) {

@@ -10,6 +10,8 @@ import {
     type OrigemReservaHospedagem,
 } from '../models/ReservaHospedagem';
 import { ReservaSuite, StatusReservaSuite } from '../models/ReservaSuite';
+import { ReservaSuiteItemServico } from '../models/ReservaSuiteItemServico';
+import { ReservaHospedagemTaxaAdicional } from '../models/ReservaHospedagemTaxaAdicional';
 import { ReservaHospede } from '../models/ReservaHospede';
 import { PagamentoHospedagem } from '../models/PagamentoHospedagem';
 import { ProdutorAcesso } from '../models/Produtor';
@@ -75,6 +77,7 @@ import {
     calcularNoitesHotelaria,
     normalizarPeriodoHospedagem,
 } from '../utils/reservaSuiteUtils';
+import { roundMoney } from '../utils/reservaSuitePricing';
 import {
     calcularDisponibilidadeSuite,
     calcularDisponibilidadePeriodo,
@@ -877,6 +880,13 @@ export async function obterReservaAdminDetalhe(
                 required: false,
             },
             {
+                model: ReservaHospedagemTaxaAdicional,
+                as: 'TaxaAdicional',
+                required: false,
+                separate: true,
+                order: [['ordem', 'ASC'], ['id', 'ASC']],
+            },
+            {
                 model: ReservaSuite,
                 as: 'ReservaSuite',
                 required: false,
@@ -896,6 +906,13 @@ export async function obterReservaAdminDetalhe(
                         separate: true,
                         order: [['id', 'ASC']],
                     },
+                    {
+                        model: ReservaSuiteItemServico,
+                        as: 'ItemServico',
+                        required: false,
+                        separate: true,
+                        order: [['ordem', 'ASC'], ['id', 'ASC']],
+                    },
                 ],
             },
         ],
@@ -904,6 +921,23 @@ export async function obterReservaAdminDetalhe(
     if (!reserva) {
         throw new CustomError('Reserva de hospedagem não encontrada.', 404, '');
     }
+
+    const taxasRows =
+        (
+            reserva as ReservaHospedagem & {
+                TaxaAdicional?: ReservaHospedagemTaxaAdicional[];
+            }
+        ).TaxaAdicional ?? [];
+    const taxasAdicionais = taxasRows.map((taxa) => ({
+        id: taxa.id,
+        descricao: taxa.descricao,
+        valor: toNumber(taxa.valor),
+        ordem: Number(taxa.ordem || 1),
+    }));
+    const valorTaxasAdicionais = taxasAdicionais.reduce(
+        (acc, taxa) => acc + toNumber(taxa.valor),
+        0
+    );
 
     const suites = (reserva.ReservaSuite ?? []).map((suite) => {
         const hospedes = (
@@ -924,6 +958,24 @@ export async function obterReservaAdminDetalhe(
                 : null,
         }));
 
+        const servicosRows =
+            (
+                suite as ReservaSuite & {
+                    ItemServico?: ReservaSuiteItemServico[];
+                }
+            ).ItemServico ?? [];
+        const servicosAdicionais = servicosRows.map((item) => ({
+            id: item.id,
+            descricao: item.descricao,
+            valor: toNumber(item.valor),
+            ordem: Number(item.ordem || 1),
+        }));
+        const valorHospedagem = toNumber(suite.preco) + toNumber(suite.taxaServico);
+        const valorServicos = servicosAdicionais.reduce(
+            (acc, s) => acc + toNumber(s.valor),
+            0
+        );
+
         return {
             idReservaSuite: suite.id,
             idEventoSuite: suite.idEventoSuite,
@@ -932,6 +984,9 @@ export async function obterReservaAdminDetalhe(
             criancas: suite.criancas,
             preco: toNumber(suite.preco),
             taxaServico: toNumber(suite.taxaServico),
+            valorHospedagem,
+            valorServicos,
+            servicosAdicionais,
             valorTotal: toNumber(suite.valorTotal),
             valorOriginal:
                 suite.valorOriginal != null
@@ -1570,6 +1625,24 @@ export async function obterReservaAdminDetalhe(
               }
             : null,
         suites,
+        taxasAdicionais,
+        valorTaxasAdicionais,
+        valorSuitesReserva: roundMoney(
+            suites.reduce((acc, s) => acc + toNumber(s.valorTotal), 0)
+        ),
+        valorServicos: suites.reduce(
+            (acc, s) => acc + toNumber(s.valorServicos),
+            0
+        ),
+        permissoesServicos: await (
+            await import('./reservaSuiteItemServicoService')
+        ).obterPermissoesServicosUsuario(idUsuario),
+        permissoesTaxas: await (
+            await import('./reservaHospedagemTaxaAdicionalService')
+        ).obterPermissoesTaxasUsuario(
+            idUsuario,
+            Number(reserva.Evento?.idProdutor)
+        ),
         pagamentos,
         resumoPagamentosCaixa,
         movimentacoesSuite,
@@ -3562,6 +3635,99 @@ export async function atualizarValorTotalReservaAdmin(
     return obterReservaAdminDetalhe(idReserva, idUsuario);
 }
 
+/** Ajuste manual do valor agregado das suítes; taxas adicionais preservadas. */
+export async function atualizarValorSuitesReservaAdmin(
+    idReserva: number,
+    idUsuario: number,
+    valorSuitesInformado: number
+) {
+    await obterReservaAdminDetalhe(idReserva, idUsuario);
+
+    const reserva = (await ReservaHospedagem.findByPk(idReserva, {
+        include: [
+            {
+                model: PagamentoHospedagem,
+                as: 'Pagamentos',
+                required: false,
+            },
+            {
+                model: ReservaHospedagemTaxaAdicional,
+                as: 'TaxaAdicional',
+                required: false,
+                separate: true,
+            },
+        ],
+    })) as
+        | (ReservaHospedagem & {
+              Pagamentos?: PagamentoHospedagem[];
+              TaxaAdicional?: ReservaHospedagemTaxaAdicional[];
+          })
+        | null;
+
+    if (!reserva) {
+        throw new CustomError('Reserva não encontrada.', 404, '');
+    }
+
+    const valorSuites = roundMoney(Number(valorSuitesInformado));
+    if (!(valorSuites > 0)) {
+        throw new CustomError(
+            'Valor das suítes deve ser maior que zero.',
+            400,
+            ''
+        );
+    }
+
+    const { somarValorTaxasAdicionais, aplicarAjusteProporcionalValorSuites, recalcularFinanceiroReservaComServicos, calcularValorTotalReservaAposSuites } =
+        await import('./reservaSuiteFinanceiroService');
+
+    const valorTaxasAdicionais = somarValorTaxasAdicionais(
+        reserva.TaxaAdicional ?? []
+    );
+    const novoValorTotal = calcularValorTotalReservaAposSuites(
+        valorSuites,
+        valorTaxasAdicionais
+    );
+
+    const financeiro = resolverFinanceiroReserva({
+        valorTotal: reserva.valorTotal,
+        valorPago: reserva.valorPago,
+        saldoPendente: reserva.saldoPendente,
+        Pagamentos: (reserva.Pagamentos ?? []).map((p) => ({ valor: p.valor })),
+    } as ReservaHospedagem & {
+        valorPago?: number;
+        saldoPendente?: number | null;
+        Pagamentos?: Array<{ valor?: number }>;
+    });
+
+    if (novoValorTotal < financeiro.valorPago - 0.009) {
+        throw new CustomError(
+            'Valor total não pode ser menor que o valor já recebido.',
+            400,
+            ''
+        );
+    }
+
+    await connection.transaction(async (t: Transaction) => {
+        await aplicarAjusteProporcionalValorSuites(idReserva, valorSuites, t);
+        await recalcularFinanceiroReservaComServicos(idReserva, t, {
+            idUsuarioHistorico: idUsuario,
+            descricaoHistorico: `Valor das suítes ajustado para ${valorSuites.toFixed(2)}`,
+        });
+    });
+
+    const { incrementarHospedagemRefreshVersion } = await import(
+        './hospedagemRefreshVersionService'
+    );
+    await incrementarHospedagemRefreshVersion();
+
+    const { hospedinOutboundEnqueueService } = await import(
+        '../integrations/hospedin/outbound/HospedinOutboundEnqueueService'
+    );
+    await hospedinOutboundEnqueueService.markDirty(idReserva);
+
+    return obterReservaAdminDetalhe(idReserva, idUsuario);
+}
+
 /** Reserva manual da recepção: Confirmada + notificação (reusa checkoutHospedagem). */
 export async function criarReservaRecepcaoAdmin(params: {
     idUsuarioOperador: number;
@@ -3570,6 +3736,7 @@ export async function criarReservaRecepcaoAdmin(params: {
     checkin: Date;
     checkout: Date;
     suites: import('./reservaSuiteService').SuiteCheckoutItem[];
+    taxasAdicionais?: import('./reservaSuiteService').TaxaAdicionalCheckoutInput[];
     observacoes?: string | null;
     pagamento?: import('../utils/hospedagemPagamentoRecepcao').PagamentoRecepcaoInput | null;
     /** Quando true: AguardandoPagamento + link para o cliente (não altera Salvar Reserva). */
@@ -3602,6 +3769,7 @@ export async function criarReservaRecepcaoAdmin(params: {
         checkin: params.checkin,
         checkout: params.checkout,
         suites: params.suites,
+        taxasAdicionais: params.taxasAdicionais ?? [],
         origem: 'recepcao',
         enviarParaCliente: !!params.enviarParaCliente,
         observacoes: params.observacoes,

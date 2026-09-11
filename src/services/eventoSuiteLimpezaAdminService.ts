@@ -20,12 +20,23 @@ export type FiltroLimpezaSuites =
     | 'concluida'
     | '';
 
-function resolverFiltroStatus(
+export type LimpezaSituacaoAtualInput = {
+    id: number;
+    idEventoSuite: number;
+    status: StatusEventoSuiteLimpeza | string;
+    createdAt: Date;
+};
+
+/** Status permitidos após selecionar a tarefa mais recente de cada suíte. */
+export function resolverFiltroSituacaoAtual(
     filtro: string
 ): StatusEventoSuiteLimpeza[] | null {
     switch (String(filtro || '').toLowerCase()) {
         case 'pendente':
-            return [StatusEventoSuiteLimpeza.Pendente];
+            return [
+                StatusEventoSuiteLimpeza.Pendente,
+                StatusEventoSuiteLimpeza.EmAndamento,
+            ];
         case 'em_andamento':
             return [StatusEventoSuiteLimpeza.EmAndamento];
         case 'concluida':
@@ -33,6 +44,63 @@ function resolverFiltroStatus(
         default:
             return null;
     }
+}
+
+/** Uma tarefa por idEventoSuite — a mais recente por createdAt DESC. */
+export function selecionarTarefasAtuaisPorSuite<T extends LimpezaSituacaoAtualInput>(
+    rows: T[]
+): T[] {
+    const ordenadas = [...rows].sort(
+        (a, b) => b.createdAt.getTime() - a.createdAt.getTime()
+    );
+    const visto = new Set<number>();
+    const resultado: T[] = [];
+
+    for (const row of ordenadas) {
+        const idSuite = Number(row.idEventoSuite);
+        if (!Number.isFinite(idSuite) || idSuite <= 0 || visto.has(idSuite)) {
+            continue;
+        }
+        visto.add(idSuite);
+        resultado.push(row);
+    }
+
+    return resultado;
+}
+
+export function filtrarTarefasAtuaisPorFiltro<T extends { status: string }>(
+    tarefas: T[],
+    filtro: string
+): T[] {
+    const statuses = resolverFiltroSituacaoAtual(filtro);
+    if (!statuses) return tarefas;
+    const permitidos = new Set(statuses.map(String));
+    return tarefas.filter((t) => permitidos.has(String(t.status)));
+}
+
+export function paginarTarefasAtuais<T>(
+    tarefas: T[],
+    page: number,
+    pageSize: number
+): {
+    data: T[];
+    total: number;
+    totalPages: number;
+    hasMore: boolean;
+} {
+    const pagina = Math.max(1, Number(page) || 1);
+    const tamanho = Math.min(100, Math.max(1, Number(pageSize) || 30));
+    const total = tarefas.length;
+    const offset = (pagina - 1) * tamanho;
+    const data = tarefas.slice(offset, offset + tamanho);
+    const totalPages = Math.max(1, Math.ceil(total / tamanho));
+
+    return {
+        data,
+        total,
+        totalPages,
+        hasMore: pagina < totalPages,
+    };
 }
 
 async function resolverEscopoProdutor(idUsuario: number): Promise<{
@@ -319,38 +387,29 @@ export async function listarLimpezasSuitesAdmin(params: {
     const page = Math.max(1, Number(params.page) || 1);
     const pageSize = Math.min(100, Math.max(1, Number(params.pageSize) || 30));
     const filtro = String(params.filtro || 'todas').toLowerCase() as FiltroLimpezaSuites;
-    const statuses = resolverFiltroStatus(filtro);
-
-    const whereLimpeza: WhereOptions = {};
-    if (statuses) {
-        whereLimpeza.status = { [Op.in]: statuses };
-    }
 
     const eventoWhere: WhereOptions = escopo.admGeral
         ? {}
         : { idProdutor: { [Op.in]: escopo.idsProdutor } };
 
-    const { rows, count } = await EventoSuiteLimpeza.findAndCountAll({
-        where: whereLimpeza,
+    const rows = await EventoSuiteLimpeza.findAll({
         include: includeLimpezaDetalhe(eventoWhere),
         order: [['createdAt', 'DESC']],
-        limit: pageSize,
-        offset: (page - 1) * pageSize,
-        distinct: true,
     });
 
-    const data = rows.map((row) => mapearLimpezaCard(row));
-
-    const totalPages = Math.max(1, Math.ceil(count / pageSize));
+    const atuais = selecionarTarefasAtuaisPorSuite(rows);
+    const filtradas = filtrarTarefasAtuaisPorFiltro(atuais, filtro);
+    const paginado = paginarTarefasAtuais(filtradas, page, pageSize);
+    const data = paginado.data.map((row) => mapearLimpezaCard(row));
 
     return {
         data,
         meta: {
             page,
             pageSize,
-            total: count,
-            totalPages,
-            hasMore: page < totalPages,
+            total: paginado.total,
+            totalPages: paginado.totalPages,
+            hasMore: paginado.hasMore,
             filtro: filtro || 'todas',
         },
     };

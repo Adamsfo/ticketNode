@@ -23,6 +23,8 @@ import { ReservaHospedeInit } from '../models/ReservaHospede';
 import { PagamentoHospedagemInit } from '../models/PagamentoHospedagem';
 import { HospedagemPagamentoOperacaoInit } from '../models/HospedagemPagamentoOperacao';
 import { ReservaSuiteMovimentacaoInit } from '../models/ReservaSuiteMovimentacao';
+import { ReservaSuiteItemServicoInit } from '../models/ReservaSuiteItemServico';
+import { ReservaHospedagemTaxaAdicionalInit } from '../models/ReservaHospedagemTaxaAdicional';
 import { ReservaPeriodoMovimentacaoInit } from '../models/ReservaPeriodoMovimentacao';
 import { HospedinPlaceTypeInit } from '../models/HospedinPlaceType';
 import { HospedinPlaceInit } from '../models/HospedinPlace';
@@ -84,6 +86,8 @@ const connection = new Sequelize(dbConfig);
     PagamentoHospedagemInit(connection)
     HospedagemPagamentoOperacaoInit(connection)
     ReservaSuiteMovimentacaoInit(connection)
+    ReservaSuiteItemServicoInit(connection)
+    ReservaHospedagemTaxaAdicionalInit(connection)
     EventoSuiteLimpezaInit(connection)
     ReservaPeriodoMovimentacaoInit(connection)
     HospedinPlaceTypeInit(connection)

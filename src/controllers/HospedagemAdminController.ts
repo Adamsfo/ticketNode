@@ -14,10 +14,24 @@ import {
     alterarPeriodoReservaAdmin,
     atualizarObservacoesReservaAdmin,
     atualizarValorTotalReservaAdmin,
+    atualizarValorSuitesReservaAdmin,
     atualizarUsuarioReserva as atualizarUsuarioReservaService,
 } from '../services/hospedagemAdminService';
+import {
+    adicionarServicoSuiteReserva,
+    editarServicoSuiteReserva,
+    excluirServicoSuiteReserva,
+} from '../services/reservaSuiteItemServicoService';
+import {
+    adicionarTaxaAdicionalReserva,
+    editarTaxaAdicionalReserva,
+    excluirTaxaAdicionalReserva,
+} from '../services/reservaHospedagemTaxaAdicionalService';
 import { cancelarReservaHospedagemAdmin } from '../services/hospedagemCancelamentoAdminService';
-import { parseSuitesCheckout } from '../services/reservaSuiteService';
+import {
+    parseSuitesCheckout,
+    parseTaxasAdicionaisCheckout,
+} from '../services/reservaSuiteService';
 import { parseDateTimeParam } from '../utils/reservaSuiteUtils';
 import { parsePagamentoRecepcao } from '../utils/hospedagemPagamentoRecepcao';
 import { obterHospedagemRefreshVersion } from '../services/hospedagemRefreshVersionService';
@@ -248,6 +262,7 @@ module.exports = {
             }
 
             const suites = parseSuitesCheckout(req.body, { nomeOpcional: true });
+            const taxasAdicionais = parseTaxasAdicionaisCheckout(req.body);
             const pagamento = parsePagamentoRecepcao(req.body?.pagamento);
             const data = await criarReservaRecepcaoAdmin({
                 idUsuarioOperador,
@@ -256,6 +271,7 @@ module.exports = {
                 checkin: parseDateTimeParam(req.body.checkin, 'checkin'),
                 checkout: parseDateTimeParam(req.body.checkout, 'checkout'),
                 suites,
+                taxasAdicionais,
                 observacoes: req.body.observacoes
                     ? String(req.body.observacoes)
                     : null,
@@ -301,6 +317,7 @@ module.exports = {
             }
 
             const suites = parseSuitesCheckout(req.body, { nomeOpcional: true });
+            const taxasAdicionais = parseTaxasAdicionaisCheckout(req.body);
             const data = await criarReservaRecepcaoAdmin({
                 idUsuarioOperador,
                 idEvento,
@@ -308,6 +325,7 @@ module.exports = {
                 checkin: parseDateTimeParam(req.body.checkin, 'checkin'),
                 checkout: parseDateTimeParam(req.body.checkout, 'checkout'),
                 suites,
+                taxasAdicionais,
                 observacoes: req.body.observacoes
                     ? String(req.body.observacoes)
                     : null,
@@ -528,6 +546,44 @@ module.exports = {
         }
     },
 
+    async atualizarValorSuites(req: any, res: any, next: any) {
+        try {
+            const idUsuario = Number(req.user?.id);
+            const idReserva = Number(req.params.id);
+            if (!idUsuario) {
+                throw new CustomError('Usuário não autenticado.', 401, '');
+            }
+            if (!idReserva) {
+                throw new CustomError('id da reserva é obrigatório.', 400, '');
+            }
+
+            const valorSuites = Number(
+                req.body?.valorSuites ?? req.body?.valor ?? NaN
+            );
+            if (!Number.isFinite(valorSuites)) {
+                throw new CustomError(
+                    'valorSuites é obrigatório no corpo da requisição.',
+                    400,
+                    ''
+                );
+            }
+
+            const data = await atualizarValorSuitesReservaAdmin(
+                idReserva,
+                idUsuario,
+                valorSuites
+            );
+
+            return res.status(200).json({
+                success: true,
+                message: 'Valor das suítes atualizado.',
+                data,
+            });
+        } catch (error) {
+            next(error);
+        }
+    },
+
     async atualizarUsuarioReserva(req: any, res: any, next: any) {
         try {
             const idUsuario = Number(req.user?.id);
@@ -544,6 +600,204 @@ module.exports = {
             }
             await atualizarUsuarioReservaService(idReserva, id_cliente);
             return res.status(200).json({ success: true, message: 'Usuário atualizado.' });
+        } catch (error) {
+            next(error);
+        }
+    },
+
+    async adicionarServicoSuite(req: any, res: any, next: any) {
+        try {
+            const idUsuario = Number(req.user?.id);
+            const idReserva = Number(req.params.id);
+            const idReservaSuite = Number(req.params.idReservaSuite);
+            if (!idUsuario) {
+                throw new CustomError('Usuário não autenticado.', 401, '');
+            }
+            if (!idReserva || !idReservaSuite) {
+                throw new CustomError(
+                    'id da reserva e id da suíte são obrigatórios.',
+                    400,
+                    ''
+                );
+            }
+
+            const data = await adicionarServicoSuiteReserva({
+                idReservaHospedagem: idReserva,
+                idReservaSuite,
+                idUsuario,
+                descricao: req.body?.descricao,
+                valor: req.body?.valor,
+            });
+
+            return res.status(200).json({
+                success: true,
+                message: 'Serviço adicionado.',
+                data,
+            });
+        } catch (error) {
+            next(error);
+        }
+    },
+
+    async editarServicoSuite(req: any, res: any, next: any) {
+        try {
+            const idUsuario = Number(req.user?.id);
+            const idReserva = Number(req.params.id);
+            const idReservaSuite = Number(req.params.idReservaSuite);
+            const idServico = Number(req.params.idServico);
+            if (!idUsuario) {
+                throw new CustomError('Usuário não autenticado.', 401, '');
+            }
+            if (!idReserva || !idReservaSuite || !idServico) {
+                throw new CustomError(
+                    'id da reserva, suíte e serviço são obrigatórios.',
+                    400,
+                    ''
+                );
+            }
+
+            const data = await editarServicoSuiteReserva({
+                idReservaHospedagem: idReserva,
+                idReservaSuite,
+                idServico,
+                idUsuario,
+                descricao: req.body?.descricao,
+                valor: req.body?.valor,
+            });
+
+            return res.status(200).json({
+                success: true,
+                message: 'Serviço atualizado.',
+                data,
+            });
+        } catch (error) {
+            next(error);
+        }
+    },
+
+    async excluirServicoSuite(req: any, res: any, next: any) {
+        try {
+            const idUsuario = Number(req.user?.id);
+            const idReserva = Number(req.params.id);
+            const idReservaSuite = Number(req.params.idReservaSuite);
+            const idServico = Number(req.params.idServico);
+            if (!idUsuario) {
+                throw new CustomError('Usuário não autenticado.', 401, '');
+            }
+            if (!idReserva || !idReservaSuite || !idServico) {
+                throw new CustomError(
+                    'id da reserva, suíte e serviço são obrigatórios.',
+                    400,
+                    ''
+                );
+            }
+
+            const data = await excluirServicoSuiteReserva({
+                idReservaHospedagem: idReserva,
+                idReservaSuite,
+                idServico,
+                idUsuario,
+            });
+
+            return res.status(200).json({
+                success: true,
+                message: 'Serviço removido.',
+                data,
+            });
+        } catch (error) {
+            next(error);
+        }
+    },
+
+    async adicionarTaxaAdicional(req: any, res: any, next: any) {
+        try {
+            const idUsuario = Number(req.user?.id);
+            const idReserva = Number(req.params.id);
+            if (!idUsuario) {
+                throw new CustomError('Usuário não autenticado.', 401, '');
+            }
+            if (!idReserva) {
+                throw new CustomError('id da reserva é obrigatório.', 400, '');
+            }
+
+            const data = await adicionarTaxaAdicionalReserva({
+                idReservaHospedagem: idReserva,
+                idUsuario,
+                descricao: req.body?.descricao,
+                valor: req.body?.valor,
+            });
+
+            return res.status(200).json({
+                success: true,
+                message: 'Taxa adicional incluída.',
+                data,
+            });
+        } catch (error) {
+            next(error);
+        }
+    },
+
+    async editarTaxaAdicional(req: any, res: any, next: any) {
+        try {
+            const idUsuario = Number(req.user?.id);
+            const idReserva = Number(req.params.id);
+            const idTaxa = Number(req.params.idTaxa);
+            if (!idUsuario) {
+                throw new CustomError('Usuário não autenticado.', 401, '');
+            }
+            if (!idReserva || !idTaxa) {
+                throw new CustomError(
+                    'id da reserva e id da taxa são obrigatórios.',
+                    400,
+                    ''
+                );
+            }
+
+            const data = await editarTaxaAdicionalReserva({
+                idReservaHospedagem: idReserva,
+                idTaxa,
+                idUsuario,
+                descricao: req.body?.descricao,
+                valor: req.body?.valor,
+            });
+
+            return res.status(200).json({
+                success: true,
+                message: 'Taxa adicional atualizada.',
+                data,
+            });
+        } catch (error) {
+            next(error);
+        }
+    },
+
+    async excluirTaxaAdicional(req: any, res: any, next: any) {
+        try {
+            const idUsuario = Number(req.user?.id);
+            const idReserva = Number(req.params.id);
+            const idTaxa = Number(req.params.idTaxa);
+            if (!idUsuario) {
+                throw new CustomError('Usuário não autenticado.', 401, '');
+            }
+            if (!idReserva || !idTaxa) {
+                throw new CustomError(
+                    'id da reserva e id da taxa são obrigatórios.',
+                    400,
+                    ''
+                );
+            }
+
+            const data = await excluirTaxaAdicionalReserva({
+                idReservaHospedagem: idReserva,
+                idTaxa,
+                idUsuario,
+            });
+
+            return res.status(200).json({
+                success: true,
+                message: 'Taxa adicional removida.',
+                data,
+            });
         } catch (error) {
             next(error);
         }

@@ -82,6 +82,41 @@ router.patch(
     HospedagemAdminController.atualizarValorTotal
 );
 router.patch(
+    '/hospedagem/reservas/:id/valor-suites',
+    authenticate,
+    HospedagemAdminController.atualizarValorSuites
+);
+router.post(
+    '/hospedagem/reservas/:id/suites/:idReservaSuite/servicos',
+    authenticate,
+    HospedagemAdminController.adicionarServicoSuite
+);
+router.patch(
+    '/hospedagem/reservas/:id/suites/:idReservaSuite/servicos/:idServico',
+    authenticate,
+    HospedagemAdminController.editarServicoSuite
+);
+router.delete(
+    '/hospedagem/reservas/:id/suites/:idReservaSuite/servicos/:idServico',
+    authenticate,
+    HospedagemAdminController.excluirServicoSuite
+);
+router.post(
+    '/hospedagem/reservas/:id/taxas',
+    authenticate,
+    HospedagemAdminController.adicionarTaxaAdicional
+);
+router.patch(
+    '/hospedagem/reservas/:id/taxas/:idTaxa',
+    authenticate,
+    HospedagemAdminController.editarTaxaAdicional
+);
+router.delete(
+    '/hospedagem/reservas/:id/taxas/:idTaxa',
+    authenticate,
+    HospedagemAdminController.excluirTaxaAdicional
+);
+router.patch(
      '/hospedagem/reservas/:id/usuario',
      authenticate,
      HospedagemAdminController.atualizarUsuarioReserva
@@ -163,6 +198,41 @@ router.patch(
     '/hospedagem-admin/reservas/:id/valor-total',
     authenticate,
     HospedagemAdminController.atualizarValorTotal
+);
+router.patch(
+    '/hospedagem-admin/reservas/:id/valor-suites',
+    authenticate,
+    HospedagemAdminController.atualizarValorSuites
+);
+router.post(
+    '/hospedagem-admin/reservas/:id/suites/:idReservaSuite/servicos',
+    authenticate,
+    HospedagemAdminController.adicionarServicoSuite
+);
+router.patch(
+    '/hospedagem-admin/reservas/:id/suites/:idReservaSuite/servicos/:idServico',
+    authenticate,
+    HospedagemAdminController.editarServicoSuite
+);
+router.delete(
+    '/hospedagem-admin/reservas/:id/suites/:idReservaSuite/servicos/:idServico',
+    authenticate,
+    HospedagemAdminController.excluirServicoSuite
+);
+router.post(
+    '/hospedagem-admin/reservas/:id/taxas',
+    authenticate,
+    HospedagemAdminController.adicionarTaxaAdicional
+);
+router.patch(
+    '/hospedagem-admin/reservas/:id/taxas/:idTaxa',
+    authenticate,
+    HospedagemAdminController.editarTaxaAdicional
+);
+router.delete(
+    '/hospedagem-admin/reservas/:id/taxas/:idTaxa',
+    authenticate,
+    HospedagemAdminController.excluirTaxaAdicional
 );
 router.get(
     '/hospedagem-admin/suites',
