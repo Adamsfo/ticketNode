@@ -302,6 +302,8 @@ export class ReservationUpdateService {
                 },
                 reservationId,
                 correlationId,
+                isTechnicalUserId: (idUsuario) =>
+                    guestResolverService.isTechnicalUserId(idUsuario),
                 onRelink: (info) => {
                     HospedinLogger.debug('update:guest_usuario_relink', {
                         reservation_id: reservationId,

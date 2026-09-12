@@ -12,6 +12,7 @@ import {
     relinkHospedesFromDesired,
     resolveCpfForHospedeRelink,
     shouldRelinkHospedeUsuario,
+    shouldUpdateTitularUsuario,
     type HospedeRowLike,
 } from './GuestUsuarioRelinkService';
 
@@ -20,6 +21,8 @@ const REAL_ID = 42;
 const OTHER_REAL_ID = 77;
 const CPF_A = '529.982.247-25';
 const CPF_B = '390.533.447-05';
+
+const isTech = (id: number) => id === TECH_ID;
 
 function resolved(
     partial: Partial<GuestResolveResult> &
@@ -103,6 +106,59 @@ describe('shouldRelinkHospedeUsuario', () => {
                 })
             ),
             true
+        );
+    });
+
+    it('origem sem CPF → não faz downgrade de cliente real para técnico', () => {
+        assert.equal(
+            shouldRelinkHospedeUsuario(
+                REAL_ID,
+                resolved({
+                    idUsuario: TECH_ID,
+                    action: 'TECHNICAL_CPF_MISSING',
+                    isTechnical: true,
+                }),
+                { isTechnicalUserId: isTech }
+            ),
+            false
+        );
+    });
+
+    it('origem sem CPF + vínculo técnico → sem mudança se já técnico', () => {
+        assert.equal(
+            shouldRelinkHospedeUsuario(
+                TECH_ID,
+                resolved({
+                    idUsuario: TECH_ID,
+                    action: 'TECHNICAL_CPF_MISSING',
+                    isTechnical: true,
+                }),
+                { isTechnicalUserId: isTech }
+            ),
+            false
+        );
+    });
+});
+
+describe('shouldUpdateTitularUsuario', () => {
+    it('não regride titular real para técnico', () => {
+        assert.equal(
+            shouldUpdateTitularUsuario(REAL_ID, TECH_ID, isTech),
+            false
+        );
+    });
+
+    it('permite upgrade de titular técnico para real', () => {
+        assert.equal(
+            shouldUpdateTitularUsuario(TECH_ID, REAL_ID, isTech),
+            true
+        );
+    });
+
+    it('idempotente quando titular já é o mesmo', () => {
+        assert.equal(
+            shouldUpdateTitularUsuario(REAL_ID, REAL_ID, isTech),
+            false
         );
     });
 });
@@ -307,6 +363,150 @@ describe('relinkHospedesFromDesired — fluxos UPDATE', () => {
             0
         );
         assert.equal(updateHospedagemCalls, 0);
+    });
+
+    it('cliente real vinculado + origem sem CPF → mantém cliente real no hóspede', async () => {
+        const row = fakeRow(1, REAL_ID);
+        let usuarioUpdateCalls = 0;
+
+        const changes = await relinkHospedesFromDesired({
+            rows: [row],
+            desiredGuests: [
+                {
+                    nome: 'João',
+                    tipo: 'Adulto',
+                    cpf: null,
+                },
+            ],
+            deps: {
+                guestResolverService: {
+                    clearCache() {},
+                    async resolveGuest() {
+                        return resolved({
+                            idUsuario: TECH_ID,
+                            action: 'TECHNICAL_CPF_MISSING',
+                            isTechnical: true,
+                        });
+                    },
+                },
+                loadDocumentos: async () => [],
+                currentHospedagemIdUsuario: REAL_ID,
+                isTechnicalUserId: isTech,
+                updateHospedagemUsuario: async () => {
+                    usuarioUpdateCalls += 1;
+                },
+            },
+        });
+
+        assert.equal(Number(row.idUsuario), REAL_ID);
+        assert.equal(
+            changes.filter((c) => c.field === 'hospede.idUsuario').length,
+            0
+        );
+        assert.equal(usuarioUpdateCalls, 0);
+    });
+
+    it('titular real + origem sem CPF → mantém titular real', async () => {
+        const row = fakeRow(1, TECH_ID);
+        let hospedagemUsuario = REAL_ID;
+
+        const changes = await relinkHospedesFromDesired({
+            rows: [row],
+            desiredGuests: [
+                {
+                    nome: 'Maria',
+                    tipo: 'Adulto',
+                    cpf: null,
+                },
+            ],
+            deps: {
+                guestResolverService: {
+                    clearCache() {},
+                    async resolveGuest() {
+                        return resolved({
+                            idUsuario: TECH_ID,
+                            action: 'TECHNICAL_CPF_MISSING',
+                            isTechnical: true,
+                        });
+                    },
+                },
+                loadDocumentos: async () => [],
+                currentHospedagemIdUsuario: REAL_ID,
+                isTechnicalUserId: isTech,
+                updateHospedagemUsuario: async (id) => {
+                    hospedagemUsuario = id;
+                },
+            },
+        });
+
+        assert.equal(hospedagemUsuario, REAL_ID);
+        assert.equal(
+            changes.filter((c) => c.field === 'hospedagem.idUsuario').length,
+            0
+        );
+    });
+
+    it('usuário técnico + origem sem CPF → continua técnico', async () => {
+        const row = fakeRow(1, TECH_ID);
+
+        await relinkHospedesFromDesired({
+            rows: [row],
+            desiredGuests: [
+                {
+                    nome: 'Maria',
+                    tipo: 'Adulto',
+                    cpf: null,
+                },
+            ],
+            deps: {
+                guestResolverService: {
+                    clearCache() {},
+                    async resolveGuest() {
+                        return resolved({
+                            idUsuario: TECH_ID,
+                            action: 'TECHNICAL_CPF_MISSING',
+                            isTechnical: true,
+                        });
+                    },
+                },
+                loadDocumentos: async () => [],
+                currentHospedagemIdUsuario: TECH_ID,
+                isTechnicalUserId: isTech,
+                updateHospedagemUsuario: async () => undefined,
+            },
+        });
+
+        assert.equal(Number(row.idUsuario), TECH_ID);
+    });
+
+    it('origem sem CPF não invoca alteração de cadastro Usuario (só relink)', async () => {
+        const row = fakeRow(1, REAL_ID);
+        let resolveInputCpf: string | null | undefined = 'unset';
+
+        await relinkHospedesFromDesired({
+            rows: [row],
+            desiredGuests: [{ nome: 'João', tipo: 'Adulto', cpf: null }],
+            deps: {
+                guestResolverService: {
+                    clearCache() {},
+                    async resolveGuest(input) {
+                        resolveInputCpf = input.cpf;
+                        return resolved({
+                            idUsuario: TECH_ID,
+                            action: 'TECHNICAL_CPF_MISSING',
+                            isTechnical: true,
+                        });
+                    },
+                },
+                loadDocumentos: async () => [],
+                currentHospedagemIdUsuario: REAL_ID,
+                isTechnicalUserId: isTech,
+                updateHospedagemUsuario: async () => undefined,
+            },
+        });
+
+        assert.equal(resolveInputCpf, null);
+        assert.equal(Number(row.idUsuario), REAL_ID);
     });
 
     it('múltiplas sincronizações: resolve pelo CPF (sem duplicar usuário)', async () => {

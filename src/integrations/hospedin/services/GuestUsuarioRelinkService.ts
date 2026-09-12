@@ -30,17 +30,56 @@ export type HospedeRowLike = {
     update: (values: { idUsuario: number }) => Promise<unknown>;
 };
 
+export type RelinkTechnicalUserCheck = (idUsuario: number) => boolean;
+
 /**
  * Decide se o vínculo deve mudar.
  * Idempotente: mesmo CPF → mesmo Usuario → false.
+ *
+ * Anti-downgrade: origem sem CPF (resolved técnico) não substitui cliente real
+ * já vinculado no Jango.
  */
 export function shouldRelinkHospedeUsuario(
     previousIdUsuario: number | null | undefined,
-    resolved: Pick<GuestResolveResult, 'idUsuario' | 'isTechnical'>
+    resolved: Pick<GuestResolveResult, 'idUsuario' | 'isTechnical'>,
+    options?: { isTechnicalUserId?: RelinkTechnicalUserCheck }
 ): boolean {
     if (resolved.idUsuario == null) return false;
     if (previousIdUsuario == null) return true;
+
+    const isTechnicalUserId = options?.isTechnicalUserId;
+    if (
+        resolved.isTechnical &&
+        isTechnicalUserId &&
+        !isTechnicalUserId(Number(previousIdUsuario))
+    ) {
+        return false;
+    }
+
     return Number(previousIdUsuario) !== Number(resolved.idUsuario);
+}
+
+/**
+ * Titular da reserva: nunca regride de cliente real para usuário técnico
+ * quando a origem não trouxe CPF válido.
+ */
+export function shouldUpdateTitularUsuario(
+    currentIdUsuario: number | null | undefined,
+    proposedTitularId: number | null | undefined,
+    isTechnicalUserId: RelinkTechnicalUserCheck
+): boolean {
+    if (proposedTitularId == null) return false;
+    if (currentIdUsuario == null) return true;
+    if (Number(currentIdUsuario) === Number(proposedTitularId)) return false;
+
+    if (
+        isTechnicalUserId(Number(proposedTitularId)) &&
+        !isTechnicalUserId(Number(currentIdUsuario))
+    ) {
+        return false;
+    }
+
+    return true;
 }
 
 /**
@@ -114,6 +153,8 @@ export type RelinkDeps = {
         after: number;
         action: string;
     }) => void;
+    /** Identifica usuários técnicos HOSPEDIN (sem CPF). */
+    isTechnicalUserId?: RelinkTechnicalUserCheck;
 };
 
 /**
@@ -128,6 +169,8 @@ export async function relinkHospedesFromDesired(input: {
     const changes: ReservationDiffChange[] = [];
     const { rows, desiredGuests, deps } = input;
     deps.guestResolverService.clearCache();
+    const isTechnicalUserId =
+        deps.isTechnicalUserId ?? (() => false);
 
     const resolvedForTitular: Array<{
         tipo?: string;
@@ -174,13 +217,24 @@ export async function relinkHospedesFromDesired(input: {
             }
         );
 
-        resolvedForTitular.push({
-            tipo: g.tipo,
-            idUsuario: resolved.idUsuario,
-            isTechnical: resolved.isTechnical,
+        const wouldRelink = shouldRelinkHospedeUsuario(previousId, resolved, {
+            isTechnicalUserId,
         });
 
-        if (shouldRelinkHospedeUsuario(previousId, resolved)) {
+        const effectiveIdUsuario = wouldRelink
+            ? resolved.idUsuario
+            : (previousId ?? resolved.idUsuario);
+        const effectiveIsTechnical =
+            effectiveIdUsuario != null &&
+            isTechnicalUserId(Number(effectiveIdUsuario));
+
+        resolvedForTitular.push({
+            tipo: g.tipo,
+            idUsuario: effectiveIdUsuario,
+            isTechnical: effectiveIsTechnical,
+        });
+
+        if (wouldRelink) {
             await row.update({ idUsuario: resolved.idUsuario });
             changes.push({
                 field: 'hospede.idUsuario',
@@ -198,8 +252,11 @@ export async function relinkHospedesFromDesired(input: {
 
     const titularId = pickTitularIdUsuario(resolvedForTitular);
     if (
-        titularId != null &&
-        Number(deps.currentHospedagemIdUsuario) !== Number(titularId)
+        shouldUpdateTitularUsuario(
+            deps.currentHospedagemIdUsuario,
+            titularId,
+            isTechnicalUserId
+        )
     ) {
         const beforeTitular = deps.currentHospedagemIdUsuario;
         await deps.updateHospedagemUsuario(titularId);
