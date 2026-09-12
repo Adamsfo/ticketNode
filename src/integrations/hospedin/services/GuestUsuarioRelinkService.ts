@@ -252,6 +252,7 @@ export async function relinkHospedesFromDesired(input: {
 
     const titularId = pickTitularIdUsuario(resolvedForTitular);
     if (
+        titularId != null &&
         shouldUpdateTitularUsuario(
             deps.currentHospedagemIdUsuario,
             titularId,
