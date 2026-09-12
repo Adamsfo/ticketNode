@@ -18,6 +18,8 @@ function criarReservaMultiSuite(overrides: Record<string, unknown> = {}) {
         status: StatusReservaSuite.Confirmada,
         dataHoraChegadaReal: null,
         dataHoraCheckinReal: null,
+        dataHoraCheckoutRealizado: null,
+        idUsuarioCheckout: null,
         update: async function updateSuite(
             this: Record<string, unknown>,
             payload: Record<string, unknown>
@@ -34,6 +36,8 @@ function criarReservaMultiSuite(overrides: Record<string, unknown> = {}) {
         status: StatusReservaSuite.Confirmada,
         dataHoraChegadaReal: null,
         dataHoraCheckinReal: null,
+        dataHoraCheckoutRealizado: null,
+        idUsuarioCheckout: null,
         update: async function updateSuite(
             this: Record<string, unknown>,
             payload: Record<string, unknown>
@@ -366,7 +370,7 @@ describe('operacao por ReservaSuite — chegada e check-in', () => {
         );
     });
 
-    it('reserva mono-suíte continua funcionando', async () => {
+    it('reserva mono-suíte continua funcionando no check-in', async () => {
         const hoje = new Date();
         const suiteUnica = {
             id: 600,
@@ -401,5 +405,266 @@ describe('operacao por ReservaSuite — chegada e check-in', () => {
         assert.equal(reservaState.ReservaSuite[0].status, StatusReservaSuite.Hospedada);
         assert.equal(reservaState.status, StatusReservaHospedagem.Hospedada);
         assert.equal(inseriIngressoCalls.length, 3);
+    });
+});
+
+describe('operacao por ReservaSuite — check-out', () => {
+    let reservaState: ReturnType<typeof criarReservaMultiSuite>;
+    let historicoCreates: unknown[] = [];
+    let limpezaCheckoutCalls: Array<{ id: number; idEventoSuite: number }> = [];
+
+    const originals: Record<string, unknown> = {};
+
+    function resetModules() {
+        try {
+            delete require.cache[require.resolve('./hospedagemAdminService')];
+        } catch {
+            // serviço ainda não carregado
+        }
+    }
+
+    function prepararReservaHospedada() {
+        const agora = new Date();
+        reservaState = criarReservaMultiSuite({
+            status: StatusReservaHospedagem.Hospedada,
+            dataHoraCheckinReal: agora,
+        });
+        reservaState.ReservaSuite[0].status = StatusReservaSuite.Hospedada;
+        reservaState.ReservaSuite[0].dataHoraCheckinReal = agora;
+        reservaState.ReservaSuite[1].status = StatusReservaSuite.Hospedada;
+        reservaState.ReservaSuite[1].dataHoraCheckinReal = agora;
+    }
+
+    function setupMocksCheckout() {
+        historicoCreates = [];
+        limpezaCheckoutCalls = [];
+        prepararReservaHospedada();
+
+        const { Usuario } = require('../models/Usuario');
+        const { ReservaHospedagem } = require('../models/ReservaHospedagem');
+        const { ReservaSuite } = require('../models/ReservaSuite');
+        const { HistoricoTransacao } = require('../models/Transacao');
+        const connection = require('../database').default;
+        const { ProdutorAcesso } = require('../models/Produtor');
+
+        resetModules();
+
+        originals.UsuarioFindByPk = Usuario.findByPk;
+        originals.ReservaFindByPk = ReservaHospedagem.findByPk;
+        originals.ReservaSuiteFindByPk = ReservaSuite.findByPk;
+        originals.ReservaSuiteFindAll = ReservaSuite.findAll;
+        originals.HistoricoCreate = HistoricoTransacao.create;
+        originals.connectionTransaction = connection.transaction;
+        originals.ProdutorFindAll = ProdutorAcesso.findAll;
+
+        Usuario.findByPk = async (id: number) => {
+            if (id === 99) {
+                return { id: 99, admGeral: true };
+            }
+            return { id: 50 };
+        };
+
+        ReservaHospedagem.findByPk = async (
+            _id: number,
+            opts?: { lock?: unknown; transaction?: Transaction }
+        ) => {
+            if (opts?.lock) {
+                return {
+                    ...reservaState,
+                    update: async (payload: Record<string, unknown>) => {
+                        Object.assign(reservaState, payload);
+                    },
+                };
+            }
+            return reservaState;
+        };
+
+        ReservaSuite.findByPk = async (
+            id: number,
+            opts?: { lock?: unknown; transaction?: Transaction }
+        ) => {
+            const suite = reservaState.ReservaSuite.find((s) => s.id === id);
+            if (!suite) return null;
+            if (opts?.lock) {
+                return {
+                    ...suite,
+                    update: async (payload: Record<string, unknown>) => {
+                        Object.assign(suite, payload);
+                    },
+                };
+            }
+            return suite;
+        };
+
+        ReservaSuite.findAll = async () => reservaState.ReservaSuite;
+
+        HistoricoTransacao.create = async (payload: unknown) => {
+            historicoCreates.push(payload);
+            return payload;
+        };
+
+        connection.transaction = async (fn: (t: Transaction) => Promise<void>) => {
+            const t = { LOCK: { UPDATE: 'UPDATE' } } as Transaction;
+            await fn(t);
+        };
+
+        ProdutorAcesso.findAll = async () => [{ idProdutor: 1 }];
+
+        const limpezaCheckoutPath = require.resolve(
+            './eventoSuiteLimpezaCheckoutService'
+        );
+        require.cache[limpezaCheckoutPath] = {
+            id: limpezaCheckoutPath,
+            filename: limpezaCheckoutPath,
+            loaded: true,
+            exports: {
+                criarLimpezasPendentesNoCheckout: async (
+                    _t: Transaction,
+                    _idReserva: number,
+                    suites: Array<{ id: number; idEventoSuite: number }>
+                ) => {
+                    limpezaCheckoutCalls.push(...suites);
+                },
+            },
+        };
+    }
+
+    afterEach(() => {
+        const { Usuario } = require('../models/Usuario');
+        const { ReservaHospedagem } = require('../models/ReservaHospedagem');
+        const { ReservaSuite } = require('../models/ReservaSuite');
+        const { HistoricoTransacao } = require('../models/Transacao');
+        const connection = require('../database').default;
+        const { ProdutorAcesso } = require('../models/Produtor');
+
+        if (originals.UsuarioFindByPk) {
+            Usuario.findByPk = originals.UsuarioFindByPk;
+        }
+        if (originals.ReservaFindByPk) {
+            ReservaHospedagem.findByPk = originals.ReservaFindByPk;
+        }
+        if (originals.ReservaSuiteFindByPk) {
+            ReservaSuite.findByPk = originals.ReservaSuiteFindByPk;
+        }
+        if (originals.ReservaSuiteFindAll) {
+            ReservaSuite.findAll = originals.ReservaSuiteFindAll;
+        }
+        if (originals.HistoricoCreate) {
+            HistoricoTransacao.create = originals.HistoricoCreate;
+        }
+        if (originals.connectionTransaction) {
+            connection.transaction = originals.connectionTransaction;
+        }
+        if (originals.ProdutorFindAll) {
+            ProdutorAcesso.findAll = originals.ProdutorFindAll;
+        }
+        resetModules();
+    });
+
+    beforeEach(() => {
+        setupMocksCheckout();
+    });
+
+    it('checkout da suíte A mantém suíte B hospedada', async () => {
+        const { realizarCheckoutReservaSuiteAdmin } = require('./hospedagemAdminService');
+
+        await realizarCheckoutReservaSuiteAdmin(200, 500, 99);
+
+        assert.equal(
+            reservaState.ReservaSuite[0].status,
+            StatusReservaSuite.CheckOutRealizado
+        );
+        assert.ok(reservaState.ReservaSuite[0].dataHoraCheckoutRealizado);
+        assert.equal(
+            reservaState.ReservaSuite[1].status,
+            StatusReservaSuite.Hospedada
+        );
+        assert.equal(reservaState.status, StatusReservaHospedagem.Hospedada);
+        assert.ok(!reservaState.dataHoraCheckoutRealizado);
+        assert.equal(historicoCreates.length, 0);
+        assert.equal(limpezaCheckoutCalls.length, 1);
+        assert.equal(limpezaCheckoutCalls[0].id, 500);
+        assert.equal(limpezaCheckoutCalls[0].idEventoSuite, 1);
+    });
+
+    it('checkout da suíte B completa a reserva', async () => {
+        const { realizarCheckoutReservaSuiteAdmin } = require('./hospedagemAdminService');
+
+        await realizarCheckoutReservaSuiteAdmin(200, 500, 99);
+        await realizarCheckoutReservaSuiteAdmin(200, 501, 99);
+
+        assert.equal(
+            reservaState.ReservaSuite[0].status,
+            StatusReservaSuite.CheckOutRealizado
+        );
+        assert.equal(
+            reservaState.ReservaSuite[1].status,
+            StatusReservaSuite.CheckOutRealizado
+        );
+        assert.equal(reservaState.status, StatusReservaHospedagem.CheckOutRealizado);
+        assert.ok(reservaState.dataHoraCheckoutRealizado);
+        assert.equal(historicoCreates.length, 1);
+        assert.equal(limpezaCheckoutCalls.length, 2);
+        assert.equal(limpezaCheckoutCalls[1].id, 501);
+        assert.equal(limpezaCheckoutCalls[1].idEventoSuite, 3);
+    });
+
+    it('reserva mono-suíte: checkout por suíte conclui a reserva', async () => {
+        const agora = new Date();
+        const suiteUnica = {
+            id: 600,
+            idReservaHospedagem: 300,
+            idEventoSuite: 10,
+            adultos: 2,
+            criancas: 0,
+            status: StatusReservaSuite.Hospedada,
+            dataHoraChegadaReal: agora,
+            dataHoraCheckinReal: agora,
+            dataHoraCheckoutRealizado: null,
+            idUsuarioCheckout: null,
+            update: async function updateSuite(
+                this: Record<string, unknown>,
+                payload: Record<string, unknown>
+            ) {
+                Object.assign(this, payload);
+            },
+        };
+        reservaState = criarReservaMultiSuite({
+            id: 300,
+            status: StatusReservaHospedagem.Hospedada,
+            dataHoraCheckinReal: agora,
+            ReservaSuite: [suiteUnica],
+        });
+
+        const { realizarCheckoutReservaSuiteAdmin } = require('./hospedagemAdminService');
+
+        await realizarCheckoutReservaSuiteAdmin(300, 600, 99);
+
+        assert.equal(
+            reservaState.ReservaSuite[0].status,
+            StatusReservaSuite.CheckOutRealizado
+        );
+        assert.equal(reservaState.status, StatusReservaHospedagem.CheckOutRealizado);
+        assert.equal(historicoCreates.length, 1);
+        assert.equal(limpezaCheckoutCalls.length, 1);
+    });
+
+    it('rejeita checkout de suíte que não pertence à reserva', async () => {
+        const { realizarCheckoutReservaSuiteAdmin } = require('./hospedagemAdminService');
+
+        await assert.rejects(
+            () => realizarCheckoutReservaSuiteAdmin(200, 999, 99),
+            (err: CustomError) => err.statusCode === 404
+        );
+    });
+
+    it('rejeita checkout de suíte que não está hospedada', async () => {
+        reservaState.ReservaSuite[0].status = StatusReservaSuite.Confirmada;
+        const { realizarCheckoutReservaSuiteAdmin } = require('./hospedagemAdminService');
+
+        await assert.rejects(
+            () => realizarCheckoutReservaSuiteAdmin(200, 500, 99),
+            (err: CustomError) => err.statusCode === 400
+        );
     });
 });

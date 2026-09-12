@@ -110,6 +110,15 @@ class ReservaSuite extends sequelize_1.Model {
                 allowNull: true,
                 references: { model: Usuario_1.Usuario, key: 'id' },
             },
+            dataHoraCheckoutRealizado: {
+                type: sequelize_1.DataTypes.DATE,
+                allowNull: true,
+            },
+            idUsuarioCheckout: {
+                type: sequelize_1.DataTypes.INTEGER,
+                allowNull: true,
+                references: { model: Usuario_1.Usuario, key: 'id' },
+            },
         }, {
             sequelize,
             modelName: 'ReservaSuite',

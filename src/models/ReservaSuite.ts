@@ -57,6 +57,10 @@ interface ReservaSuiteAttributes {
 
     idUsuarioCheckin?: number | null;
 
+    dataHoraCheckoutRealizado?: Date | null;
+
+    idUsuarioCheckout?: number | null;
+
 }
 
 
@@ -77,6 +81,8 @@ interface ReservaSuiteCreationAttributes
         | 'idUsuarioChegada'
         | 'dataHoraCheckinReal'
         | 'idUsuarioCheckin'
+        | 'dataHoraCheckoutRealizado'
+        | 'idUsuarioCheckout'
     > {}
 
 
@@ -124,6 +130,10 @@ class ReservaSuite
     public dataHoraCheckinReal?: Date | null;
 
     public idUsuarioCheckin?: number | null;
+
+    public dataHoraCheckoutRealizado?: Date | null;
+
+    public idUsuarioCheckout?: number | null;
 
     static initialize(sequelize: Sequelize) {
 
@@ -306,6 +316,24 @@ class ReservaSuite
             },
 
             idUsuarioCheckin: {
+
+                type: DataTypes.INTEGER,
+
+                allowNull: true,
+
+                references: { model: Usuario, key: 'id' },
+
+            },
+
+            dataHoraCheckoutRealizado: {
+
+                type: DataTypes.DATE,
+
+                allowNull: true,
+
+            },
+
+            idUsuarioCheckout: {
 
                 type: DataTypes.INTEGER,
 

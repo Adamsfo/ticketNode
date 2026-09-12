@@ -4,7 +4,9 @@ import { StatusReservaSuite } from '../models/ReservaSuite';
 import { StatusReservaHospedagem } from '../models/ReservaHospedagem';
 import {
     resolverChegadaLinhaSuite,
+    resolverCheckoutLinhaSuite,
     resolverStatusOperacionalLinhaSuite,
+    todasLinhasReservaCheckoutRealizado,
     todasLinhasReservaHospedadas,
 } from './reservaSuiteOperacaoUtils';
 
@@ -79,6 +81,42 @@ describe('reservaSuiteOperacaoUtils', () => {
             todasLinhasReservaHospedadas([
                 { status: StatusReservaSuite.Hospedada },
                 { status: StatusReservaSuite.Confirmada },
+            ]),
+            false
+        );
+    });
+
+    it('mono-suíte legada: usa checkout da reserva', () => {
+        const data = new Date('2026-09-12T12:00:00Z');
+        const linha = {
+            status: StatusReservaSuite.CheckOutRealizado,
+            dataHoraChegadaReal: null,
+            dataHoraCheckinReal: null,
+            dataHoraCheckoutRealizado: null,
+        };
+        const reserva = {
+            status: StatusReservaHospedagem.CheckOutRealizado,
+            dataHoraCheckoutRealizado: data,
+        };
+
+        assert.equal(
+            resolverCheckoutLinhaSuite(linha, reserva, 1)?.getTime(),
+            data.getTime()
+        );
+    });
+
+    it('todasLinhasReservaCheckoutRealizado', () => {
+        assert.equal(
+            todasLinhasReservaCheckoutRealizado([
+                { status: StatusReservaSuite.CheckOutRealizado },
+                { status: StatusReservaSuite.CheckOutRealizado },
+            ]),
+            true
+        );
+        assert.equal(
+            todasLinhasReservaCheckoutRealizado([
+                { status: StatusReservaSuite.CheckOutRealizado },
+                { status: StatusReservaSuite.Hospedada },
             ]),
             false
         );

@@ -116,9 +116,11 @@ import {
 import { logger } from '../utils/logger';
 import {
     todasLinhasReservaHospedadas,
+    todasLinhasReservaCheckoutRealizado,
     linhaSuiteTemChegadaRegistrada,
     resolverChegadaLinhaSuite,
     resolverCheckinLinhaSuite,
+    resolverCheckoutLinhaSuite,
     resolverStatusOperacionalLinhaSuite,
     type ReservaOperacionalAgregada,
 } from '../utils/reservaSuiteOperacaoUtils';
@@ -1029,6 +1031,14 @@ export async function obterReservaAdminDetalhe(
                 (suite as ReservaSuite & {
                     idUsuarioCheckin?: number | null;
                 }).idUsuarioCheckin ?? null,
+            dataHoraCheckoutRealizado:
+                (suite as ReservaSuite & {
+                    dataHoraCheckoutRealizado?: Date | null;
+                }).dataHoraCheckoutRealizado ?? null,
+            idUsuarioCheckout:
+                (suite as ReservaSuite & {
+                    idUsuarioCheckout?: number | null;
+                }).idUsuarioCheckout ?? null,
             hospedes,
         };
     });
@@ -1550,6 +1560,13 @@ export async function obterReservaAdminDetalhe(
               totalSuitesReserva
           )
         : dataHoraCheckinReal;
+    const checkoutFocoLinha = linhaFocoRaw
+        ? resolverCheckoutLinhaSuite(
+              linhaFocoRaw,
+              reservaAgregada,
+              totalSuitesReserva
+          )
+        : dataHoraCheckoutRealizado;
     const acoesFoco = calcularAcoesOperacionaisDaReserva({
         reserva: {
             status: statusFocoLinha,
@@ -1557,7 +1574,7 @@ export async function obterReservaAdminDetalhe(
             checkout: checkoutNorm,
             saldoPendente,
             dataHoraCheckinReal: checkinFocoLinha,
-            dataHoraCheckoutRealizado,
+            dataHoraCheckoutRealizado: checkoutFocoLinha,
             dataHoraChegadaReal: chegadaFocoLinha,
         },
         dataSelecionada: dataOp,
@@ -2097,10 +2114,11 @@ function reservasParaDisponibilidade(
                 reservaAgregada,
                 totalSuites
             ),
-            dataHoraCheckoutRealizado:
-                (rh as ReservaHospedagem & {
-                    dataHoraCheckoutRealizado?: Date | null;
-                }).dataHoraCheckoutRealizado ?? null,
+            dataHoraCheckoutRealizado: resolverCheckoutLinhaSuite(
+                linha,
+                reservaAgregada,
+                totalSuites
+            ),
             dataHoraChegadaReal: resolverChegadaLinhaSuite(
                 linha,
                 reservaAgregada,
@@ -4106,7 +4124,11 @@ export async function realizarCheckoutAdmin(
         const suites = reservaLocked.ReservaSuite ?? [];
         for (const suite of suites) {
             await suite.update(
-                { status: StatusReservaSuite.CheckOutRealizado },
+                {
+                    status: StatusReservaSuite.CheckOutRealizado,
+                    dataHoraCheckoutRealizado: dataHoraCheckout,
+                    idUsuarioCheckout: idUsuario,
+                },
                 { transaction: t }
             );
         }
@@ -4139,6 +4161,160 @@ export async function realizarCheckoutAdmin(
     await incrementarHospedagemRefreshVersion();
 
     return obterReservaAdminDetalhe(idReservaHospedagem, idUsuario);
+}
+
+/** Check-out operacional de UMA ReservaSuite (multi-suíte). */
+export async function realizarCheckoutReservaSuiteAdmin(
+    idReservaHospedagem: number,
+    idReservaSuite: number,
+    idUsuario: number,
+    dataHoraCheckoutInformada?: Date | null
+) {
+    const { reserva, linha, totalSuites } =
+        await carregarContextoOperacaoReservaSuite(
+            idReservaHospedagem,
+            idReservaSuite,
+            idUsuario
+        );
+
+    if (reserva.status === StatusReservaHospedagem.CheckOutRealizado) {
+        throw new CustomError('Check-out já realizado para esta reserva.', 400, '');
+    }
+
+    if (
+        linha.status === StatusReservaSuite.CheckOutRealizado ||
+        (linha as ReservaSuite & { dataHoraCheckoutRealizado?: Date | null })
+            .dataHoraCheckoutRealizado
+    ) {
+        throw new CustomError('Check-out já realizado para esta suíte.', 400, '');
+    }
+
+    if (linha.status !== StatusReservaSuite.Hospedada) {
+        throw new CustomError(
+            'Somente suítes hospedadas podem realizar check-out.',
+            400,
+            ''
+        );
+    }
+
+    const reservaAgregada = reserva as ReservaHospedagem &
+        ReservaOperacionalAgregada;
+    const dataHoraCheckout = resolverDataHoraOperacaoRetroativa(
+        dataHoraCheckoutInformada,
+        'check-out'
+    );
+
+    const checkinReal = resolverCheckinLinhaSuite(
+        linha,
+        reservaAgregada,
+        totalSuites
+    );
+    if (
+        checkinReal &&
+        dataHoraCheckout.getTime() < new Date(checkinReal).getTime()
+    ) {
+        throw new CustomError(
+            'A data/hora do check-out não pode ser anterior ao check-in.',
+            400,
+            ''
+        );
+    }
+
+    await connection.transaction(async (t: Transaction) => {
+        const linhaLocked = await ReservaSuite.findByPk(idReservaSuite, {
+            lock: t.LOCK.UPDATE,
+            transaction: t,
+        });
+        const reservaLocked = await ReservaHospedagem.findByPk(
+            idReservaHospedagem,
+            {
+                lock: t.LOCK.UPDATE,
+                transaction: t,
+            }
+        );
+
+        if (!linhaLocked || !reservaLocked) {
+            throw new CustomError('Reserva de hospedagem não encontrada.', 404, '');
+        }
+        if (Number(linhaLocked.idReservaHospedagem) !== idReservaHospedagem) {
+            throw new CustomError(
+                'Linha de suíte não pertence a esta reserva.',
+                404,
+                ''
+            );
+        }
+        if (
+            linhaLocked.status === StatusReservaSuite.CheckOutRealizado ||
+            (linhaLocked as ReservaSuite & {
+                dataHoraCheckoutRealizado?: Date | null;
+            }).dataHoraCheckoutRealizado
+        ) {
+            throw new CustomError('Check-out já realizado para esta suíte.', 400, '');
+        }
+        if (linhaLocked.status !== StatusReservaSuite.Hospedada) {
+            throw new CustomError(
+                'Somente suítes hospedadas podem realizar check-out.',
+                400,
+                ''
+            );
+        }
+
+        await linhaLocked.update(
+            {
+                status: StatusReservaSuite.CheckOutRealizado,
+                dataHoraCheckoutRealizado: dataHoraCheckout,
+                idUsuarioCheckout: idUsuario,
+            },
+            { transaction: t }
+        );
+
+        await criarLimpezasPendentesNoCheckout(t, reservaLocked.id, [
+            {
+                id: linhaLocked.id,
+                idEventoSuite: linhaLocked.idEventoSuite,
+            },
+        ]);
+
+        const todasLinhas = await ReservaSuite.findAll({
+            where: { idReservaHospedagem },
+            transaction: t,
+        });
+
+        if (todasLinhasReservaCheckoutRealizado(todasLinhas)) {
+            await reservaLocked.update(
+                {
+                    status: StatusReservaHospedagem.CheckOutRealizado,
+                    dataHoraCheckoutRealizado: dataHoraCheckout,
+                    idUsuarioCheckout: idUsuario,
+                },
+                { transaction: t }
+            );
+
+            if (reservaLocked.idTransacao) {
+                await HistoricoTransacao.create(
+                    {
+                        idTransacao: reservaLocked.idTransacao,
+                        idUsuario,
+                        data: dataHoraCheckout,
+                        descricao: 'Check-out realizado.',
+                    },
+                    { transaction: t }
+                );
+            }
+        }
+    });
+
+    const { incrementarHospedagemRefreshVersion } = await import(
+        './hospedagemRefreshVersionService'
+    );
+    await incrementarHospedagemRefreshVersion();
+
+    return obterReservaAdminDetalhe(
+        idReservaHospedagem,
+        idUsuario,
+        undefined,
+        { idReservaSuite, idEventoSuite: linha.idEventoSuite }
+    );
 }
 
 /** Atualiza anotação operacional (auto-save da aba Operação). */

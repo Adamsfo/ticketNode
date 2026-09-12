@@ -8,6 +8,7 @@ import {
     realizarCheckinAdmin,
     realizarCheckinReservaSuiteAdmin,
     realizarCheckoutAdmin,
+    realizarCheckoutReservaSuiteAdmin,
     registrarChegadaAdmin,
     registrarChegadaReservaSuiteAdmin,
     criarReservaRecepcaoAdmin,
@@ -293,6 +294,45 @@ module.exports = {
                 message: result.alreadyCancelled
                     ? 'Reserva já estava cancelada.'
                     : 'Reserva cancelada com sucesso.',
+                data,
+            });
+        } catch (error) {
+            next(error);
+        }
+    },
+
+    async realizarCheckoutSuite(req: any, res: any, next: any) {
+        try {
+            const idUsuario = Number(req.user?.id);
+            const idReserva = Number(req.params.id);
+            const idReservaSuite = Number(req.params.idReservaSuite);
+
+            if (!idUsuario) {
+                throw new CustomError('Usuário não autenticado.', 401, '');
+            }
+            if (!idReserva) {
+                throw new CustomError('id da reserva é obrigatório.', 400, '');
+            }
+            if (!idReservaSuite) {
+                throw new CustomError('idReservaSuite é obrigatório.', 400, '');
+            }
+
+            const rawDataHora =
+                req.body?.dataHora ?? req.body?.dataHoraCheckout ?? null;
+            const dataHoraCheckout =
+                rawDataHora != null && rawDataHora !== ''
+                    ? parseDateTimeParam(rawDataHora, 'dataHora')
+                    : null;
+
+            const data = await realizarCheckoutReservaSuiteAdmin(
+                idReserva,
+                idReservaSuite,
+                idUsuario,
+                dataHoraCheckout
+            );
+            return res.status(200).json({
+                success: true,
+                message: 'Check-out realizado.',
                 data,
             });
         } catch (error) {

@@ -10,6 +10,7 @@ export type LinhaOperacionalSuite = Pick<
     | 'status'
     | 'dataHoraChegadaReal'
     | 'dataHoraCheckinReal'
+    | 'dataHoraCheckoutRealizado'
 >;
 
 export type ReservaOperacionalAgregada = {
@@ -63,6 +64,23 @@ export function resolverCheckinLinhaSuite(
         reserva.dataHoraCheckinReal
     ) {
         return reserva.dataHoraCheckinReal;
+    }
+    return null;
+}
+
+export function resolverCheckoutLinhaSuite(
+    linha: LinhaOperacionalSuite,
+    reserva: ReservaOperacionalAgregada,
+    totalSuitesNaReserva: number
+): Date | null {
+    if (linha.dataHoraCheckoutRealizado) {
+        return linha.dataHoraCheckoutRealizado;
+    }
+    if (
+        reservaMonoSuite(totalSuitesNaReserva) &&
+        reserva.dataHoraCheckoutRealizado
+    ) {
+        return reserva.dataHoraCheckoutRealizado;
     }
     return null;
 }
@@ -142,5 +160,16 @@ export function todasLinhasReservaHospedadas(
     return (
         linhas.length > 0 &&
         linhas.every((linha) => linha.status === StatusReservaSuite.Hospedada)
+    );
+}
+
+export function todasLinhasReservaCheckoutRealizado(
+    linhas: Array<Pick<ReservaSuite, 'status'>>
+): boolean {
+    return (
+        linhas.length > 0 &&
+        linhas.every(
+            (linha) => linha.status === StatusReservaSuite.CheckOutRealizado
+        )
     );
 }
