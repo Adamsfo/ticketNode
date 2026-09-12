@@ -1491,6 +1491,16 @@ export async function checkoutHospedagem(params: {
         hospedagem.idTransacao = transacao.id;
         await hospedagem.save({ transaction: t });
 
+        if (taxasAdicionais.length > 0) {
+            const { recalcularFinanceiroReservaComServicos } = await import(
+                './reservaSuiteFinanceiroService'
+            );
+            await recalcularFinanceiroReservaComServicos(
+                hospedagem.id,
+                t
+            );
+        }
+
         return {
             hospedagem,
             itens: itens.map((linha) => linha.reservaItem),

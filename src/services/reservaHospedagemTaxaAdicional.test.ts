@@ -3,6 +3,8 @@ import { describe, it } from 'node:test';
 import { TipoAcesso } from '../models/Produtor';
 import {
     aplicarTaxasAdicionaisCheckout,
+    calcularTotaisReservaComServicos,
+    somarTaxasAdicionaisGeraisReserva,
     somarValorTaxasAdicionais,
 } from './reservaSuiteFinanceiroService';
 import { parseTaxasAdicionaisCheckout } from './reservaSuiteService';
@@ -321,6 +323,63 @@ describe('validarIdReservaSuiteParaTaxa', () => {
         } finally {
             ReservaSuite.findOne = originalFindOne;
         }
+    });
+});
+
+describe('CREATE checkout — ReservaSuite.valorTotal para Hospedin SALE', () => {
+    const suitesPosCreate = [
+        {
+            id: 164,
+            preco: 400,
+            taxaServico: 30,
+            valorTotal: 430,
+            ItemServico: [] as Array<{ valor: number }>,
+        },
+        {
+            id: 165,
+            preco: 300,
+            taxaServico: 20,
+            valorTotal: 320,
+            ItemServico: [] as Array<{ valor: number }>,
+        },
+    ];
+
+    it('taxa vinculada só à Suíte A: SALE A=530 B=320 sem redistribuição', () => {
+        const taxas = [
+            {
+                idReservaSuite: 164,
+                valor: 100,
+                descricao: 'Decoração',
+            },
+        ];
+
+        const totais = calcularTotaisReservaComServicos(suitesPosCreate, taxas);
+        const suiteA = totais.suites.find((s) => s.idReservaSuite === 164);
+        const suiteB = totais.suites.find((s) => s.idReservaSuite === 165);
+
+        assert.equal(suiteA?.valorTotal, 530);
+        assert.equal(suiteB?.valorTotal, 320);
+        assert.equal(totais.valorTotal, 850);
+        assert.equal(somarTaxasAdicionaisGeraisReserva(taxas), 0);
+
+        const salePorSuite = totais.suites.map((s) => ({
+            idReservaSuite: s.idReservaSuite,
+            valorTotal: s.valorTotal,
+        }));
+        assert.deepEqual(salePorSuite, [
+            { idReservaSuite: 164, valorTotal: 530 },
+            { idReservaSuite: 165, valorTotal: 320 },
+        ]);
+    });
+
+    it('CREATE sem taxa adicional: valores das suítes permanecem inalterados', () => {
+        const totais = calcularTotaisReservaComServicos(suitesPosCreate, []);
+        const suiteA = totais.suites.find((s) => s.idReservaSuite === 164);
+        const suiteB = totais.suites.find((s) => s.idReservaSuite === 165);
+
+        assert.equal(suiteA?.valorTotal, 430);
+        assert.equal(suiteB?.valorTotal, 320);
+        assert.equal(totais.valorTotal, 750);
     });
 });
 
