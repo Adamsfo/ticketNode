@@ -4,10 +4,15 @@ import { Evento } from '../models/Evento';
 import { EventoSuite } from '../models/EventoSuite';
 import {
     EventoSuiteLimpeza,
+    OrigemEventoSuiteLimpeza,
     StatusEventoSuiteLimpeza,
     podeConcluirLimpeza,
     podeIniciarLimpeza,
 } from '../models/EventoSuiteLimpeza';
+import {
+    assertNenhumaLimpezaAbertaNaSuite,
+    buscarLimpezaAbertaNaSuite,
+} from './eventoSuiteLimpezaCheckinService';
 import { ReservaHospedagem } from '../models/ReservaHospedagem';
 import { ProdutorAcesso } from '../models/Produtor';
 import { Usuario } from '../models/Usuario';
@@ -76,6 +81,26 @@ export function filtrarTarefasAtuaisPorFiltro<T extends { status: string }>(
     if (!statuses) return tarefas;
     const permitidos = new Set(statuses.map(String));
     return tarefas.filter((t) => permitidos.has(String(t.status)));
+}
+
+/** Ordenação da aba Concluídas: dataHoraFim DESC; NULL por último; desempate id DESC. */
+export function ordenarTarefasConcluidasPorDataHoraFim<
+    T extends { id: number; dataHoraFim?: Date | null },
+>(tarefas: T[]): T[] {
+    return [...tarefas].sort((a, b) => {
+        const ta = a.dataHoraFim?.getTime();
+        const tb = b.dataHoraFim?.getTime();
+        const aInvalid = ta == null || Number.isNaN(ta);
+        const bInvalid = tb == null || Number.isNaN(tb);
+
+        if (aInvalid && bInvalid) {
+            return b.id - a.id;
+        }
+        if (aInvalid) return 1;
+        if (bInvalid) return -1;
+        if (tb !== ta) return tb - ta;
+        return b.id - a.id;
+    });
 }
 
 export function paginarTarefasAtuais<T>(
@@ -179,7 +204,7 @@ const includeLimpezaDetalhe = (eventoWhere: WhereOptions) => [
     {
         model: ReservaHospedagem,
         as: 'ReservaHospedagem',
-        required: true,
+        required: false,
         attributes: [
             'id',
             'checkin',
@@ -236,13 +261,17 @@ function mapearLimpezaCard(row: EventoSuiteLimpeza) {
         }
     ).UsuarioFim;
 
+    const origem = row.origem ?? OrigemEventoSuiteLimpeza.Checkout;
+    const manual = origem === OrigemEventoSuiteLimpeza.Manual;
+
     return {
         id: row.id,
         idEventoSuite: row.idEventoSuite,
         nomeSuite: suite?.nome ?? null,
+        origem,
         idReservaHospedagem: row.idReservaHospedagem,
-        numeroReserva: row.idReservaHospedagem,
-        hospede: rh?.Usuario?.nomeCompleto ?? null,
+        numeroReserva: manual ? null : row.idReservaHospedagem,
+        hospede: manual ? null : rh?.Usuario?.nomeCompleto ?? null,
         status: row.status,
         checkin: isoOrNull(rh?.checkin),
         checkout: isoOrNull(rh?.checkout),
@@ -252,10 +281,122 @@ function mapearLimpezaCard(row: EventoSuiteLimpeza) {
         usuarioInicio: usuarioInicio?.nomeCompleto ?? null,
         usuarioFim: usuarioFim?.nomeCompleto ?? null,
         eventoNome: suite?.Evento?.nome ?? null,
-        statusReserva: rh?.status ?? null,
+        statusReserva: manual ? null : rh?.status ?? null,
         createdAt: isoOrNull(row.createdAt),
         updatedAt: isoOrNull(row.updatedAt),
     };
+}
+
+async function carregarSuiteAtivaNoEscopo(
+    idEventoSuite: number,
+    escopo: EscopoProdutor,
+    transaction: Transaction
+): Promise<EventoSuite> {
+    const eventoWhere = eventoWhereEscopo(escopo);
+    const suite = await EventoSuite.findOne({
+        where: { id: idEventoSuite, status: 'Ativo' },
+        include: [
+            {
+                model: Evento,
+                as: 'Evento',
+                required: true,
+                attributes: ['id', 'nome', 'idProdutor'],
+                where: eventoWhere,
+            },
+        ],
+        transaction,
+        lock: transaction.LOCK.UPDATE,
+    });
+
+    if (!suite) {
+        throw new CustomError(
+            'Suíte não encontrada, inativa ou sem permissão.',
+            404,
+            ''
+        );
+    }
+
+    return suite;
+}
+
+/**
+ * Cria limpeza MANUAL Pendente na transaction recebida.
+ * Idempotente por suíte: não duplica se já existir Pendente/EmAndamento.
+ */
+export async function criarLimpezaManualPendenteSeAusente(
+    idEventoSuite: number,
+    transaction: Transaction
+): Promise<boolean> {
+    const idSuite = Number(idEventoSuite);
+    if (!Number.isFinite(idSuite) || idSuite <= 0) {
+        return false;
+    }
+
+    const suite = await EventoSuite.findByPk(idSuite, {
+        transaction,
+        lock: transaction.LOCK.UPDATE,
+    });
+    if (!suite) {
+        return false;
+    }
+
+    const limpezaAberta = await buscarLimpezaAbertaNaSuite(idSuite, {
+        transaction,
+        lock: true,
+    });
+    if (limpezaAberta) {
+        return false;
+    }
+
+    await EventoSuiteLimpeza.create(
+        {
+            idEventoSuite: idSuite,
+            idReservaHospedagem: null,
+            idReservaSuite: null,
+            origem: OrigemEventoSuiteLimpeza.Manual,
+            status: StatusEventoSuiteLimpeza.Pendente,
+        },
+        { transaction }
+    );
+
+    return true;
+}
+
+export async function criarLimpezaManualSuiteAdmin(
+    idEventoSuite: number,
+    idUsuario: number
+) {
+    const idSuite = Number(idEventoSuite);
+    if (!Number.isFinite(idSuite) || idSuite <= 0) {
+        throw new CustomError('idEventoSuite é obrigatório.', 400, '');
+    }
+
+    const escopo = await resolverEscopoProdutor(idUsuario);
+    let idLimpezaCriada = 0;
+
+    await connection.transaction(async (t: Transaction) => {
+        await carregarSuiteAtivaNoEscopo(idSuite, escopo, t);
+        await assertNenhumaLimpezaAbertaNaSuite(idSuite, {
+            transaction: t,
+            lock: true,
+        });
+
+        const limpeza = await EventoSuiteLimpeza.create(
+            {
+                idEventoSuite: idSuite,
+                idReservaHospedagem: null,
+                idReservaSuite: null,
+                origem: OrigemEventoSuiteLimpeza.Manual,
+                status: StatusEventoSuiteLimpeza.Pendente,
+            },
+            { transaction: t }
+        );
+
+        idLimpezaCriada = limpeza.id;
+    });
+
+    const criada = await carregarLimpezaNoEscopo(idLimpezaCriada, escopo);
+    return mapearLimpezaCard(criada);
 }
 
 async function carregarLimpezaNoEscopo(
@@ -398,7 +539,10 @@ export async function listarLimpezasSuitesAdmin(params: {
     });
 
     const atuais = selecionarTarefasAtuaisPorSuite(rows);
-    const filtradas = filtrarTarefasAtuaisPorFiltro(atuais, filtro);
+    let filtradas = filtrarTarefasAtuaisPorFiltro(atuais, filtro);
+    if (filtro === 'concluida') {
+        filtradas = ordenarTarefasConcluidasPorDataHoraFim(filtradas);
+    }
     const paginado = paginarTarefasAtuais(filtradas, page, pageSize);
     const data = paginado.data.map((row) => mapearLimpezaCard(row));
 

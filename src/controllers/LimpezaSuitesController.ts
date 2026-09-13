@@ -3,6 +3,7 @@ import {
     listarLimpezasSuitesAdmin,
     iniciarLimpezaSuiteAdmin,
     concluirLimpezaSuiteAdmin,
+    criarLimpezaManualSuiteAdmin,
 } from '../services/eventoSuiteLimpezaAdminService';
 
 module.exports = {
@@ -21,6 +22,32 @@ module.exports = {
             });
 
             return res.status(200).json(resultado);
+        } catch (error) {
+            next(error);
+        }
+    },
+
+    async criarManual(req: any, res: any, next: any) {
+        try {
+            const idUsuario = Number(req.user?.id);
+            const idEventoSuite = Number(req.body?.idEventoSuite);
+
+            if (!idUsuario) {
+                throw new CustomError('Usuário não autenticado.', 401, '');
+            }
+            if (!idEventoSuite) {
+                throw new CustomError('idEventoSuite é obrigatório.', 400, '');
+            }
+
+            const data = await criarLimpezaManualSuiteAdmin(
+                idEventoSuite,
+                idUsuario
+            );
+            return res.status(201).json({
+                success: true,
+                message: 'Limpeza manual criada.',
+                data,
+            });
         } catch (error) {
             next(error);
         }

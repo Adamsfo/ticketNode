@@ -10,9 +10,18 @@ export enum StatusEventoSuiteLimpeza {
     Concluida = 'Concluida',
 }
 
+export enum OrigemEventoSuiteLimpeza {
+    Checkout = 'CHECKOUT',
+    Manual = 'MANUAL',
+}
+
 export const STATUS_EVENTO_SUITE_LIMPEZA = Object.values(
     StatusEventoSuiteLimpeza
 ) as StatusEventoSuiteLimpeza[];
+
+export const ORIGEM_EVENTO_SUITE_LIMPEZA = Object.values(
+    OrigemEventoSuiteLimpeza
+) as OrigemEventoSuiteLimpeza[];
 
 /** Pendente ou EmAndamento — único efeito operacional previsto: bloquear check-in (4C). */
 export function isLimpezaAberta(status: string): boolean {
@@ -33,9 +42,10 @@ export function podeConcluirLimpeza(status: string): boolean {
 interface EventoSuiteLimpezaAttributes {
     id: number;
     idEventoSuite: number;
-    idReservaHospedagem: number;
-    idReservaSuite: number;
+    idReservaHospedagem: number | null;
+    idReservaSuite: number | null;
     status: StatusEventoSuiteLimpeza;
+    origem: OrigemEventoSuiteLimpeza;
     dataHoraInicio: Date | null;
     idUsuarioInicio: number | null;
     dataHoraFim: Date | null;
@@ -49,6 +59,9 @@ interface EventoSuiteLimpezaCreationAttributes
         EventoSuiteLimpezaAttributes,
         | 'id'
         | 'status'
+        | 'origem'
+        | 'idReservaHospedagem'
+        | 'idReservaSuite'
         | 'dataHoraInicio'
         | 'idUsuarioInicio'
         | 'dataHoraFim'
@@ -63,9 +76,10 @@ class EventoSuiteLimpeza
 {
     public id!: number;
     public idEventoSuite!: number;
-    public idReservaHospedagem!: number;
-    public idReservaSuite!: number;
+    public idReservaHospedagem!: number | null;
+    public idReservaSuite!: number | null;
     public status!: StatusEventoSuiteLimpeza;
+    public origem!: OrigemEventoSuiteLimpeza;
     public dataHoraInicio!: Date | null;
     public idUsuarioInicio!: number | null;
     public dataHoraFim!: Date | null;
@@ -89,13 +103,13 @@ class EventoSuiteLimpeza
                 },
                 idReservaHospedagem: {
                     type: DataTypes.INTEGER,
-                    allowNull: false,
+                    allowNull: true,
                     field: 'id_reserva_hospedagem',
                     references: { model: ReservaHospedagem, key: 'id' },
                 },
                 idReservaSuite: {
                     type: DataTypes.INTEGER,
-                    allowNull: false,
+                    allowNull: true,
                     field: 'id_reserva_suite',
                     references: { model: ReservaSuite, key: 'id' },
                 },
@@ -105,6 +119,13 @@ class EventoSuiteLimpeza
                     ),
                     allowNull: false,
                     defaultValue: StatusEventoSuiteLimpeza.Pendente,
+                },
+                origem: {
+                    type: DataTypes.ENUM(
+                        ...Object.values(OrigemEventoSuiteLimpeza)
+                    ),
+                    allowNull: false,
+                    defaultValue: OrigemEventoSuiteLimpeza.Checkout,
                 },
                 dataHoraInicio: {
                     type: DataTypes.DATE,

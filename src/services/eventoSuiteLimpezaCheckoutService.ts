@@ -1,8 +1,11 @@
 import { Transaction } from 'sequelize';
+import { EventoSuite } from '../models/EventoSuite';
 import {
     EventoSuiteLimpeza,
+    OrigemEventoSuiteLimpeza,
     StatusEventoSuiteLimpeza,
 } from '../models/EventoSuiteLimpeza';
+import { buscarLimpezaAbertaNaSuite } from './eventoSuiteLimpezaCheckinService';
 
 export type ReservaSuiteCheckoutLimpezaInput = {
     id: number;
@@ -31,7 +34,9 @@ export function montarLimpezasPendentesCheckout(
 
 /**
  * Cria limpezas Pendentes na mesma transação do checkout.
- * Idempotente via findOrCreate + UNIQUE (id_reserva_hospedagem, id_evento_suite).
+ * Idempotente via:
+ * - skip quando já existe limpeza aberta (Pendente/EmAndamento) na suíte (qualquer origem);
+ * - findOrCreate + UNIQUE (id_reserva_hospedagem, id_evento_suite) quando não há aberta.
  */
 export async function criarLimpezasPendentesNoCheckout(
     transaction: Transaction,
@@ -44,6 +49,18 @@ export async function criarLimpezasPendentesNoCheckout(
     );
 
     for (const payload of payloads) {
+        const suite = await EventoSuite.findByPk(payload.idEventoSuite, {
+            transaction,
+            lock: transaction.LOCK.UPDATE,
+        });
+        if (!suite) continue;
+
+        const limpezaAberta = await buscarLimpezaAbertaNaSuite(
+            payload.idEventoSuite,
+            { transaction, lock: true }
+        );
+        if (limpezaAberta) continue;
+
         await EventoSuiteLimpeza.findOrCreate({
             where: {
                 idReservaHospedagem: payload.idReservaHospedagem,
@@ -54,6 +71,7 @@ export async function criarLimpezasPendentesNoCheckout(
                 idEventoSuite: payload.idEventoSuite,
                 idReservaSuite: payload.idReservaSuite,
                 status: StatusEventoSuiteLimpeza.Pendente,
+                origem: OrigemEventoSuiteLimpeza.Checkout,
             },
             transaction,
         });

@@ -11,6 +11,12 @@ router.get(
 );
 
 router.post(
+    '/limpeza/suites/manual',
+    authenticate,
+    LimpezaSuitesController.criarManual
+);
+
+router.post(
     '/limpeza/suites/:id/iniciar',
     authenticate,
     LimpezaSuitesController.iniciar

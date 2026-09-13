@@ -25,6 +25,7 @@ import { isValidCpf } from '../utils/cpf';
 import apiJango from '../api/apiJango';
 import { criarLimpezasPendentesNoCheckout } from './eventoSuiteLimpezaCheckoutService';
 import { assertSuitesSemLimpezaAbertaParaCheckin } from './eventoSuiteLimpezaCheckinService';
+import { criarLimpezaManualPendenteSeAusente } from './eventoSuiteLimpezaAdminService';
 import {
     EventoSuiteLimpeza,
     StatusEventoSuiteLimpeza,
@@ -2220,7 +2221,7 @@ async function montarDisponibilidadeOperacionalReserva(
  */
 type LimpezaSuiteCardResumo = {
     idEventoSuite: number;
-    idReservaHospedagem: number;
+    idReservaHospedagem: number | null;
     status: StatusEventoSuiteLimpeza;
     updatedAt: Date;
 };
@@ -5138,6 +5139,10 @@ export async function trocarSuiteReservaAdmin(params: {
         );
 
         await linha.update({ idEventoSuite: idDestino }, { transaction: t });
+
+        if (reserva.status === StatusReservaHospedagem.Hospedada) {
+            await criarLimpezaManualPendenteSeAusente(idOrigem, t);
+        }
     });
 
     const reservaPosTroca = (await ReservaHospedagem.findByPk(reserva.id, {

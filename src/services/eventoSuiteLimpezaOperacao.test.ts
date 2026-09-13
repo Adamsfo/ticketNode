@@ -5,6 +5,7 @@ import { StatusEventoSuiteLimpeza } from '../models/EventoSuiteLimpeza';
 import { CustomError } from '../utils/customError';
 import {
     filtrarTarefasAtuaisPorFiltro,
+    ordenarTarefasConcluidasPorDataHoraFim,
     paginarTarefasAtuais,
     selecionarTarefasAtuaisPorSuite,
     validarConclusaoLimpeza,
@@ -15,13 +16,20 @@ function limpeza(
     id: number,
     idEventoSuite: number,
     status: StatusEventoSuiteLimpeza,
-    createdAt: string
+    createdAt: string,
+    dataHoraFim?: string | null
 ) {
     return {
         id,
         idEventoSuite,
         status,
         createdAt: new Date(createdAt),
+        dataHoraFim:
+            dataHoraFim === undefined
+                ? undefined
+                : dataHoraFim
+                  ? new Date(dataHoraFim)
+                  : null,
     };
 }
 
@@ -95,23 +103,169 @@ describe('situação atual por suíte — filtros de listagem', () => {
 
     it('6. paginação/total refletem tarefas atuais após filtro', () => {
         const rows = [
-            limpeza(1, 101, StatusEventoSuiteLimpeza.Concluida, '2026-09-09'),
-            limpeza(2, 102, StatusEventoSuiteLimpeza.Concluida, '2026-09-10'),
-            limpeza(3, 103, StatusEventoSuiteLimpeza.Concluida, '2026-09-11'),
+            limpeza(
+                1,
+                101,
+                StatusEventoSuiteLimpeza.Concluida,
+                '2026-09-09',
+                '2026-09-09T10:00:00Z'
+            ),
+            limpeza(
+                2,
+                102,
+                StatusEventoSuiteLimpeza.Concluida,
+                '2026-09-10',
+                '2026-09-13T12:20:00Z'
+            ),
+            limpeza(
+                3,
+                103,
+                StatusEventoSuiteLimpeza.Concluida,
+                '2026-09-11',
+                '2026-09-13T11:45:00Z'
+            ),
             limpeza(4, 104, StatusEventoSuiteLimpeza.Pendente, '2026-09-12'),
         ];
         const atuais = selecionarTarefasAtuaisPorSuite(rows);
-        const concluidas = filtrarTarefasAtuaisPorFiltro(atuais, 'concluida');
+        const concluidas = ordenarTarefasConcluidasPorDataHoraFim(
+            filtrarTarefasAtuaisPorFiltro(atuais, 'concluida')
+        );
         const pagina1 = paginarTarefasAtuais(concluidas, 1, 2);
         const pagina2 = paginarTarefasAtuais(concluidas, 2, 2);
 
         assert.equal(concluidas.length, 3);
         assert.equal(pagina1.total, 3);
         assert.equal(pagina1.data.length, 2);
+        assert.deepEqual(pagina1.data.map((t) => t.id), [2, 3]);
         assert.equal(pagina1.totalPages, 2);
         assert.equal(pagina1.hasMore, true);
         assert.equal(pagina2.data.length, 1);
+        assert.equal(pagina2.data[0].id, 1);
         assert.equal(pagina2.hasMore, false);
+    });
+});
+
+describe('ordenação Concluídas — dataHoraFim DESC', () => {
+    it('1. duas suítes concluídas: mais recentemente finalizada primeiro', () => {
+        const rows = [
+            limpeza(
+                1,
+                101,
+                StatusEventoSuiteLimpeza.Concluida,
+                '2026-09-10',
+                '2026-09-13T10:30:00Z'
+            ),
+            limpeza(
+                2,
+                102,
+                StatusEventoSuiteLimpeza.Concluida,
+                '2026-09-09',
+                '2026-09-13T12:20:00Z'
+            ),
+        ];
+        const ordenadas = ordenarTarefasConcluidasPorDataHoraFim(
+            filtrarTarefasAtuaisPorFiltro(
+                selecionarTarefasAtuaisPorSuite(rows),
+                'concluida'
+            )
+        );
+        assert.deepEqual(ordenadas.map((t) => t.id), [2, 1]);
+    });
+
+    it('2. ordem usa dataHoraFim e não createdAt', () => {
+        const rows = [
+            limpeza(
+                1,
+                101,
+                StatusEventoSuiteLimpeza.Concluida,
+                '2026-09-13T18:00:00Z',
+                '2026-09-13T10:30:00Z'
+            ),
+            limpeza(
+                2,
+                102,
+                StatusEventoSuiteLimpeza.Concluida,
+                '2026-09-12T08:00:00Z',
+                '2026-09-13T12:20:00Z'
+            ),
+        ];
+        const porCreatedAt = selecionarTarefasAtuaisPorSuite(rows).map((t) => t.id);
+        const ordenadas = ordenarTarefasConcluidasPorDataHoraFim(
+            filtrarTarefasAtuaisPorFiltro(
+                selecionarTarefasAtuaisPorSuite(rows),
+                'concluida'
+            )
+        );
+        assert.deepEqual(porCreatedAt, [1, 2]);
+        assert.deepEqual(ordenadas.map((t) => t.id), [2, 1]);
+    });
+
+    it('3. dataHoraFim NULL fica no final', () => {
+        const rows = [
+            limpeza(
+                1,
+                101,
+                StatusEventoSuiteLimpeza.Concluida,
+                '2026-09-10',
+                null
+            ),
+            limpeza(
+                2,
+                102,
+                StatusEventoSuiteLimpeza.Concluida,
+                '2026-09-09',
+                '2026-09-13T11:45:00Z'
+            ),
+        ];
+        const ordenadas = ordenarTarefasConcluidasPorDataHoraFim(
+            filtrarTarefasAtuaisPorFiltro(
+                selecionarTarefasAtuaisPorSuite(rows),
+                'concluida'
+            )
+        );
+        assert.deepEqual(ordenadas.map((t) => t.id), [2, 1]);
+    });
+
+    it('4. Pendentes mantêm ordenação atual (createdAt da tarefa atual)', () => {
+        const rows = [
+            limpeza(1, 101, StatusEventoSuiteLimpeza.Pendente, '2026-09-09'),
+            limpeza(2, 102, StatusEventoSuiteLimpeza.EmAndamento, '2026-09-11'),
+            limpeza(3, 103, StatusEventoSuiteLimpeza.Pendente, '2026-09-10'),
+        ];
+        const atuais = selecionarTarefasAtuaisPorSuite(rows);
+        const pendentes = filtrarTarefasAtuaisPorFiltro(atuais, 'pendente');
+        assert.deepEqual(pendentes.map((t) => t.id), [2, 3, 1]);
+    });
+
+    it('5. Em andamento mantém ordenação atual (createdAt da tarefa atual)', () => {
+        const rows = [
+            limpeza(1, 101, StatusEventoSuiteLimpeza.EmAndamento, '2026-09-09'),
+            limpeza(2, 102, StatusEventoSuiteLimpeza.EmAndamento, '2026-09-11'),
+            limpeza(3, 103, StatusEventoSuiteLimpeza.EmAndamento, '2026-09-10'),
+        ];
+        const atuais = selecionarTarefasAtuaisPorSuite(rows);
+        const emAndamento = filtrarTarefasAtuaisPorFiltro(atuais, 'em_andamento');
+        assert.deepEqual(emAndamento.map((t) => t.id), [2, 3, 1]);
+    });
+
+    it('7. Concluída antiga + Pendente mais recente não aparece em Concluídas', () => {
+        const rows = [
+            limpeza(
+                1,
+                101,
+                StatusEventoSuiteLimpeza.Concluida,
+                '2026-09-09',
+                '2026-09-09T18:00:00Z'
+            ),
+            limpeza(2, 101, StatusEventoSuiteLimpeza.Pendente, '2026-09-10'),
+        ];
+        const concluidas = ordenarTarefasConcluidasPorDataHoraFim(
+            filtrarTarefasAtuaisPorFiltro(
+                selecionarTarefasAtuaisPorSuite(rows),
+                'concluida'
+            )
+        );
+        assert.equal(concluidas.length, 0);
     });
 });
 
