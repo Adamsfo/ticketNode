@@ -3,6 +3,7 @@ import { Op, Transaction } from 'sequelize';
 import connection from '../database';
 import { Evento } from '../models/Evento';
 import { EventoSuite } from '../models/EventoSuite';
+import { EventoSuiteFoto } from '../models/EventoSuiteFoto';
 import { ReservaSuite, StatusReservaSuite } from '../models/ReservaSuite';
 import {
     ReservaHospedagem,
@@ -919,6 +920,18 @@ export async function listarSuitesDisponiveis(params: {
             idEvento,
             status: 'Ativo',
         },
+        include: [
+            {
+                model: EventoSuiteFoto,
+                as: 'Fotos',
+                attributes: ['arquivo', 'ordem', 'principal'],
+                required: false,
+            },
+        ],
+        order: [
+            ['id', 'ASC'],
+            [{ model: EventoSuiteFoto, as: 'Fotos' }, 'ordem', 'ASC'],
+        ],
     });
 
     const disponiveis = [];
@@ -942,8 +955,24 @@ export async function listarSuitesDisponiveis(params: {
             continue;
         }
 
+        const plain = suite.get({ plain: true }) as unknown as {
+            Fotos?: Array<{
+                arquivo: string;
+                ordem: number;
+                principal: boolean;
+            }>;
+        };
+        const fotosPublicas = Array.isArray(plain.Fotos)
+            ? plain.Fotos.map((f) => ({
+                  arquivo: String(f.arquivo),
+                  ordem: Number(f.ordem),
+                  principal: Boolean(f.principal),
+              }))
+            : [];
+
         disponiveis.push({
-            ...suite.get({ plain: true }),
+            ...plain,
+            Fotos: fotosPublicas,
             noites,
             podeReservar: true,
             cotacao: {

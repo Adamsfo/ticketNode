@@ -56,6 +56,7 @@ const sequelize_1 = require("sequelize");
 const database_1 = __importDefault(require("../database"));
 const Evento_1 = require("../models/Evento");
 const EventoSuite_1 = require("../models/EventoSuite");
+const EventoSuiteFoto_1 = require("../models/EventoSuiteFoto");
 const ReservaSuite_1 = require("../models/ReservaSuite");
 const ReservaHospedagem_1 = require("../models/ReservaHospedagem");
 const ReservaHospede_1 = require("../models/ReservaHospede");
@@ -628,6 +629,18 @@ async function listarSuitesDisponiveis(params) {
             idEvento,
             status: 'Ativo',
         },
+        include: [
+            {
+                model: EventoSuiteFoto_1.EventoSuiteFoto,
+                as: 'Fotos',
+                attributes: ['arquivo', 'ordem', 'principal'],
+                required: false,
+            },
+        ],
+        order: [
+            ['id', 'ASC'],
+            [{ model: EventoSuiteFoto_1.EventoSuiteFoto, as: 'Fotos' }, 'ordem', 'ASC'],
+        ],
     });
     const disponiveis = [];
     for (const suite of suites) {
@@ -647,8 +660,17 @@ async function listarSuitesDisponiveis(params) {
         if (!totaisBase) {
             continue;
         }
+        const plain = suite.get({ plain: true });
+        const fotosPublicas = Array.isArray(plain.Fotos)
+            ? plain.Fotos.map((f) => ({
+                arquivo: String(f.arquivo),
+                ordem: Number(f.ordem),
+                principal: Boolean(f.principal),
+            }))
+            : [];
         disponiveis.push({
-            ...suite.get({ plain: true }),
+            ...plain,
+            Fotos: fotosPublicas,
             noites,
             podeReservar: true,
             cotacao: {
