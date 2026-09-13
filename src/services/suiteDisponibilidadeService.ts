@@ -7,6 +7,7 @@
  * - Parte 3: cards Suítes via `mapearCardSuiteOperacional`.
  * - Parte 4: Nova Reserva / Selecionar Suíte via `calcularDisponibilidadePeriodo`
  *   (`listarSuitesDisponiveis`).
+ * - Troca de suíte: `calcularDisponibilidadeTrocaSuite` (estadia iniciada → agora→CO).
  * - Parte 5: Agenda via `montarCalendarioMes` (`calcularDisponibilidadeSuite` +
  *   `classificarReservaNoDia` para eventos/barras).
  * - Parte 7: Check-in / Check-out sheet via `obterReservaAdminDetalhe.disponibilidade`
@@ -285,6 +286,31 @@ export type DisponibilidadePeriodoResultado = {
     conflitoPeriodo: boolean;
 };
 
+export type DisponibilidadeTrocaInput = {
+    idEventoSuite: number;
+    checkin: Date | string;
+    checkout: Date | string;
+    reservas: ReservaDisponibilidadeInput[];
+    /** Reserva transferida — excluída da análise de conflitos. */
+    idReservaHospedagemExcluir: number;
+    statusReservaTransferida: StatusReservaDisponibilidade;
+    dataHoraCheckinReal?: Date | string | null;
+    /** Instante da operação (default: agora). */
+    agora?: Date;
+    /** Dia civil de referência yyyy-MM-dd (default: hoje Cuiabá). */
+    hoje?: string;
+};
+
+export type DisponibilidadeTrocaResultado = {
+    idEventoSuite: number;
+    podeReceberTroca: boolean;
+    disponivelAgora: boolean;
+    conflitoPeriodoRestante: boolean;
+    estadiaJaIniciada: boolean;
+    periodoInicio: Date;
+    periodoFim: Date;
+};
+
 /**
  * Disponibilidade para um período de estadia (matriz §4 + card no dia do CI).
  * Fonte única para listagem da Nova Reserva (Parte 4).
@@ -322,6 +348,80 @@ export function calcularDisponibilidadePeriodo(
         podeReservar,
         disponibilidadeNoDiaCheckin,
         conflitoPeriodo,
+    };
+}
+
+/**
+ * Disponibilidade para troca de suíte (admin).
+ *
+ * - Estadia já iniciada (Hospedada / check-in real): suíte livre AGORA e sem conflito
+ *   no período restante (max(agora, CI) → CO). Não aplica consultaHistorica do CI original.
+ * - Ainda não hospedada: mesma regra da Nova Reserva (calcularDisponibilidadePeriodo),
+ *   com a reserva transferida excluída dos ocupantes.
+ */
+export function calcularDisponibilidadeTrocaSuite(
+    input: DisponibilidadeTrocaInput
+): DisponibilidadeTrocaResultado {
+    const agora = input.agora ?? new Date();
+    const hoje = input.hoje ?? hojeCivilDefault();
+    const checkin = asDate(input.checkin);
+    const checkout = asDate(input.checkout);
+
+    const reservasSemSelf = input.reservas.filter(
+        (r) => Number(r.id) !== Number(input.idReservaHospedagemExcluir)
+    );
+
+    const estadiaJaIniciada =
+        input.statusReservaTransferida === 'Hospedada' ||
+        Boolean(input.dataHoraCheckinReal);
+
+    if (!estadiaJaIniciada) {
+        const disp = calcularDisponibilidadePeriodo({
+            idEventoSuite: input.idEventoSuite,
+            checkin,
+            checkout,
+            reservas: reservasSemSelf,
+            hoje,
+        });
+        return {
+            idEventoSuite: input.idEventoSuite,
+            podeReceberTroca: disp.podeReservar,
+            disponivelAgora: disp.disponibilidadeNoDiaCheckin.livre,
+            conflitoPeriodoRestante: disp.conflitoPeriodo,
+            estadiaJaIniciada: false,
+            periodoInicio: checkin,
+            periodoFim: checkout,
+        };
+    }
+
+    const periodoInicio =
+        agora.getTime() >= checkin.getTime() ? agora : checkin;
+    const periodoFim = checkout;
+
+    const dispHoje = calcularDisponibilidadeSuite({
+        idEventoSuite: input.idEventoSuite,
+        dataSelecionada: hoje,
+        hoje,
+        reservas: reservasSemSelf,
+    });
+
+    const disponivelAgora = dispHoje.livre;
+    const conflitoPeriodoRestante = periodoConflitaComOcupantes(
+        periodoInicio,
+        periodoFim,
+        reservasSemSelf
+    );
+
+    const podeReceberTroca = disponivelAgora && !conflitoPeriodoRestante;
+
+    return {
+        idEventoSuite: input.idEventoSuite,
+        podeReceberTroca,
+        disponivelAgora,
+        conflitoPeriodoRestante,
+        estadiaJaIniciada: true,
+        periodoInicio,
+        periodoFim,
     };
 }
 

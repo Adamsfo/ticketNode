@@ -96,6 +96,23 @@ function setSuiteAdultos(
     };
 }
 
+function setSuiteIdEventoSuite(
+    input: OutboundPayloadHashInput,
+    idReservaSuite: number,
+    idEventoSuite: number
+): OutboundPayloadHashInput {
+    const suites = input.suites.map((suite) =>
+        suite.idReservaSuite === idReservaSuite
+            ? { ...suite, idEventoSuite }
+            : suite
+    );
+    return {
+        ...input,
+        suites,
+        idEventoSuite: suites[0]?.idEventoSuite ?? input.idEventoSuite,
+    };
+}
+
 function legacySingleSuiteBaseline(
     adjust?: (input: OutboundPayloadHashInput) => OutboundPayloadHashInput
 ): string {
@@ -583,6 +600,119 @@ describe('HospedinOutboundUpdateService — multi-suíte UPDATE', () => {
         assert.equal(patchCalls[0].reservationId, '111');
         assert.equal(patchCalls[0].patch.adults, 4);
         assert.ok(!('place_id' in patchCalls[0].patch));
+    });
+
+    it('TESTE 5b — 1 suíte: alterar idEventoSuite 4→9 (caso reserva #117)', async () => {
+        const { HospedinPlace } = require('../../../models/HospedinPlace');
+        const { hospedinPlaceSuiteMapService } = require('../services/HospedinPlaceSuiteMapService');
+
+        HospedinPlace.findOne = async (opts: { where?: { place_id?: number } }) => {
+            const placeId = Number(opts?.where?.place_id);
+            const placeTypeByPlace: Record<number, number> = {
+                445904: 131939,
+                445911: 131941,
+            };
+            return { place_type_id: placeTypeByPlace[placeId] ?? null } as any;
+        };
+
+        hospedinPlaceSuiteMapService.findByEventoSuiteId = async (
+            idEventoSuite: number
+        ) => {
+            const placeBySuite: Record<number, number> = {
+                4: 445904,
+                9: 445911,
+            };
+            const placeId = placeBySuite[idEventoSuite];
+            if (!placeId) return null;
+            return {
+                ativo: true,
+                mapping_status: PlaceSuiteMappingStatus.LINKED,
+                place_id: placeId,
+            } as any;
+        };
+
+        (global as any).__testSuites = [
+            suiteLine({
+                id: 117,
+                idEventoSuite: 9,
+                valorTotal: 450,
+                hospedinReservationId: '30453014',
+            }),
+        ];
+        (global as any).__testReservaIdExterno = '30453014';
+        (global as any).__testBaseline = syncedBaselineFromCurrent((input) =>
+            setSuiteIdEventoSuite(input, 117, 4)
+        );
+
+        const service = buildService();
+        const result = await service.update(stateBase);
+
+        assert.notEqual(result.outcome, 'blocked');
+        assert.equal(result.outcome, 'updated');
+        assert.equal(patchCalls.length, 1);
+        assert.equal(patchCalls[0].reservationId, '30453014');
+        assert.equal(patchCalls[0].patch.place_id, 445911);
+        assert.equal(patchCalls[0].patch.place_type_id, 131941);
+    });
+
+    it('TESTE 5c — multi-suíte: alterar idEventoSuite somente linha A (3→5)', async () => {
+        const { HospedinPlace } = require('../../../models/HospedinPlace');
+        const { hospedinPlaceSuiteMapService } = require('../services/HospedinPlaceSuiteMapService');
+
+        HospedinPlace.findOne = async (opts: { where?: { place_id?: number } }) => {
+            const placeId = Number(opts?.where?.place_id);
+            const placeTypeByPlace: Record<number, number> = {
+                503: 7,
+                504: 7,
+                505: 7,
+            };
+            return { place_type_id: placeTypeByPlace[placeId] ?? 7 } as any;
+        };
+
+        hospedinPlaceSuiteMapService.findByEventoSuiteId = async (
+            idEventoSuite: number
+        ) => {
+            const placeBySuite: Record<number, number> = {
+                3: 503,
+                4: 504,
+                5: 505,
+            };
+            const placeId = placeBySuite[idEventoSuite];
+            if (!placeId) return null;
+            return {
+                ativo: true,
+                mapping_status: PlaceSuiteMappingStatus.LINKED,
+                place_id: placeId,
+            } as any;
+        };
+
+        (global as any).__testSuites = [
+            suiteLine({
+                id: 10,
+                idEventoSuite: 5,
+                valorTotal: 500,
+                hospedinReservationId: '111',
+            }),
+            suiteLine({
+                id: 11,
+                idEventoSuite: 4,
+                valorTotal: 800,
+                hospedinReservationId: '222',
+            }),
+        ];
+        (global as any).__testBaseline = syncedBaselineFromCurrent((input) =>
+            setSuiteIdEventoSuite(input, 10, 3)
+        );
+
+        const service = buildService();
+        const result = await service.update(stateBase);
+
+        assert.equal(result.outcome, 'updated');
+        assert.equal(patchCalls.length, 1);
+        assert.equal(patchCalls[0].reservationId, '111');
+        assert.equal(patchCalls[0].patch.place_id, 505);
+        assert.equal(patchCalls[0].patch.place_type_id, 7);
+        assert.ok(!patchCalls.some((c) => c.reservationId === '222'));
     });
 
     it('TESTE 6 — suíte B sem ID: cria somente B via ensureSuiteReservation', async () => {

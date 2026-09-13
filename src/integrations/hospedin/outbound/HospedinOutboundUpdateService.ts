@@ -39,6 +39,7 @@ import {
     serializeHashInput,
     suiteFinanceChanged,
     type OutboundPayloadHashInput,
+    type OutboundSuiteHashInput,
 } from './HospedinOutboundSnapshot';
 import {
     hospedinOutboundSuiteReservationService,
@@ -52,6 +53,21 @@ import {
 } from './hospedinOutboundSuiteReservationService';
 
 const log = logger.child('HospedinOutboundUpdate');
+
+/** Detecção de mudança operacional por suíte — sem montar PATCH (place_ids vêm depois). */
+function suiteOperationalFieldsChanged(
+    beforeSuite: OutboundSuiteHashInput | null,
+    afterSuite: OutboundSuiteHashInput
+): boolean {
+    if (!beforeSuite) {
+        return true;
+    }
+    return (
+        beforeSuite.idEventoSuite !== afterSuite.idEventoSuite ||
+        beforeSuite.adultos !== afterSuite.adultos ||
+        beforeSuite.criancas !== afterSuite.criancas
+    );
+}
 
 /**
  * 409 Conflict não documentado no OpenAPI Hospedin.
@@ -202,21 +218,8 @@ export class HospedinOutboundUpdateService {
                 afterSuite,
                 suites.length
             );
-            try {
-                const suitePatch = buildSuiteOutboundUpdatePatch({
-                    beforeSuite,
-                    afterSuite,
-                });
-                if (Object.keys(suitePatch).length > 0) {
-                    suiteOperationalChanged = true;
-                }
-            } catch (error: unknown) {
-                const message =
-                    error instanceof Error ? error.message : String(error);
-                return this.block(stateId, idReserva, {
-                    errorCode: 'PATCH_BUILD_FAILED',
-                    message,
-                });
+            if (suiteOperationalFieldsChanged(beforeSuite, afterSuite)) {
+                suiteOperationalChanged = true;
             }
         }
 

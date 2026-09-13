@@ -81,6 +81,7 @@ import { roundMoney } from '../utils/reservaSuitePricing';
 import {
     calcularDisponibilidadeSuite,
     calcularDisponibilidadePeriodo,
+    calcularDisponibilidadeTrocaSuite,
     calcularAcoesOperacionaisDaReserva,
     classificarReservaNoDia,
     type BadgeSuiteDisponibilidade,
@@ -4823,7 +4824,8 @@ function statusPermiteTrocaSuite(status: string): boolean {
 }
 
 async function carregarOcupantesSuiteParaPeriodo(
-    idEventoSuite: number
+    idEventoSuite: number,
+    options?: { excludeReservaHospedagemId?: number }
 ): Promise<ReservaDisponibilidadeInput[]> {
     const ocupantes = (await ReservaSuite.findAll({
         where: {
@@ -4844,7 +4846,60 @@ async function carregarOcupantesSuiteParaPeriodo(
             },
         ],
     })) as ReservaSuiteComHospedagem[];
-    return reservasParaDisponibilidade(ocupantes);
+    const reservas = reservasParaDisponibilidade(ocupantes);
+    if (!options?.excludeReservaHospedagemId) {
+        return reservas;
+    }
+    const excluir = Number(options.excludeReservaHospedagemId);
+    return reservas.filter((r) => Number(r.id) !== excluir);
+}
+
+/** Regra única de disponibilidade para listagem e confirmação de troca de suíte. */
+async function suiteAceitaTrocaReserva(params: {
+    idEventoSuite: number;
+    idReservaHospedagem: number;
+    checkin: Date;
+    checkout: Date;
+    statusReserva: string;
+    dataHoraCheckinReal?: Date | null;
+    adultos: number;
+    criancas: number;
+    qtdeMaximaPessoas?: number | null;
+    qtdeMinimaPessoas?: number | null;
+    agora?: Date;
+}): Promise<boolean> {
+    const reservas = await carregarOcupantesSuiteParaPeriodo(
+        params.idEventoSuite,
+        { excludeReservaHospedagemId: params.idReservaHospedagem }
+    );
+
+    const disp = calcularDisponibilidadeTrocaSuite({
+        idEventoSuite: params.idEventoSuite,
+        checkin: params.checkin,
+        checkout: params.checkout,
+        reservas,
+        idReservaHospedagemExcluir: params.idReservaHospedagem,
+        statusReservaTransferida:
+            params.statusReserva as StatusReservaDisponibilidade,
+        dataHoraCheckinReal: params.dataHoraCheckinReal,
+        agora: params.agora,
+    });
+
+    if (!disp.podeReceberTroca) {
+        return false;
+    }
+
+    try {
+        validarCapacidadeMaximaPousada(
+            params.adultos,
+            params.criancas,
+            params.qtdeMaximaPessoas,
+            params.qtdeMinimaPessoas
+        );
+        return true;
+    } catch {
+        return false;
+    }
 }
 
 /** Lista suítes disponíveis para troca (disponibilidade de período + teto de ocupação; mínimo não bloqueia). */
@@ -4889,6 +4944,10 @@ export async function listarSuitesDisponiveisParaTroca(params: {
     const adultos = Number(linha.adultos || 0);
     const criancas = Number(linha.criancas || 0);
     const idSuiteAtual = Number(linha.idEventoSuite);
+    const statusReserva = String(detalhe.statusOriginal ?? detalhe.status);
+    const dataHoraCheckinReal =
+        (detalhe as { dataHoraCheckinReal?: string | Date | null })
+            .dataHoraCheckinReal ?? null;
 
     const suites = await EventoSuite.findAll({
         where: {
@@ -4900,25 +4959,21 @@ export async function listarSuitesDisponiveisParaTroca(params: {
 
     const disponiveis = [];
     for (const suite of suites) {
-        const reservas = await carregarOcupantesSuiteParaPeriodo(suite.id);
-        const disp = calcularDisponibilidadePeriodo({
+        const aceita = await suiteAceitaTrocaReserva({
             idEventoSuite: suite.id,
+            idReservaHospedagem: params.idReservaHospedagem,
             checkin,
             checkout,
-            reservas,
+            statusReserva,
+            dataHoraCheckinReal: dataHoraCheckinReal
+                ? new Date(dataHoraCheckinReal)
+                : null,
+            adultos,
+            criancas,
+            qtdeMaximaPessoas: suite.qtdeMaximaPessoas,
+            qtdeMinimaPessoas: suite.qtdeMinimaPessoas,
         });
-        if (!disp.podeReservar) continue;
-
-        try {
-            validarCapacidadeMaximaPousada(
-                adultos,
-                criancas,
-                suite.qtdeMaximaPessoas,
-                suite.qtdeMinimaPessoas
-            );
-        } catch {
-            continue;
-        }
+        if (!aceita) continue;
 
         disponiveis.push({
             id: suite.id,
@@ -5039,21 +5094,25 @@ export async function trocarSuiteReservaAdmin(params: {
         throw new CustomError('Suíte de destino não está disponível.', 400, '');
     }
 
-    validarCapacidadeMaximaPousada(
-        Number(linha.adultos || 0),
-        Number(linha.criancas || 0),
-        suiteDestino.qtdeMaximaPessoas,
-        suiteDestino.qtdeMinimaPessoas
-    );
+    const dataHoraCheckinReal =
+        (reserva as ReservaHospedagem & { dataHoraCheckinReal?: Date | null })
+            .dataHoraCheckinReal ?? null;
+    const agora = new Date();
 
-    const reservasDestino = await carregarOcupantesSuiteParaPeriodo(idDestino);
-    const disp = calcularDisponibilidadePeriodo({
+    const aceitaDestino = await suiteAceitaTrocaReserva({
         idEventoSuite: idDestino,
+        idReservaHospedagem: reserva.id,
         checkin: new Date(reserva.checkin),
         checkout: new Date(reserva.checkout),
-        reservas: reservasDestino,
+        statusReserva: reserva.status,
+        dataHoraCheckinReal,
+        adultos: Number(linha.adultos || 0),
+        criancas: Number(linha.criancas || 0),
+        qtdeMaximaPessoas: suiteDestino.qtdeMaximaPessoas,
+        qtdeMinimaPessoas: suiteDestino.qtdeMinimaPessoas,
+        agora,
     });
-    if (!disp.podeReservar) {
+    if (!aceitaDestino) {
         throw new CustomError(
             `Suíte indisponível no período: ${suiteDestino.nome}.`,
             409,
@@ -5062,7 +5121,6 @@ export async function trocarSuiteReservaAdmin(params: {
     }
 
     const motivo = params.motivo?.trim() || null;
-    const agora = new Date();
 
     await connection.transaction(async (t: Transaction) => {
         await ReservaSuiteMovimentacao.create(
@@ -5081,6 +5139,33 @@ export async function trocarSuiteReservaAdmin(params: {
 
         await linha.update({ idEventoSuite: idDestino }, { transaction: t });
     });
+
+    const reservaPosTroca = (await ReservaHospedagem.findByPk(reserva.id, {
+        include: [{ model: ReservaSuite, as: 'ReservaSuite', required: false }],
+    })) as
+        | (ReservaHospedagem & {
+              ReservaSuite?: Array<
+                  ReservaSuite & { hospedinReservationId?: string | null }
+              >;
+          })
+        | null;
+
+    const linhaPosTroca =
+        reservaPosTroca?.ReservaSuite?.find(
+            (s) => Number(s.id) === Number(linha.id)
+        ) ?? null;
+
+    if (reservaPosTroca && linhaPosTroca) {
+        const { pushAdminSuiteTrocaToHospedin } = await import(
+            '../integrations/hospedin/services/hospedinAdminSuiteTrocaPushService'
+        );
+        await pushAdminSuiteTrocaToHospedin({
+            reserva: reservaPosTroca,
+            linhaTrocada: linhaPosTroca,
+            idEventoSuiteOrigem: idOrigem,
+            idEventoSuiteDestino: idDestino,
+        });
+    }
 
     // Refresh automático das Suítes/Agenda (obrigatório após troca).
     const { incrementarHospedagemRefreshVersion } = await import(

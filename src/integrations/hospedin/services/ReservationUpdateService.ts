@@ -18,6 +18,7 @@ import {
     relinkHospedesFromDesired,
 } from './GuestUsuarioRelinkService';
 import { applyObservacaoImportadaUpdate } from '../../../utils/reservaObservacoesUtils';
+import { resolveLinkedExistingSuiteLine } from './LinkedExistingSuiteSyncService';
 
 export type ReservationUpdateResult = {
     idReservaHospedagem: number;
@@ -92,7 +93,25 @@ export class ReservationUpdateService {
                 'PAYLOAD_INCOMPLETE'
             );
         }
-        const linha = suites[0];
+
+        const { linha, noMatch: suiteLineNoMatch } =
+            resolveLinkedExistingSuiteLine(
+                suites,
+                ctx.decision.reservationId
+            );
+        if (!linha) {
+            if (suiteLineNoMatch) {
+                throw new HospedinDomainMappingError(
+                    `Nenhuma linha de suíte corresponde à reservation Hospedin ${ctx.decision.reservationId}.`,
+                    'SUITE_LINE_NOT_FOUND'
+                );
+            }
+            throw new HospedinDomainMappingError(
+                'Reserva Jango sem linha de suíte.',
+                'PAYLOAD_INCOMPLETE'
+            );
+        }
+
         const hospedesAtuais = (linha.ReservaHospede || []) as any[];
 
         const before: ReservationDiffSnapshot = {

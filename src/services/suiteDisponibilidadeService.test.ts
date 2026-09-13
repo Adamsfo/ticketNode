@@ -8,6 +8,7 @@ import { fromZonedTime } from 'date-fns-tz';
 import {
     calcularDisponibilidadeSuite,
     calcularDisponibilidadePeriodo,
+    calcularDisponibilidadeTrocaSuite,
     classificarReservaNoDia,
     periodoConflitaComOcupantes,
     SUITE_DISPONIBILIDADE_TZ,
@@ -752,6 +753,180 @@ describe('calcularDisponibilidadePeriodo — Nova Reserva alinhada aos cards', (
             reservas,
         });
         assert.equal(card.podeReservar, true);
+        assert.equal(periodo.podeReservar, true);
+    });
+});
+
+describe('calcularDisponibilidadeTrocaSuite — troca de suíte (admin)', () => {
+    const WALTER_ID = 100;
+    const HOJE_TROCA = '2026-09-13';
+    const AGORA_TROCA = cuiaba('2026-09-13', '11:30');
+    const CI_WALTER = cuiaba('2026-09-12', '16:00');
+    const CO_WALTER = cuiaba('2026-09-13', '13:00');
+
+    function trocaWalter(
+        reservas: ReservaDisponibilidadeInput[],
+        partial?: Partial<{
+            agora: Date;
+            hoje: string;
+            status: ReservaDisponibilidadeInput['status'];
+            dataHoraCheckinReal: Date | null;
+        }>
+    ) {
+        return calcularDisponibilidadeTrocaSuite({
+            idEventoSuite: 1,
+            checkin: CI_WALTER,
+            checkout: CO_WALTER,
+            reservas,
+            idReservaHospedagemExcluir: WALTER_ID,
+            statusReservaTransferida:
+                partial?.status ?? 'Hospedada',
+            dataHoraCheckinReal:
+                partial?.dataHoraCheckinReal ??
+                cuiaba('2026-09-12', '16:05'),
+            agora: partial?.agora ?? AGORA_TROCA,
+            hoje: partial?.hoje ?? HOJE_TROCA,
+        });
+    }
+
+    it('Walter: CI ontem, CO hoje, hospedado — suíte livre aceita troca', () => {
+        const disp = trocaWalter([]);
+        assert.equal(disp.estadiaJaIniciada, true);
+        assert.equal(disp.disponivelAgora, true);
+        assert.equal(disp.conflitoPeriodoRestante, false);
+        assert.equal(disp.podeReceberTroca, true);
+    });
+
+    it('suíte ocupada agora (outro hóspede) — não aceita troca', () => {
+        const disp = trocaWalter([
+            reserva({
+                id: 50,
+                status: 'Hospedada',
+                checkin: cuiaba('2026-09-11', '16:00'),
+                checkout: cuiaba('2026-09-14', '13:00'),
+            }),
+        ]);
+        assert.equal(disp.disponivelAgora, false);
+        assert.equal(disp.podeReceberTroca, false);
+    });
+
+    it('checkout de outra hospedagem hoje ainda não realizado — não aceita troca', () => {
+        const disp = trocaWalter([
+            reserva({
+                id: 51,
+                status: 'Hospedada',
+                checkin: cuiaba('2026-09-10', '16:00'),
+                checkout: cuiaba('2026-09-13', '13:00'),
+            }),
+        ]);
+        assert.equal(disp.disponivelAgora, false);
+        assert.equal(disp.podeReceberTroca, false);
+    });
+
+    it('suíte liberada após checkout de outro hóspede — aceita troca', () => {
+        const disp = trocaWalter([
+            reserva({
+                id: 52,
+                status: 'CheckOutRealizado',
+                checkin: cuiaba('2026-09-12', '16:00'),
+                checkout: cuiaba('2026-09-13', '10:00'),
+            }),
+        ]);
+        assert.equal(disp.disponivelAgora, true);
+        assert.equal(disp.podeReceberTroca, true);
+    });
+
+    it('reserva futura sem conflito com período restante — aceita troca', () => {
+        const disp = trocaWalter([
+            reserva({
+                id: 53,
+                status: 'Confirmada',
+                checkin: cuiaba('2026-09-14', '16:00'),
+                checkout: cuiaba('2026-09-15', '13:00'),
+            }),
+        ]);
+        assert.equal(disp.disponivelAgora, true);
+        assert.equal(disp.conflitoPeriodoRestante, false);
+        assert.equal(disp.podeReceberTroca, true);
+    });
+
+    it('reserva futura conflitante com período restante — não aceita troca', () => {
+        const disp = trocaWalter([
+            reserva({
+                id: 54,
+                status: 'Confirmada',
+                checkin: cuiaba('2026-09-13', '12:00'),
+                checkout: cuiaba('2026-09-14', '13:00'),
+            }),
+        ]);
+        assert.equal(disp.conflitoPeriodoRestante, true);
+        assert.equal(disp.podeReceberTroca, false);
+    });
+
+    it('própria reserva Walter na suíte candidata é ignorada nos conflitos', () => {
+        const disp = trocaWalter([
+            reserva({
+                id: WALTER_ID,
+                status: 'Hospedada',
+                checkin: CI_WALTER,
+                checkout: CO_WALTER,
+            }),
+        ]);
+        assert.equal(disp.disponivelAgora, true);
+        assert.equal(disp.conflitoPeriodoRestante, false);
+        assert.equal(disp.podeReceberTroca, true);
+    });
+
+    it('listagem e confirmação usam a mesma decisão (mesmos parâmetros)', () => {
+        const reservas = [
+            reserva({
+                id: 55,
+                status: 'Confirmada',
+                checkin: cuiaba('2026-09-14', '16:00'),
+                checkout: cuiaba('2026-09-15', '13:00'),
+            }),
+        ];
+        const params = {
+            idEventoSuite: 2,
+            checkin: CI_WALTER,
+            checkout: CO_WALTER,
+            reservas,
+            idReservaHospedagemExcluir: WALTER_ID,
+            statusReservaTransferida: 'Hospedada' as const,
+            dataHoraCheckinReal: cuiaba('2026-09-12', '16:05'),
+            agora: AGORA_TROCA,
+            hoje: HOJE_TROCA,
+        };
+        const listagem = calcularDisponibilidadeTrocaSuite(params);
+        const confirmacao = calcularDisponibilidadeTrocaSuite(params);
+        assert.deepEqual(listagem, confirmacao);
+        assert.equal(listagem.podeReceberTroca, true);
+    });
+
+    it('Confirmada (CI futuro): usa regra de Nova Reserva, não consultaHistorica do passado', () => {
+        const disp = calcularDisponibilidadeTrocaSuite({
+            idEventoSuite: 1,
+            checkin: cuiaba('2026-09-15', '16:00'),
+            checkout: cuiaba('2026-09-16', '13:00'),
+            reservas: [],
+            idReservaHospedagemExcluir: WALTER_ID,
+            statusReservaTransferida: 'Confirmada',
+            dataHoraCheckinReal: null,
+            agora: AGORA_TROCA,
+            hoje: HOJE_TROCA,
+        });
+        assert.equal(disp.estadiaJaIniciada, false);
+        assert.equal(disp.podeReceberTroca, true);
+    });
+
+    it('Nova Reserva futura: calcularDisponibilidadePeriodo permanece inalterado', () => {
+        const periodo = calcularDisponibilidadePeriodo({
+            idEventoSuite: 1,
+            checkin: cuiaba('2026-07-28', '16:00'),
+            checkout: cuiaba('2026-07-29', '13:00'),
+            hoje: HOJE_FIXO,
+            reservas: [],
+        });
         assert.equal(periodo.podeReservar, true);
     });
 });
