@@ -14,6 +14,7 @@ import { ReservaHospedagemTaxaAdicional } from '../models/ReservaHospedagemTaxaA
 import { aplicarTaxasAdicionaisCheckout } from './reservaSuiteFinanceiroService';
 import {
     Transacao,
+    TransacaoPagamento,
     EventoSuiteTransacao,
     HistoricoTransacao,
     TipoPagamento,
@@ -459,10 +460,51 @@ function resolverFormaPagamentoRecepcao(
     return FormaPagamentoRecepcaoValor.Outro;
 }
 
+/** ID Mercado Pago (ou fallback por transação) para idempotência em PagamentoHospedagem.comprovante. */
+async function resolverComprovantePagamentoGateway(
+    idTransacao: number,
+    transacao: Pick<Transacao, 'idTransacaoRecebidoMP'> | null
+): Promise<string> {
+    const mpId = String(transacao?.idTransacaoRecebidoMP ?? '').trim();
+    if (mpId) {
+        return mpId;
+    }
+
+    const registro = await TransacaoPagamento.findOne({
+        where: { idTransacao },
+        order: [['id', 'DESC']],
+        attributes: ['PagamentoCodigo'],
+    });
+    const codigo = String(registro?.PagamentoCodigo ?? '').trim();
+    if (codigo) {
+        return codigo;
+    }
+
+    return `transacao:${idTransacao}`;
+}
+
+/**
+ * Valor bruto do pagamento gateway para o financeiro da hospedagem
+ * (não usar Transacao.valorRecebido, que é líquido após taxas do MP).
+ */
+function resolverValorBrutoPagamentoGateway(
+    transacao: Pick<Transacao, 'valorTotal'> | null,
+    valorTotalReserva: number,
+    saldoPendenteReserva: number
+): number {
+    const valorBruto = roundMoney(
+        toNumber(transacao?.valorTotal ?? valorTotalReserva)
+    );
+    if (valorBruto <= 0 || saldoPendenteReserva <= 0.009) {
+        return 0;
+    }
+    return roundMoney(Math.min(valorBruto, saldoPendenteReserva));
+}
+
 /**
  * Confirma hospedagem após pagamento aprovado (webhook/PIX/cartão).
- * Para reservas da recepção (ATENDENTE / link ao cliente), quita o financeiro
- * nos mesmos campos do pagamento interno — sem alterar fluxo de ingressos.
+ * Sincroniza o financeiro da hospedagem (PagamentoHospedagem) para reservas
+ * CLIENTE, ATENDENTE e link externo — sem alterar fluxo de ingressos.
  */
 export async function confirmarHospedagem(idTransacao: number): Promise<void> {
     const hospedagem = await ReservaHospedagem.findOne({
@@ -496,9 +538,8 @@ export async function confirmarHospedagem(idTransacao: number): Promise<void> {
         return;
     }
 
-    // Financeiro da recepção/link: mesmos campos do pagamento administrativo.
-    // Reservas CLIENTE/SITE online mantêm só a confirmação de status (fluxo existente).
-    const sincronizarFinanceiroRecepcao =
+    const sincronizarFinanceiroGateway =
+        hospedagem.origemReserva === 'CLIENTE' ||
         hospedagem.origemReserva === 'ATENDENTE' ||
         Boolean(hospedagem.tokenPagamento);
 
@@ -514,28 +555,59 @@ export async function confirmarHospedagem(idTransacao: number): Promise<void> {
         : null;
     let comprovantePagamento = hospedagem.comprovantePagamento ?? null;
     let observacaoPagamento = hospedagem.observacaoPagamento ?? null;
+    let valorLancamentoGateway = 0;
+    let comprovanteGateway: string | null = null;
 
-    if (sincronizarFinanceiroRecepcao) {
-        valorPago = roundMoney(toNumber(transacao?.valorRecebido ?? 0));
-        if (valorPago <= 0) {
-            valorPago = roundMoney(
-                toNumber(transacao?.valorTotal ?? valorTotal)
-            );
-        }
-        if (valorPago > valorTotal) {
-            valorPago = valorTotal;
-        }
-        saldoPendente = calcularSaldoPendente(valorTotal, valorPago);
+    if (sincronizarFinanceiroGateway && transacao) {
+        const saldoPendenteReserva = calcularSaldoPendente(
+            valorTotal,
+            valorPagoAtual
+        );
+        valorLancamentoGateway = resolverValorBrutoPagamentoGateway(
+            transacao,
+            valorTotal,
+            saldoPendenteReserva
+        );
+        comprovanteGateway = await resolverComprovantePagamentoGateway(
+            idTransacao,
+            transacao
+        );
+
         formaPagamentoRecepcao = mapearFormaPagamentoHospedagemExterno(
-            transacao?.tipoPagamento,
-            transacao?.gatewayPagamento
+            transacao.tipoPagamento,
+            transacao.gatewayPagamento
         );
         if (!observacaoPagamento) {
             observacaoPagamento =
                 'Pagamento confirmado pelo cliente (gateway).';
         }
-        // comprovante: gateway normalmente não envia arquivo; preserva se já houver
-        comprovantePagamento = hospedagem.comprovantePagamento ?? null;
+        comprovantePagamento = comprovanteGateway;
+
+        const pagamentoJaLancado = await PagamentoHospedagem.findOne({
+            where: {
+                idReservaHospedagem: hospedagem.id,
+                comprovante: comprovanteGateway,
+            },
+            attributes: ['id'],
+        });
+
+        if (pagamentoJaLancado) {
+            valorLancamentoGateway = 0;
+            const somaPagamentos = await PagamentoHospedagem.sum('valor', {
+                where: { idReservaHospedagem: hospedagem.id },
+            });
+            valorPago = roundMoney(toNumber(somaPagamentos));
+            if (valorPago > valorTotal) {
+                valorPago = valorTotal;
+            }
+            saldoPendente = calcularSaldoPendente(valorTotal, valorPago);
+        } else if (valorLancamentoGateway > 0) {
+            valorPago = roundMoney(valorPagoAtual + valorLancamentoGateway);
+            if (valorPago > valorTotal) {
+                valorPago = valorTotal;
+            }
+            saldoPendente = calcularSaldoPendente(valorTotal, valorPago);
+        }
     }
 
     const formaPagamentoRegistro = resolverFormaPagamentoRecepcao(
@@ -552,7 +624,7 @@ export async function confirmarHospedagem(idTransacao: number): Promise<void> {
             {
                 status: StatusReservaHospedagem.Confirmada,
                 dataConfirmacao,
-                ...(sincronizarFinanceiroRecepcao
+                ...(sincronizarFinanceiroGateway
                     ? {
                           valorPago,
                           saldoPendente,
@@ -578,19 +650,28 @@ export async function confirmarHospedagem(idTransacao: number): Promise<void> {
             }
         }
 
-        if (sincronizarFinanceiroRecepcao && valorPago > 0) {
-            const qtdPagamentos = await PagamentoHospedagem.count({
-                where: { idReservaHospedagem: hospedagem.id },
+        if (
+            sincronizarFinanceiroGateway &&
+            valorLancamentoGateway > 0 &&
+            comprovanteGateway
+        ) {
+            const pagamentoJaLancado = await PagamentoHospedagem.findOne({
+                where: {
+                    idReservaHospedagem: hospedagem.id,
+                    comprovante: comprovanteGateway,
+                },
                 transaction: t,
+                lock: t.LOCK.UPDATE,
             });
-            if (qtdPagamentos === 0) {
+
+            if (!pagamentoJaLancado) {
                 const pagCriado = await PagamentoHospedagem.create(
                     {
                         idReservaHospedagem: hospedagem.id,
-                        valor: valorPago,
+                        valor: valorLancamentoGateway,
                         dataPagamento: transacao?.dataPagamento ?? dataConfirmacao,
                         formaPagamento: formaPagamentoRegistro,
-                        comprovante: comprovantePagamento,
+                        comprovante: comprovanteGateway,
                         observacao: observacaoPagamento,
                         idUsuario: hospedagem.idUsuario,
                     },
@@ -605,7 +686,7 @@ export async function confirmarHospedagem(idTransacao: number): Promise<void> {
                 idTransacao,
                 idUsuario: hospedagem.idUsuario,
                 data: new Date(),
-                descricao: sincronizarFinanceiroRecepcao
+                descricao: sincronizarFinanceiroGateway
                     ? `Hospedagem confirmada após pagamento. Valor pago: ${formatarMoedaHistorico(
                           valorPago
                       )}. Saldo pendente: ${formatarMoedaHistorico(
@@ -637,7 +718,9 @@ export async function confirmarHospedagem(idTransacao: number): Promise<void> {
     console.log('Hospedagem confirmada', {
         idReserva: hospedagem.id,
         idTransacao,
-        sincronizarFinanceiroRecepcao,
+        sincronizarFinanceiroGateway,
+        valorLancamentoGateway,
+        comprovanteGateway,
         valorPago,
         saldoPendente,
     });
