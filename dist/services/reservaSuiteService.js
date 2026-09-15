@@ -329,6 +329,34 @@ async function resolverComprovantePagamentoGateway(idTransacao, transacao) {
     }
     return `transacao:${idTransacao}`;
 }
+/** Pagamento Mercado Pago de hospedagem (site, link ou recepção via MP). */
+async function isPagamentoMercadoPagoHospedagem(idTransacao, transacao) {
+    if (!transacao) {
+        return false;
+    }
+    if (String(transacao.idTransacaoRecebidoMP ?? '').trim()) {
+        return true;
+    }
+    const gatewayTransacao = String(transacao.gatewayPagamento ?? '').toLowerCase();
+    if (gatewayTransacao.includes('tef') ||
+        gatewayTransacao.includes('stone') ||
+        gatewayTransacao.includes('portaria')) {
+        return false;
+    }
+    const registro = await Transacao_1.TransacaoPagamento.findOne({
+        where: { idTransacao },
+        order: [['id', 'DESC']],
+        attributes: ['gatewayPagamento', 'PagamentoCodigo'],
+    });
+    const gatewayPagamento = String(registro?.gatewayPagamento ?? '').toLowerCase();
+    if (gatewayPagamento.includes('mercado')) {
+        return true;
+    }
+    if (gatewayPagamento.includes('tef') || gatewayPagamento.includes('stone')) {
+        return false;
+    }
+    return Boolean(String(registro?.PagamentoCodigo ?? '').trim());
+}
 /**
  * Valor bruto do pagamento gateway para o financeiro da hospedagem
  * (não usar Transacao.valorRecebido, que é líquido após taxas do MP).
@@ -474,7 +502,11 @@ async function confirmarHospedagem(idTransacao) {
         }, { transaction: t });
     });
     if (idPagamentoConfirmacao) {
-        const { persistirCaixaPagamentoHospedagem } = await Promise.resolve().then(() => __importStar(require('./hospedagemPagamentoService')));
+        const { garantirCaixaJangoAbertoParaHospedagem, persistirCaixaPagamentoHospedagem, } = await Promise.resolve().then(() => __importStar(require('./hospedagemPagamentoService')));
+        const pagamentoMercadoPago = await isPagamentoMercadoPagoHospedagem(idTransacao, transacao);
+        if (pagamentoMercadoPago) {
+            await garantirCaixaJangoAbertoParaHospedagem();
+        }
         await persistirCaixaPagamentoHospedagem(idPagamentoConfirmacao);
     }
     const { incrementarHospedagemRefreshVersion } = await Promise.resolve().then(() => __importStar(require('./hospedagemRefreshVersionService')));

@@ -165,6 +165,30 @@ async function montarDescricaoCaixaRecebimentoHospedagem(
 }
 
 /**
+ * Garante caixa do dia aberto no Jango PDV para fluxos de hospedagem.
+ * Idempotente: se getCaixa() já retornar registro, não insere abertura.
+ */
+export async function garantirCaixaJangoAbertoParaHospedagem(): Promise<
+    Record<string, unknown>
+> {
+    const caixaInicial = await apiJango().getCaixa();
+    if (caixaInicial?.[0]) {
+        return caixaInicial[0] as Record<string, unknown>;
+    }
+
+    await apiJango().inseriCaixaItemAbertura();
+
+    const caixaAposAbertura = await apiJango().getCaixa();
+    if (!caixaAposAbertura?.[0]) {
+        throw new Error(
+            'garantirCaixaJangoAbertoParaHospedagem: caixa não encontrado após abertura'
+        );
+    }
+
+    return caixaAposAbertura[0] as Record<string, unknown>;
+}
+
+/**
  * Lança um PagamentoHospedagem no caixa Jango e persiste idCaixaItem.
  * Retorna null quando a forma não entra no caixa ou não há caixa aberto.
  * Propaga erro se inseriCaixaItem falhar.

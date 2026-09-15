@@ -320,6 +320,74 @@ const PdvApiJango = {
     return idCaixaItem;
   },
 
+  /**
+   * Abertura de caixa via CAIXA_ITEM (TIPO_LANCAMENTO=0).
+   * A trigger CAIXA_ITEM_AIO no Firebird cria o registro em CAIXA.
+   * Idempotência: o chamador deve usar getCaixa() antes de invocar esta função.
+   * Não altera inseriCaixaItem — mesma camada /select/ e ID_USUARIO=3.
+   */
+  inseriCaixaItemAbertura: async (): Promise<number> => {
+    const descricao = "CAIXA ABERTO PELO JANGO INGRESSOS".replace(/'/g, "''");
+    const idFormaPagamentoAbertura = 38;
+    const idUsuarioCaixa = 3;
+
+    const qry =
+      `insert into caixa_item (DESCRICAO, ID_FORMA_PAGAMENTO, ID_CAIXA, ID_USUARIO, TIPO_LANCAMENTO, TIPO_VALOR, VALOR) values ('${descricao}', ${idFormaPagamentoAbertura}, NULL, ${idUsuarioCaixa}, 0, 'C', 0) returning ID_CAIXA_ITEM`;
+    const url = BASEAPI + "/select/" + qry;
+    console.log("Abrindo caixa via caixa_item: ", qry);
+
+    let res: Response;
+    try {
+      res = await fetch(url);
+    } catch (error) {
+      console.error("Erro de rede ao abrir caixa na API Jango:", error);
+      throw error;
+    }
+
+    const text = await res.text();
+
+    if (!res.ok) {
+      const msg =
+        `inseriCaixaItemAbertura falhou: HTTP ${res.status} ${res.statusText}. ` +
+        `Body: ${text.slice(0, 500)}`;
+      console.error(msg);
+      throw new Error(msg);
+    }
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(text);
+    } catch (error) {
+      const msg =
+        `inseriCaixaItemAbertura: resposta não é JSON válido. Body: ${text.slice(0, 500)}`;
+      console.error(msg, error);
+      throw new Error(msg);
+    }
+
+    const row = Array.isArray(parsed)
+      ? parsed[0]
+      : parsed && typeof parsed === "object"
+        ? parsed
+        : null;
+
+    const idCaixaItemRaw =
+      row && typeof row === "object"
+        ? (row as { id_caixa_item?: unknown; ID_CAIXA_ITEM?: unknown })
+            .id_caixa_item ??
+          (row as { id_caixa_item?: unknown; ID_CAIXA_ITEM?: unknown })
+            .ID_CAIXA_ITEM
+        : undefined;
+
+    const idCaixaItem = Number(idCaixaItemRaw);
+    if (!Number.isFinite(idCaixaItem) || idCaixaItem <= 0) {
+      const msg = `inseriCaixaItemAbertura: ID_CAIXA_ITEM ausente ou inválido na resposta: ${text}`;
+      console.error(msg);
+      throw new Error(msg);
+    }
+
+    return idCaixaItem;
+  },
+
   consultaPedidosPorUsuario: async (dataInicial: string, dataFinal: string) => {
     const qry = `
     select 
