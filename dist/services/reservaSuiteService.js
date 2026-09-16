@@ -502,12 +502,22 @@ async function confirmarHospedagem(idTransacao) {
         }, { transaction: t });
     });
     if (idPagamentoConfirmacao) {
-        const { garantirCaixaJangoAbertoParaHospedagem, persistirCaixaPagamentoHospedagem, } = await Promise.resolve().then(() => __importStar(require('./hospedagemPagamentoService')));
-        const pagamentoMercadoPago = await isPagamentoMercadoPagoHospedagem(idTransacao, transacao);
-        if (pagamentoMercadoPago) {
-            await garantirCaixaJangoAbertoParaHospedagem();
+        try {
+            const { garantirCaixaJangoAbertoParaHospedagem, persistirCaixaPagamentoHospedagem, } = await Promise.resolve().then(() => __importStar(require('./hospedagemPagamentoService')));
+            const pagamentoMercadoPago = await isPagamentoMercadoPagoHospedagem(idTransacao, transacao);
+            if (pagamentoMercadoPago) {
+                try {
+                    await garantirCaixaJangoAbertoParaHospedagem();
+                }
+                catch (error) {
+                    console.error('Falha ao garantir caixa Jango para hospedagem Mercado Pago:', error);
+                }
+            }
+            await persistirCaixaPagamentoHospedagem(idPagamentoConfirmacao);
         }
-        await persistirCaixaPagamentoHospedagem(idPagamentoConfirmacao);
+        catch (error) {
+            console.error('Falha ao replicar pagamento de hospedagem no Jango:', error);
+        }
     }
     const { incrementarHospedagemRefreshVersion } = await Promise.resolve().then(() => __importStar(require('./hospedagemRefreshVersionService')));
     await incrementarHospedagemRefreshVersion();
