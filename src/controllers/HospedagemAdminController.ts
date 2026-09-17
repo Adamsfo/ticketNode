@@ -1,5 +1,11 @@
 import { CustomError } from '../utils/customError';
 import {
+    calcularCotacao,
+    listarSuitesDisponiveis,
+    parseParamsCotacao,
+    parseParamsDisponibilidade,
+} from '../services/reservaSuiteService';
+import {
     listarReservasAdmin,
     listarSituacaoSuites,
     listarSuitesDisponiveisParaTroca,
@@ -982,6 +988,45 @@ module.exports = {
                 message: 'Taxa adicional removida.',
                 data,
             });
+        } catch (error) {
+            next(error);
+        }
+    },
+
+    async disponibilidade(req: any, res: any, next: any) {
+        try {
+            const idUsuario = Number(req.user?.id);
+            if (!idUsuario) {
+                throw new CustomError('Usuário não autenticado.', 401, '');
+            }
+
+            const params = parseParamsDisponibilidade(req.query);
+            const resultado = await listarSuitesDisponiveis({
+                ...params,
+                catalogoInterno: true,
+            });
+
+            return res.status(200).json({ data: resultado });
+        } catch (error) {
+            next(error);
+        }
+    },
+
+    async cotacao(req: any, res: any, next: any) {
+        try {
+            const idUsuario = Number(req.user?.id);
+            if (!idUsuario) {
+                throw new CustomError('Usuário não autenticado.', 401, '');
+            }
+
+            const params = parseParamsCotacao(req.query);
+            const resultado = await calcularCotacao({
+                ...params,
+                catalogoInterno: true,
+                validarCapacidadeHospedes: false,
+            });
+
+            return res.status(200).json({ data: resultado });
         } catch (error) {
             next(error);
         }

@@ -285,6 +285,16 @@ router.get(
     HospedagemAdminController.detalheSuite
 );
 router.get(
+    '/hospedagem/disponibilidade',
+    authenticate,
+    HospedagemAdminController.disponibilidade
+);
+router.get(
+    '/hospedagem/cotacao',
+    authenticate,
+    HospedagemAdminController.cotacao
+);
+router.get(
     '/hospedagem/suites',
     authenticate,
     HospedagemAdminController.listarSuites

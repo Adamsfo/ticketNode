@@ -2686,7 +2686,7 @@ export async function listarSituacaoSuites(params: {
 
     const suites = (await EventoSuite.findAll({
         where: {
-            status: { [Op.in]: ['Ativo', 'PDV'] },
+            status: { [Op.in]: ['Ativo', 'PDV', 'Oculto'] },
         },
         include: [
             {

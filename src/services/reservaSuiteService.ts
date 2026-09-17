@@ -913,6 +913,36 @@ export function montarItemSuiteCheckoutLinha(
     return { ...item, idEventoSuite };
 }
 
+/** Catálogo público de disponibilidade (site / home). */
+export const STATUS_CATALOGO_DISPONIBILIDADE_PUBLICO = ['Ativo'] as const;
+
+/** Catálogo administrativo de disponibilidade (recepção / hospedagem). */
+export const STATUS_CATALOGO_DISPONIBILIDADE_INTERNO = [
+    'Ativo',
+    'PDV',
+    'Oculto',
+] as const;
+
+/** Status permitidos na cotação pública (checkout online). */
+export const STATUS_COTACAO_PUBLICA = ['Ativo', 'PDV'] as const;
+
+/** Status permitidos na cotação interna (recepção / integração). */
+export const STATUS_COTACAO_INTERNA = ['Ativo', 'PDV', 'Oculto'] as const;
+
+export type StatusCotacaoPermitido = 'Ativo' | 'PDV' | 'Oculto';
+
+export function statusesCatalogoDisponibilidade(catalogoInterno: boolean) {
+    return catalogoInterno
+        ? STATUS_CATALOGO_DISPONIBILIDADE_INTERNO
+        : STATUS_CATALOGO_DISPONIBILIDADE_PUBLICO;
+}
+
+export function statusesPermitidosCotacao(
+    catalogoInterno: boolean
+): readonly StatusCotacaoPermitido[] {
+    return catalogoInterno ? STATUS_COTACAO_INTERNA : STATUS_COTACAO_PUBLICA;
+}
+
 export async function calcularCotacao(params: {
     idEventoSuite: number;
     checkin: Date;
@@ -925,6 +955,11 @@ export async function calcularCotacao(params: {
      * false = recepção, Hospedin e fluxos internos (não bloqueia).
      */
     validarCapacidadeHospedes?: boolean;
+    /**
+     * Catálogo interno (recepção / hospedagem): permite status Oculto.
+     * Default false = fluxo público.
+     */
+    catalogoInterno?: boolean;
 }) {
     const {
         idEventoSuite,
@@ -933,6 +968,7 @@ export async function calcularCotacao(params: {
         adultos,
         criancas,
         validarCapacidadeHospedes = true,
+        catalogoInterno = false,
     } = params;
 
     const suite = await EventoSuite.findByPk(idEventoSuite);
@@ -940,7 +976,9 @@ export async function calcularCotacao(params: {
         throw new CustomError('Suíte não encontrada.', 404, '');
     }
 
-    if (!['Ativo', 'PDV'].includes(suite.status)) {
+    const statusesPermitidos: readonly StatusCotacaoPermitido[] =
+        statusesPermitidosCotacao(catalogoInterno);
+    if (!statusesPermitidos.includes(suite.status as StatusCotacaoPermitido)) {
         throw new CustomError('Suíte não disponível para venda.', 400, '');
     }
 
@@ -1059,16 +1097,24 @@ export async function listarSuitesDisponiveis(params: {
     idEvento: number;
     checkin: Date;
     checkout: Date;
+    /**
+     * Catálogo interno (recepção / hospedagem): Ativo + PDV + Oculto.
+     * Default false = catálogo público (somente Ativo).
+     */
+    catalogoInterno?: boolean;
 }) {
     await cancelarReservasExpiradas();
 
-    const { idEvento, checkin, checkout } = params;
+    const { idEvento, checkin, checkout, catalogoInterno = false } = params;
     const noites = calcularNoitesHotelaria(checkin, checkout);
+    const statusesCatalogo = statusesCatalogoDisponibilidade(catalogoInterno);
 
     const suites = await EventoSuite.findAll({
         where: {
             idEvento,
-            status: 'Ativo',
+            status: catalogoInterno
+                ? { [Op.in]: [...statusesCatalogo] }
+                : statusesCatalogo[0],
         },
         include: [
             {
@@ -1239,6 +1285,8 @@ export async function checkoutHospedagem(params: {
             adultos: item.adultos,
             criancas: item.criancas,
             validarCapacidadeHospedes: isReservaSite,
+            // Somente recepção manual; integração (Hospedin) mantém catálogo anterior.
+            catalogoInterno: origem === 'recepcao',
         });
 
         if (cotacao.idEvento !== idEvento) {
