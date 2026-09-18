@@ -30,6 +30,7 @@ import {
     listarMinhasReservas,
     obterMinhaReservaDetalhe,
 } from '../services/minhasReservasService';
+import { cancelarMinhaReservaHospedagem } from '../services/hospedagemCancelamentoClienteService';
 
 
 
@@ -236,6 +237,29 @@ module.exports = {
             const resultado = await obterMinhaReservaDetalhe(idReserva, idUsuario);
 
             return res.status(200).json({ data: resultado });
+        } catch (error) {
+            next(error);
+        }
+    },
+
+    async cancelarMinhaReserva(req: any, res: any, next: any) {
+        try {
+            const idUsuario = Number(req.user?.id);
+            if (!idUsuario) {
+                throw new CustomError('Usuário não autenticado.', 401, '');
+            }
+
+            const idReserva = Number(req.params.id);
+            const resultado = await cancelarMinhaReservaHospedagem(
+                idReserva,
+                idUsuario
+            );
+
+            return res.status(200).json({
+                success: true,
+                message: 'Reserva cancelada com sucesso.',
+                data: resultado,
+            });
         } catch (error) {
             next(error);
         }

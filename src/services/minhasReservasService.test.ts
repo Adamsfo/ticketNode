@@ -56,29 +56,40 @@ describe('statusBancoPorFiltroMinhasReservas', () => {
 
 describe('mapearMinhaReservaCard', () => {
     it('monta DTO com suítes, hóspedes e financeiro', () => {
-        const dto = mapearMinhaReservaCard({
-            id: 42,
-            status: StatusReservaHospedagem.Confirmada,
-            checkin: new Date('2026-10-01T14:00:00.000Z'),
-            checkout: new Date('2026-10-03T12:00:00.000Z'),
-            noites: 2,
-            valorTotal: 500,
-            valorPago: 200,
-            saldoPendente: 300,
-            origemReserva: 'CLIENTE',
-            dataConfirmacao: new Date('2026-09-20T10:00:00.000Z'),
-            createdAt: new Date('2026-09-19T10:00:00.000Z'),
-            Evento: { id: 7, nome: 'Pousada Azaleia' },
-            ReservaSuite: [
+        const dto = mapearMinhaReservaCard(
+            {
+                id: 42,
+                status: StatusReservaHospedagem.Confirmada,
+                checkin: new Date('2026-12-01T14:00:00.000Z'),
+                checkout: new Date('2026-12-03T12:00:00.000Z'),
+                noites: 2,
+                valorTotal: 500,
+                valorPago: 200,
+                saldoPendente: 300,
+                origemReserva: 'CLIENTE',
+                tokenPagamento: null,
+                dataConfirmacao: new Date('2026-09-20T10:00:00.000Z'),
+                createdAt: new Date('2026-09-19T10:00:00.000Z'),
+                Evento: { id: 7, nome: 'Pousada Azaleia' },
+                ReservaSuite: [
+                    {
+                        id: 1,
+                        idEventoSuite: 3,
+                        adultos: 2,
+                        criancas: 1,
+                        EventoSuite: { id: 3, nome: 'Suíte Master' },
+                    } as any,
+                ],
+            } as any,
+            [
                 {
                     id: 1,
-                    idEventoSuite: 3,
-                    adultos: 2,
-                    criancas: 1,
-                    EventoSuite: { id: 3, nome: 'Suíte Master' },
-                } as any,
-            ],
-        } as any);
+                    valor: 200,
+                    formaPagamento: 'PIX',
+                    comprovante: '12345678901',
+                },
+            ]
+        );
 
         assert.equal(dto.id, 42);
         assert.equal(dto.numeroReserva, 42);
@@ -91,6 +102,9 @@ describe('mapearMinhaReservaCard', () => {
         assert.equal(dto.valorTotal, 500);
         assert.equal(dto.valorPago, 200);
         assert.equal(dto.saldoPendente, 300);
+        assert.equal(dto.podeCancelar, true);
+        assert.equal(dto.percentualDevolucao, 100);
+        assert.equal(dto.valorDevolucao, 200);
     });
 });
 
@@ -183,6 +197,7 @@ describe('mapearMinhaReservaDetalhe', () => {
 describe('obterMinhaReservaDetalhe', () => {
     it('retorna detalhe para o dono da reserva', async () => {
         const { ReservaHospedagem } = await import('../models/ReservaHospedagem');
+        const { PagamentoHospedagem } = await import('../models/PagamentoHospedagem');
         const reservaMock = {
             id: 15,
             idUsuario: 8,
@@ -204,8 +219,11 @@ describe('obterMinhaReservaDetalhe', () => {
         };
 
         const findOne = mock.fn(async () => reservaMock);
-        const original = ReservaHospedagem.findOne;
+        const findAllPagamentos = mock.fn(async () => []);
+        const originalFindOne = ReservaHospedagem.findOne;
+        const originalFindAllPagamentos = PagamentoHospedagem.findAll;
         ReservaHospedagem.findOne = findOne as any;
+        PagamentoHospedagem.findAll = findAllPagamentos as any;
 
         try {
             const detalhe = await obterMinhaReservaDetalhe(15, 8);
@@ -213,7 +231,8 @@ describe('obterMinhaReservaDetalhe', () => {
             assert.equal(detalhe.status, 'Confirmada');
             assert.equal(detalhe.financeiro.situacaoFinanceira, 'Quitada');
         } finally {
-            ReservaHospedagem.findOne = original;
+            ReservaHospedagem.findOne = originalFindOne;
+            PagamentoHospedagem.findAll = originalFindAllPagamentos;
         }
     });
 
@@ -277,6 +296,7 @@ describe('assertUsuarioDonoReservaPublica (integração)', () => {
 describe('listarMinhasReservas', () => {
     it('filtra por idUsuario e status com paginação', async () => {
         const { ReservaHospedagem } = await import('../models/ReservaHospedagem');
+        const { PagamentoHospedagem } = await import('../models/PagamentoHospedagem');
         const findAndCountAll = mock.fn(async () => ({
             rows: [
                 {
@@ -298,8 +318,11 @@ describe('listarMinhasReservas', () => {
             count: 25,
         }));
 
-        const original = ReservaHospedagem.findAndCountAll;
+        const findAllPagamentos = mock.fn(async () => []);
+        const originalFindAndCountAll = ReservaHospedagem.findAndCountAll;
+        const originalFindAllPagamentos = PagamentoHospedagem.findAll;
         ReservaHospedagem.findAndCountAll = findAndCountAll as any;
+        PagamentoHospedagem.findAll = findAllPagamentos as any;
 
         try {
             const resultado = await listarMinhasReservas({
@@ -323,7 +346,8 @@ describe('listarMinhasReservas', () => {
             assert.equal(call.limit, 20);
             assert.equal(call.offset, 0);
         } finally {
-            ReservaHospedagem.findAndCountAll = original;
+            ReservaHospedagem.findAndCountAll = originalFindAndCountAll;
+            PagamentoHospedagem.findAll = originalFindAllPagamentos;
         }
     });
 

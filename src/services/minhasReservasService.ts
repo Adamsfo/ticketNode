@@ -1,3 +1,4 @@
+import { Op } from 'sequelize';
 import {
     ReservaHospedagem,
     StatusReservaHospedagem,
@@ -6,8 +7,14 @@ import { ReservaSuite } from '../models/ReservaSuite';
 import { ReservaHospede } from '../models/ReservaHospede';
 import { Evento } from '../models/Evento';
 import { EventoSuite } from '../models/EventoSuite';
+import { PagamentoHospedagem } from '../models/PagamentoHospedagem';
 import { CustomError } from '../utils/customError';
 import { assertUsuarioDonoReservaPublica } from './reservaSuiteService';
+import {
+    montarCancelamentoClienteDto,
+    type CancelamentoClienteDto,
+} from './hospedagemCancelamentoClienteService';
+import type { PagamentoHospedagemResumo } from './hospedagemCancelamentoClientePolicy';
 
 const PAGE_SIZE_DEFAULT = 20;
 const PAGE_SIZE_MAX = 100;
@@ -35,6 +42,10 @@ export type MinhaReservaCardDto = {
     origemReserva: string | null;
     dataCriacao: Date | string | null;
     dataConfirmacao: Date | string | null;
+    podeCancelar: boolean;
+    motivoBloqueio: string | null;
+    percentualDevolucao: 50 | 100 | null;
+    valorDevolucao: number | null;
 };
 
 export type SituacaoFinanceiraMinhaReserva =
@@ -78,6 +89,7 @@ export type MinhaReservaDetalheDto = {
     };
     podeContinuarPagamento: boolean;
     tokenPagamento: string | null;
+    cancelamento: CancelamentoClienteDto;
 };
 
 type ReservaMinhasIncludes = ReservaHospedagem & {
@@ -157,8 +169,48 @@ export function resolverSituacaoFinanceiraMinhaReserva(
     return 'Pendente';
 }
 
+function mapearPagamentosResumo(
+    pagamentos: PagamentoHospedagem[]
+): PagamentoHospedagemResumo[] {
+    return pagamentos.map((item) => ({
+        id: item.id,
+        valor: toNumber(item.valor),
+        formaPagamento: item.formaPagamento,
+        comprovante: item.comprovante ?? null,
+    }));
+}
+
+async function carregarPagamentosPorReservas(
+    idsReserva: number[]
+): Promise<Map<number, PagamentoHospedagemResumo[]>> {
+    const mapa = new Map<number, PagamentoHospedagemResumo[]>();
+    if (!idsReserva.length) {
+        return mapa;
+    }
+
+    const pagamentos = await PagamentoHospedagem.findAll({
+        where: { idReservaHospedagem: { [Op.in]: idsReserva } },
+        order: [['id', 'ASC']],
+    });
+
+    for (const pagamento of pagamentos) {
+        const idReserva = Number(pagamento.idReservaHospedagem);
+        const lista = mapa.get(idReserva) ?? [];
+        lista.push({
+            id: pagamento.id,
+            valor: toNumber(pagamento.valor),
+            formaPagamento: pagamento.formaPagamento,
+            comprovante: pagamento.comprovante ?? null,
+        });
+        mapa.set(idReserva, lista);
+    }
+
+    return mapa;
+}
+
 export function mapearMinhaReservaDetalhe(
-    reserva: ReservaDetalheIncludes
+    reserva: ReservaDetalheIncludes,
+    pagamentos: PagamentoHospedagemResumo[] = []
 ): MinhaReservaDetalheDto {
     const valorTotal = toNumber(reserva.valorTotal);
     const valorPago = toNumber(reserva.valorPago ?? 0);
@@ -222,11 +274,13 @@ export function mapearMinhaReservaDetalhe(
         },
         podeContinuarPagamento,
         tokenPagamento: podeContinuarPagamento ? tokenPagamento : null,
+        cancelamento: montarCancelamentoClienteDto(reserva, pagamentos),
     };
 }
 
 export function mapearMinhaReservaCard(
-    reserva: ReservaMinhasIncludes
+    reserva: ReservaMinhasIncludes,
+    pagamentos: PagamentoHospedagemResumo[] = []
 ): MinhaReservaCardDto {
     const suitesDb = reserva.ReservaSuite ?? [];
     const suites = suitesDb.map((suite) => ({
@@ -268,6 +322,15 @@ export function mapearMinhaReservaCard(
             : null,
         dataCriacao: reserva.createdAt ?? null,
         dataConfirmacao: reserva.dataConfirmacao ?? null,
+        ...(() => {
+            const cancelamento = montarCancelamentoClienteDto(reserva, pagamentos);
+            return {
+                podeCancelar: cancelamento.podeCancelar,
+                motivoBloqueio: cancelamento.motivoBloqueio,
+                percentualDevolucao: cancelamento.percentualDevolucao,
+                valorDevolucao: cancelamento.valorDevolucao,
+            };
+        })(),
     };
 }
 
@@ -324,7 +387,14 @@ export async function listarMinhasReservas(params: {
         subQuery: false,
     });
 
-    const data = (rows as ReservaMinhasIncludes[]).map(mapearMinhaReservaCard);
+    const idsReserva = (rows as ReservaMinhasIncludes[]).map((item) => item.id);
+    const pagamentosPorReserva = await carregarPagamentosPorReservas(idsReserva);
+    const data = (rows as ReservaMinhasIncludes[]).map((reserva) =>
+        mapearMinhaReservaCard(
+            reserva,
+            pagamentosPorReserva.get(reserva.id) ?? []
+        )
+    );
     const totalPages = Math.max(1, Math.ceil(count / pageSize));
 
     return {
@@ -394,5 +464,13 @@ export async function obterMinhaReservaDetalhe(
 
     assertUsuarioDonoReservaPublica(reserva, idUsuario);
 
-    return mapearMinhaReservaDetalhe(reserva);
+    const pagamentos = await PagamentoHospedagem.findAll({
+        where: { idReservaHospedagem: id },
+        order: [['id', 'ASC']],
+    });
+
+    return mapearMinhaReservaDetalhe(
+        reserva,
+        mapearPagamentosResumo(pagamentos)
+    );
 }

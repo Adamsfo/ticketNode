@@ -20,6 +20,8 @@
     "test:hospedagem-checkin-filtro": "node --require ts-node/register/transpile-only --test src/services/hospedagemAdminCheckinFiltro.test.ts",
     "test:hospedagem-cancelamento-admin": "node --require ts-node/register/transpile-only --test src/services/hospedagemCancelamentoAdminService.test.ts",
     "test:minhas-reservas": "node --require ts-node/register/transpile-only --test src/services/minhasReservasService.test.ts",
+    "test:cancelamento-cliente": "node --require ts-node/register/transpile-only --test src/services/hospedagemCancelamentoClientePolicy.test.ts",
+    "test:transacao-minhas-compras": "node --require ts-node/register/transpile-only --test src/utils/transacaoMinhasComprasFilter.test.ts",
     "test:hospedagem-hospedes-nome-opcional": "node --require ts-node/register/transpile-only --test src/services/reservaSuiteService.parseHospedesSuite.test.ts",
     "test:reserva-hospedagem-taxa-adicional": "node --require ts-node/register/transpile-only --test src/services/reservaHospedagemTaxaAdicional.test.ts",
     "test:checkout-multi-suite": "node --require ts-node/register/transpile-only --test src/services/reservaSuiteService.checkoutMultiSuite.test.ts",

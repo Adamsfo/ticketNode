@@ -52,7 +52,8 @@ export async function getRegistros<T extends Model>(
   next: any,
   includeOptions?: IncludeOptions[],
   returnRegisters: boolean = false,
-  buildSearchConditions?: SearchConditionBuilder
+  buildSearchConditions?: SearchConditionBuilder,
+  extraWhere?: Record<string, unknown> | null
 ) {
   try {
     // Pegando os parâmetros de paginação, pesquisa, filtros e ordenação da query string
@@ -112,7 +113,8 @@ export async function getRegistros<T extends Model>(
 
     const whereCondition = {
       ...searchCondition,
-      ...filterConditions
+      ...filterConditions,
+      ...(extraWhere ?? {}),
     };
 
     const { count, rows } = await model.findAndCountAll({

@@ -28,6 +28,11 @@ router.get(
     authenticate,
     ReservaSuiteController.minhaReservaDetalhe
 );
+router.post(
+    '/reservasuite/minhas-reservas/:id/cancelar',
+    authenticate,
+    ReservaSuiteController.cancelarMinhaReserva
+);
 
 // Público: consulta da reserva pelo token do link (sem auth)
 router.get('/reserva/:token', ReservaSuiteController.reservaPublicaPorToken);

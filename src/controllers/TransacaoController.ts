@@ -1,6 +1,10 @@
 import { getRegistros } from "../utils/getRegistros"
 import { CustomError } from '../utils/customError'
 import { HistoricoTransacao, IngressoTransacao, Transacao } from "../models/Transacao";
+import {
+    buildWhereExcluirTransacaoHospedagem,
+    deveExcluirHospedagemDaListagemMinhasCompras,
+} from '../utils/transacaoMinhasComprasFilter';
 import { Ingresso } from "../models/Ingresso";
 import { EventoIngresso } from "../models/EventoIngresso";
 import { Evento } from "../models/Evento";
@@ -22,6 +26,17 @@ export const addHistorico = async (idTransacao: number, idUsuario: number, descr
 
 module.exports = {
     async get(req: any, res: any, next: any) {
+        let filters: Record<string, unknown> = {};
+        try {
+            filters = req.query.filters ? JSON.parse(req.query.filters) : {};
+        } catch {
+            filters = {};
+        }
+
+        const extraWhere = deveExcluirHospedagemDaListagemMinhasCompras(filters)
+            ? buildWhereExcluirTransacaoHospedagem()
+            : undefined;
+
         await getRegistros(Transacao, req, res, next,
             [
                 {
@@ -29,14 +44,10 @@ module.exports = {
                     as: 'Evento',
                     attributes: ['nome']
                 }
-            ]
-
-            //     {
-            //         model: IngressoTransacao,
-            //         as: 'IngressoTransacao',
-            //         // attributes: ['idIngresso, preco, taxaServico, valorTotal'],
-            //     }
-            // ]
+            ],
+            false,
+            undefined,
+            extraWhere
         )
     },
 

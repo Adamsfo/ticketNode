@@ -370,10 +370,13 @@ export async function assertTransacaoHospedagemPagaivel(
 export async function cancelarReservaHospedagem(
     idReservaHospedagem: number,
     idUsuario: number,
-    descricaoHistorico = 'Reserva de hospedagem cancelada.'
+    descricaoHistorico = 'Reserva de hospedagem cancelada.',
+    options?: { transaction?: Transaction; omitirSideEffects?: boolean }
 ): Promise<void> {
+    const transactionAtiva = options?.transaction;
     const hospedagem = await ReservaHospedagem.findByPk(idReservaHospedagem, {
         include: [{ model: ReservaSuite, as: 'ReservaSuite' }],
+        ...(transactionAtiva ? { transaction: transactionAtiva } : {}),
     });
 
     if (!hospedagem) {
@@ -388,7 +391,7 @@ export async function cancelarReservaHospedagem(
         return;
     }
 
-    await connection.transaction(async (t: Transaction) => {
+    const executarCancelamento = async (t: Transaction) => {
         await hospedagem.update(
             { status: StatusReservaHospedagem.Cancelada },
             { transaction: t }
@@ -416,17 +419,27 @@ export async function cancelarReservaHospedagem(
                 { transaction: t }
             );
         }
-    });
+    };
 
-    const { incrementarHospedagemRefreshVersion } = await import(
-        './hospedagemRefreshVersionService'
-    );
-    await incrementarHospedagemRefreshVersion();
+    if (transactionAtiva) {
+        await executarCancelamento(transactionAtiva);
+    } else {
+        await connection.transaction(async (t: Transaction) => {
+            await executarCancelamento(t);
+        });
+    }
 
-    const { markOutboundCancelled } = await import(
-        '../integrations/hospedin/outbound/HospedinOutboundEnqueueService'
-    );
-    await markOutboundCancelled(hospedagem.id);
+    if (!options?.omitirSideEffects) {
+        const { incrementarHospedagemRefreshVersion } = await import(
+            './hospedagemRefreshVersionService'
+        );
+        await incrementarHospedagemRefreshVersion();
+
+        const { markOutboundCancelled } = await import(
+            '../integrations/hospedin/outbound/HospedinOutboundEnqueueService'
+        );
+        await markOutboundCancelled(hospedagem.id);
+    }
 }
 
 /** Mapeia tipo/gateway da Transacao para a forma usada no financeiro da recepção. */
