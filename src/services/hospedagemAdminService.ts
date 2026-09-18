@@ -5395,6 +5395,34 @@ export async function alterarPeriodoReservaAdmin(params: {
         );
     });
 
+    const reservaPosAlteracao = (await ReservaHospedagem.findByPk(reserva.id, {
+        include: [{ model: ReservaSuite, as: 'ReservaSuite', required: false }],
+    })) as
+        | (ReservaHospedagem & {
+              origemReserva?: string | null;
+              idExterno?: string | null;
+              ReservaSuite?: Array<
+                  ReservaSuite & { hospedinReservationId?: string | null }
+              >;
+          })
+        | null;
+
+    if (reservaPosAlteracao) {
+        const { isHospedinOriginReserva } = await import(
+            '../integrations/hospedin/services/hospedinAdminSuiteTrocaPushService'
+        );
+        if (isHospedinOriginReserva(reservaPosAlteracao.origemReserva)) {
+            const { pushAdminPeriodoTrocaToHospedin } = await import(
+                '../integrations/hospedin/services/hospedinAdminPeriodoTrocaPushService'
+            );
+            await pushAdminPeriodoTrocaToHospedin({
+                reserva: reservaPosAlteracao,
+                checkin: checkinNovo,
+                checkout: checkoutNovo,
+            });
+        }
+    }
+
     const { incrementarHospedagemRefreshVersion } = await import(
         './hospedagemRefreshVersionService'
     );

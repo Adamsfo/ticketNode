@@ -26,7 +26,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.MINUTOS_EXPIRACAO_LINK_PAGAMENTO = void 0;
+exports.STATUS_COTACAO_INTERNA = exports.STATUS_COTACAO_PUBLICA = exports.STATUS_CATALOGO_DISPONIBILIDADE_INTERNO = exports.STATUS_CATALOGO_DISPONIBILIDADE_PUBLICO = exports.MINUTOS_EXPIRACAO_LINK_PAGAMENTO = void 0;
 exports.gerarTokenPagamentoReserva = gerarTokenPagamentoReserva;
 exports.cancelarReservasExpiradas = cancelarReservasExpiradas;
 exports.assertTransacaoHospedagemPagaivel = assertTransacaoHospedagemPagaivel;
@@ -35,6 +35,8 @@ exports.confirmarHospedagem = confirmarHospedagem;
 exports.suiteTemConflito = suiteTemConflito;
 exports.resolverIdEventoSuiteCheckoutLinha = resolverIdEventoSuiteCheckoutLinha;
 exports.montarItemSuiteCheckoutLinha = montarItemSuiteCheckoutLinha;
+exports.statusesCatalogoDisponibilidade = statusesCatalogoDisponibilidade;
+exports.statusesPermitidosCotacao = statusesPermitidosCotacao;
 exports.calcularCotacao = calcularCotacao;
 exports.listarSuitesDisponiveis = listarSuitesDisponiveis;
 exports.checkoutHospedagem = checkoutHospedagem;
@@ -44,6 +46,7 @@ exports.parseSuitesCheckout = parseSuitesCheckout;
 exports.parseTaxasAdicionaisCheckout = parseTaxasAdicionaisCheckout;
 exports.obterResumoPagamentoPorTransacao = obterResumoPagamentoPorTransacao;
 exports.obterReservaConfirmadaPorTransacao = obterReservaConfirmadaPorTransacao;
+exports.serializarTaxasAdicionaisReservaPublica = serializarTaxasAdicionaisReservaPublica;
 exports.assertReservaEditavelPorLink = assertReservaEditavelPorLink;
 exports.assertUsuarioDonoReservaPublica = assertUsuarioDonoReservaPublica;
 exports.prepararAtualizacaoHospedesReservaPublica = prepararAtualizacaoHospedesReservaPublica;
@@ -255,9 +258,11 @@ async function assertTransacaoHospedagemPagaivel(idTransacao) {
         throw new customError_1.CustomError('Reserva expirada.', 400, '');
     }
 }
-async function cancelarReservaHospedagem(idReservaHospedagem, idUsuario, descricaoHistorico = 'Reserva de hospedagem cancelada.') {
+async function cancelarReservaHospedagem(idReservaHospedagem, idUsuario, descricaoHistorico = 'Reserva de hospedagem cancelada.', options) {
+    const transactionAtiva = options?.transaction;
     const hospedagem = await ReservaHospedagem_1.ReservaHospedagem.findByPk(idReservaHospedagem, {
         include: [{ model: ReservaSuite_1.ReservaSuite, as: 'ReservaSuite' }],
+        ...(transactionAtiva ? { transaction: transactionAtiva } : {}),
     });
     if (!hospedagem) {
         throw new customError_1.CustomError('Reserva de hospedagem não encontrada.', 404, '');
@@ -267,7 +272,7 @@ async function cancelarReservaHospedagem(idReservaHospedagem, idUsuario, descric
         await markOutboundCancelled(hospedagem.id);
         return;
     }
-    await database_1.default.transaction(async (t) => {
+    const executarCancelamento = async (t) => {
         await hospedagem.update({ status: ReservaHospedagem_1.StatusReservaHospedagem.Cancelada }, { transaction: t });
         const suites = hospedagem.ReservaSuite ?? [];
         for (const suite of suites) {
@@ -281,11 +286,21 @@ async function cancelarReservaHospedagem(idReservaHospedagem, idUsuario, descric
                 descricao: descricaoHistorico,
             }, { transaction: t });
         }
-    });
-    const { incrementarHospedagemRefreshVersion } = await Promise.resolve().then(() => __importStar(require('./hospedagemRefreshVersionService')));
-    await incrementarHospedagemRefreshVersion();
-    const { markOutboundCancelled } = await Promise.resolve().then(() => __importStar(require('../integrations/hospedin/outbound/HospedinOutboundEnqueueService')));
-    await markOutboundCancelled(hospedagem.id);
+    };
+    if (transactionAtiva) {
+        await executarCancelamento(transactionAtiva);
+    }
+    else {
+        await database_1.default.transaction(async (t) => {
+            await executarCancelamento(t);
+        });
+    }
+    if (!options?.omitirSideEffects) {
+        const { incrementarHospedagemRefreshVersion } = await Promise.resolve().then(() => __importStar(require('./hospedagemRefreshVersionService')));
+        await incrementarHospedagemRefreshVersion();
+        const { markOutboundCancelled } = await Promise.resolve().then(() => __importStar(require('../integrations/hospedin/outbound/HospedinOutboundEnqueueService')));
+        await markOutboundCancelled(hospedagem.id);
+    }
 }
 /** Mapeia tipo/gateway da Transacao para a forma usada no financeiro da recepção. */
 function mapearFormaPagamentoHospedagemExterno(tipoPagamento, gatewayPagamento) {
@@ -607,13 +622,34 @@ function montarItemSuiteCheckoutLinha(item, cotacao) {
     const idEventoSuite = resolverIdEventoSuiteCheckoutLinha(cotacao);
     return { ...item, idEventoSuite };
 }
+/** Catálogo público de disponibilidade (site / home). */
+exports.STATUS_CATALOGO_DISPONIBILIDADE_PUBLICO = ['Ativo'];
+/** Catálogo administrativo de disponibilidade (recepção / hospedagem). */
+exports.STATUS_CATALOGO_DISPONIBILIDADE_INTERNO = [
+    'Ativo',
+    'PDV',
+    'Oculto',
+];
+/** Status permitidos na cotação pública (checkout online). */
+exports.STATUS_COTACAO_PUBLICA = ['Ativo', 'PDV'];
+/** Status permitidos na cotação interna (recepção / integração). */
+exports.STATUS_COTACAO_INTERNA = ['Ativo', 'PDV', 'Oculto'];
+function statusesCatalogoDisponibilidade(catalogoInterno) {
+    return catalogoInterno
+        ? exports.STATUS_CATALOGO_DISPONIBILIDADE_INTERNO
+        : exports.STATUS_CATALOGO_DISPONIBILIDADE_PUBLICO;
+}
+function statusesPermitidosCotacao(catalogoInterno) {
+    return catalogoInterno ? exports.STATUS_COTACAO_INTERNA : exports.STATUS_COTACAO_PUBLICA;
+}
 async function calcularCotacao(params) {
-    const { idEventoSuite, checkin, checkout, adultos, criancas, validarCapacidadeHospedes = true, } = params;
+    const { idEventoSuite, checkin, checkout, adultos, criancas, validarCapacidadeHospedes = true, catalogoInterno = false, } = params;
     const suite = await EventoSuite_1.EventoSuite.findByPk(idEventoSuite);
     if (!suite) {
         throw new customError_1.CustomError('Suíte não encontrada.', 404, '');
     }
-    if (!['Ativo', 'PDV'].includes(suite.status)) {
+    const statusesPermitidos = statusesPermitidosCotacao(catalogoInterno);
+    if (!statusesPermitidos.includes(suite.status)) {
         throw new customError_1.CustomError('Suíte não disponível para venda.', 400, '');
     }
     const noites = (0, reservaSuiteUtils_1.calcularNoitesHotelaria)(checkin, checkout);
@@ -720,12 +756,15 @@ async function calcularCotacao(params) {
 }
 async function listarSuitesDisponiveis(params) {
     await cancelarReservasExpiradas();
-    const { idEvento, checkin, checkout } = params;
+    const { idEvento, checkin, checkout, catalogoInterno = false } = params;
     const noites = (0, reservaSuiteUtils_1.calcularNoitesHotelaria)(checkin, checkout);
+    const statusesCatalogo = statusesCatalogoDisponibilidade(catalogoInterno);
     const suites = await EventoSuite_1.EventoSuite.findAll({
         where: {
             idEvento,
-            status: 'Ativo',
+            status: catalogoInterno
+                ? { [sequelize_1.Op.in]: [...statusesCatalogo] }
+                : statusesCatalogo[0],
         },
         include: [
             {
@@ -825,6 +864,8 @@ async function checkoutHospedagem(params) {
             adultos: item.adultos,
             criancas: item.criancas,
             validarCapacidadeHospedes: isReservaSite,
+            // Somente recepção manual; integração (Hospedin) mantém catálogo anterior.
+            catalogoInterno: origem === 'recepcao',
         });
         if (cotacao.idEvento !== idEvento) {
             throw new customError_1.CustomError(`Suíte ${item.idEventoSuite} não pertence ao evento informado.`, 400, '');
@@ -1371,6 +1412,20 @@ async function obterReservaConfirmadaPorTransacao(idTransacao, idUsuario) {
         })),
     };
 }
+/** Taxas adicionais manuais para o link público /reserva/:token. */
+function serializarTaxasAdicionaisReservaPublica(taxas) {
+    const taxasAdicionais = (taxas ?? []).map((taxa) => ({
+        id: taxa.id,
+        descricao: taxa.descricao,
+        valor: (0, reservaSuiteUtils_1.toNumber)(taxa.valor),
+        ordem: Number(taxa.ordem || 1),
+        idReservaSuite: taxa.idReservaSuite != null && Number(taxa.idReservaSuite) > 0
+            ? Number(taxa.idReservaSuite)
+            : null,
+    }));
+    const valorTaxasAdicionais = (0, reservaSuiteUtils_1.roundMoney)(taxasAdicionais.reduce((acc, taxa) => acc + (0, reservaSuiteUtils_1.toNumber)(taxa.valor), 0));
+    return { taxasAdicionais, valorTaxasAdicionais };
+}
 function parseTokenReservaPublica(token) {
     const tokenLimpo = String(token || '').trim();
     if (!tokenLimpo || tokenLimpo.length < 16) {
@@ -1424,6 +1479,13 @@ async function carregarReservaHospedagemPorTokenPagamento(token) {
                         attributes: ['id', 'nome', 'tipo', 'dataNascimento', 'idReservaSuite'],
                     },
                 ],
+            },
+            {
+                model: ReservaHospedagemTaxaAdicional_1.ReservaHospedagemTaxaAdicional,
+                as: 'TaxaAdicional',
+                required: false,
+                separate: true,
+                order: [['ordem', 'ASC'], ['id', 'ASC']],
             },
         ],
     }));
@@ -1566,6 +1628,7 @@ function montarRespostaReservaPublica(hospedagem) {
     const evento = hospedagem.Evento;
     const transacao = hospedagem.Transacao;
     const suites = hospedagem.ReservaSuite ?? [];
+    const { taxasAdicionais, valorTaxasAdicionais } = serializarTaxasAdicionaisReservaPublica(hospedagem.TaxaAdicional);
     const totalAdultos = suites.reduce((s, i) => s + (i.adultos || 0), 0);
     const totalCriancas = suites.reduce((s, i) => s + (i.criancas || 0), 0);
     const nomeCliente = [usuario?.nomeCompleto, usuario?.sobreNome]
@@ -1607,9 +1670,10 @@ function montarRespostaReservaPublica(hospedagem) {
             criancas: totalCriancas,
         },
         suites: serializarSuitesReservaPublica(suites),
+        taxasAdicionais,
+        valorTaxasAdicionais,
         valores: {
             preco: (0, reservaSuiteUtils_1.toNumber)(hospedagem.preco),
-            taxaServico: (0, reservaSuiteUtils_1.toNumber)(hospedagem.taxaServico),
             valorTotal: (0, reservaSuiteUtils_1.toNumber)(hospedagem.valorTotal),
         },
         pagamento: {

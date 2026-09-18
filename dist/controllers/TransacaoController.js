@@ -4,6 +4,7 @@ exports.addHistorico = void 0;
 const getRegistros_1 = require("../utils/getRegistros");
 const customError_1 = require("../utils/customError");
 const Transacao_1 = require("../models/Transacao");
+const transacaoMinhasComprasFilter_1 = require("../utils/transacaoMinhasComprasFilter");
 const Ingresso_1 = require("../models/Ingresso");
 const EventoIngresso_1 = require("../models/EventoIngresso");
 const Evento_1 = require("../models/Evento");
@@ -24,20 +25,23 @@ const addHistorico = async (idTransacao, idUsuario, descricao) => {
 exports.addHistorico = addHistorico;
 module.exports = {
     async get(req, res, next) {
+        let filters = {};
+        try {
+            filters = req.query.filters ? JSON.parse(req.query.filters) : {};
+        }
+        catch {
+            filters = {};
+        }
+        const extraWhere = (0, transacaoMinhasComprasFilter_1.deveExcluirHospedagemDaListagemMinhasCompras)(filters)
+            ? (0, transacaoMinhasComprasFilter_1.buildWhereExcluirTransacaoHospedagem)()
+            : undefined;
         await (0, getRegistros_1.getRegistros)(Transacao_1.Transacao, req, res, next, [
             {
                 model: Evento_1.Evento,
                 as: 'Evento',
                 attributes: ['nome']
             }
-        ]
-        //     {
-        //         model: IngressoTransacao,
-        //         as: 'IngressoTransacao',
-        //         // attributes: ['idIngresso, preco, taxaServico, valorTotal'],
-        //     }
-        // ]
-        );
+        ], false, undefined, extraWhere);
     },
     async getIngressoTransacao(req, res, next) {
         await (0, getRegistros_1.getRegistros)(Transacao_1.IngressoTransacao, req, res, next, [

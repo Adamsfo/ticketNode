@@ -2204,6 +2204,7 @@ type ReservaHospedagemLinkCarregada = ReservaHospedagem & {
     Usuario?: Usuario;
     Evento?: Evento;
     Transacao?: Transacao;
+    TaxaAdicional?: ReservaHospedagemTaxaAdicional[];
     ReservaSuite?: Array<
         ReservaSuite & {
             EventoSuite?: EventoSuite;
@@ -2212,6 +2213,26 @@ type ReservaHospedagemLinkCarregada = ReservaHospedagem & {
     >;
     createdAt?: Date;
 };
+
+/** Taxas adicionais manuais para o link público /reserva/:token. */
+export function serializarTaxasAdicionaisReservaPublica(
+    taxas: ReservaHospedagemTaxaAdicional[] | undefined | null
+) {
+    const taxasAdicionais = (taxas ?? []).map((taxa) => ({
+        id: taxa.id,
+        descricao: taxa.descricao,
+        valor: toNumber(taxa.valor),
+        ordem: Number(taxa.ordem || 1),
+        idReservaSuite:
+            taxa.idReservaSuite != null && Number(taxa.idReservaSuite) > 0
+                ? Number(taxa.idReservaSuite)
+                : null,
+    }));
+    const valorTaxasAdicionais = roundMoney(
+        taxasAdicionais.reduce((acc, taxa) => acc + toNumber(taxa.valor), 0)
+    );
+    return { taxasAdicionais, valorTaxasAdicionais };
+}
 
 function parseTokenReservaPublica(token: string): string {
     const tokenLimpo = String(token || '').trim();
@@ -2271,6 +2292,13 @@ async function carregarReservaHospedagemPorTokenPagamento(
                         attributes: ['id', 'nome', 'tipo', 'dataNascimento', 'idReservaSuite'],
                     },
                 ],
+            },
+            {
+                model: ReservaHospedagemTaxaAdicional,
+                as: 'TaxaAdicional',
+                required: false,
+                separate: true,
+                order: [['ordem', 'ASC'], ['id', 'ASC']],
             },
         ],
     })) as ReservaHospedagemLinkCarregada | null;
@@ -2523,6 +2551,9 @@ function montarRespostaReservaPublica(hospedagem: ReservaHospedagemLinkCarregada
     const transacao = hospedagem.Transacao;
     const suites = hospedagem.ReservaSuite ?? [];
 
+    const { taxasAdicionais, valorTaxasAdicionais } =
+        serializarTaxasAdicionaisReservaPublica(hospedagem.TaxaAdicional);
+
     const totalAdultos = suites.reduce((s, i) => s + (i.adultos || 0), 0);
     const totalCriancas = suites.reduce((s, i) => s + (i.criancas || 0), 0);
     const nomeCliente = [usuario?.nomeCompleto, (usuario as any)?.sobreNome]
@@ -2568,9 +2599,10 @@ function montarRespostaReservaPublica(hospedagem: ReservaHospedagemLinkCarregada
             criancas: totalCriancas,
         },
         suites: serializarSuitesReservaPublica(suites),
+        taxasAdicionais,
+        valorTaxasAdicionais,
         valores: {
             preco: toNumber(hospedagem.preco),
-            taxaServico: toNumber(hospedagem.taxaServico),
             valorTotal: toNumber(hospedagem.valorTotal),
         },
         pagamento: {

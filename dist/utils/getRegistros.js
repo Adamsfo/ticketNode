@@ -29,7 +29,7 @@ function buildDefaultSearchOr(model, search, includeOptions) {
     ];
 }
 // Tipagem genérica para a função `getRegistros`
-async function getRegistros(model, req, res, next, includeOptions, returnRegisters = false, buildSearchConditions) {
+async function getRegistros(model, req, res, next, includeOptions, returnRegisters = false, buildSearchConditions, extraWhere) {
     try {
         // Pegando os parâmetros de paginação, pesquisa, filtros e ordenação da query string
         const page = parseInt(req.query.page, 10) || 1;
@@ -82,7 +82,8 @@ async function getRegistros(model, req, res, next, includeOptions, returnRegiste
         }
         const whereCondition = {
             ...searchCondition,
-            ...filterConditions
+            ...filterConditions,
+            ...(extraWhere ?? {}),
         };
         const { count, rows } = await model.findAndCountAll({
             where: whereCondition,

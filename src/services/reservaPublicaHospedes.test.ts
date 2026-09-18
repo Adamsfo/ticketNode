@@ -14,6 +14,7 @@ import {
     assertUsuarioDonoReservaPublica,
     prepararAtualizacaoHospedesReservaPublica,
     serializarSuitesReservaPublica,
+    serializarTaxasAdicionaisReservaPublica,
 } from './reservaSuiteService';
 
 function criarSuitePersistida(params: {
@@ -45,6 +46,41 @@ function criarSuitePersistida(params: {
         })),
     };
 }
+
+describe('serializarTaxasAdicionaisReservaPublica', () => {
+    it('serializa taxas adicionais e soma valorTaxasAdicionais', () => {
+        const resultado = serializarTaxasAdicionaisReservaPublica([
+            {
+                id: 1,
+                descricao: 'Refeições inclusas',
+                valor: 370,
+                ordem: 1,
+                idReservaSuite: 5,
+            },
+            {
+                id: 2,
+                descricao: 'Chegar mais cedo',
+                valor: 50,
+                ordem: 2,
+                idReservaSuite: null,
+            },
+        ] as any);
+
+        assert.equal(resultado.taxasAdicionais.length, 2);
+        assert.equal(resultado.taxasAdicionais[0].descricao, 'Refeições inclusas');
+        assert.equal(resultado.taxasAdicionais[0].valor, 370);
+        assert.equal(resultado.taxasAdicionais[0].idReservaSuite, 5);
+        assert.equal(resultado.taxasAdicionais[1].idReservaSuite, null);
+        assert.equal(resultado.valorTaxasAdicionais, 420);
+    });
+
+    it('retorna lista vazia e soma zero quando não há taxas', () => {
+        const resultado = serializarTaxasAdicionaisReservaPublica(null);
+
+        assert.deepEqual(resultado.taxasAdicionais, []);
+        assert.equal(resultado.valorTaxasAdicionais, 0);
+    });
+});
 
 describe('serializarSuitesReservaPublica', () => {
     it('retorna hóspedes por suíte com id, nome, tipo e dataNascimento', () => {

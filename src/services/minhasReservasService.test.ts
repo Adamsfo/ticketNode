@@ -319,10 +319,16 @@ describe('listarMinhasReservas', () => {
         }));
 
         const findAllPagamentos = mock.fn(async () => []);
+        const findByPk = mock.fn(async (id: number) => ({
+            id,
+            idTransacao: null,
+        }));
         const originalFindAndCountAll = ReservaHospedagem.findAndCountAll;
         const originalFindAllPagamentos = PagamentoHospedagem.findAll;
+        const originalFindByPk = ReservaHospedagem.findByPk;
         ReservaHospedagem.findAndCountAll = findAndCountAll as any;
         PagamentoHospedagem.findAll = findAllPagamentos as any;
+        ReservaHospedagem.findByPk = findByPk as any;
 
         try {
             const resultado = await listarMinhasReservas({
@@ -348,6 +354,7 @@ describe('listarMinhasReservas', () => {
         } finally {
             ReservaHospedagem.findAndCountAll = originalFindAndCountAll;
             PagamentoHospedagem.findAll = originalFindAllPagamentos;
+            ReservaHospedagem.findByPk = originalFindByPk;
         }
     });
 

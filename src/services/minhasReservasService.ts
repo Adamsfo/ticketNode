@@ -15,6 +15,13 @@ import {
     type CancelamentoClienteDto,
 } from './hospedagemCancelamentoClienteService';
 import type { PagamentoHospedagemResumo } from './hospedagemCancelamentoClientePolicy';
+import {
+    buscarRemarcacaoPendentePorReserva,
+    carregarRemarcacoesPendentesPorReservas,
+    montarRemarcacaoClienteDto,
+    type RemarcacaoClienteDto,
+    type PixRemarcacaoPendenteDto,
+} from './hospedagemRemarcacaoClienteService';
 
 const PAGE_SIZE_DEFAULT = 20;
 const PAGE_SIZE_MAX = 100;
@@ -46,6 +53,10 @@ export type MinhaReservaCardDto = {
     motivoBloqueio: string | null;
     percentualDevolucao: 50 | 100 | null;
     valorDevolucao: number | null;
+    podeRemarcar: boolean;
+    motivoBloqueioRemarcacao: string | null;
+    taxaRemarcacao: number | null;
+    remarcacao: RemarcacaoClienteDto;
 };
 
 export type SituacaoFinanceiraMinhaReserva =
@@ -90,6 +101,7 @@ export type MinhaReservaDetalheDto = {
     podeContinuarPagamento: boolean;
     tokenPagamento: string | null;
     cancelamento: CancelamentoClienteDto;
+    remarcacao: RemarcacaoClienteDto;
 };
 
 type ReservaMinhasIncludes = ReservaHospedagem & {
@@ -210,7 +222,11 @@ async function carregarPagamentosPorReservas(
 
 export function mapearMinhaReservaDetalhe(
     reserva: ReservaDetalheIncludes,
-    pagamentos: PagamentoHospedagemResumo[] = []
+    pagamentos: PagamentoHospedagemResumo[] = [],
+    remarcacaoPendente: Awaited<
+        ReturnType<typeof buscarRemarcacaoPendentePorReserva>
+    > = null,
+    pixPendente: PixRemarcacaoPendenteDto | null = null
 ): MinhaReservaDetalheDto {
     const valorTotal = toNumber(reserva.valorTotal);
     const valorPago = toNumber(reserva.valorPago ?? 0);
@@ -275,12 +291,22 @@ export function mapearMinhaReservaDetalhe(
         podeContinuarPagamento,
         tokenPagamento: podeContinuarPagamento ? tokenPagamento : null,
         cancelamento: montarCancelamentoClienteDto(reserva, pagamentos),
+        remarcacao: montarRemarcacaoClienteDto(
+            reserva,
+            remarcacaoPendente,
+            undefined,
+            pixPendente
+        ),
     };
 }
 
 export function mapearMinhaReservaCard(
     reserva: ReservaMinhasIncludes,
-    pagamentos: PagamentoHospedagemResumo[] = []
+    pagamentos: PagamentoHospedagemResumo[] = [],
+    remarcacaoPendente: Awaited<
+        ReturnType<typeof buscarRemarcacaoPendentePorReserva>
+    > = null,
+    pixPendente: PixRemarcacaoPendenteDto | null = null
 ): MinhaReservaCardDto {
     const suitesDb = reserva.ReservaSuite ?? [];
     const suites = suitesDb.map((suite) => ({
@@ -299,6 +325,14 @@ export function mapearMinhaReservaCard(
         reserva.saldoPendente != null
             ? toNumber(reserva.saldoPendente)
             : Math.max(0, valorTotal - valorPago);
+
+    const cancelamento = montarCancelamentoClienteDto(reserva, pagamentos);
+    const remarcacao = montarRemarcacaoClienteDto(
+        reserva,
+        remarcacaoPendente,
+        undefined,
+        pixPendente
+    );
 
     return {
         id: reserva.id,
@@ -322,15 +356,14 @@ export function mapearMinhaReservaCard(
             : null,
         dataCriacao: reserva.createdAt ?? null,
         dataConfirmacao: reserva.dataConfirmacao ?? null,
-        ...(() => {
-            const cancelamento = montarCancelamentoClienteDto(reserva, pagamentos);
-            return {
-                podeCancelar: cancelamento.podeCancelar,
-                motivoBloqueio: cancelamento.motivoBloqueio,
-                percentualDevolucao: cancelamento.percentualDevolucao,
-                valorDevolucao: cancelamento.valorDevolucao,
-            };
-        })(),
+        podeCancelar: cancelamento.podeCancelar,
+        motivoBloqueio: cancelamento.motivoBloqueio,
+        percentualDevolucao: cancelamento.percentualDevolucao,
+        valorDevolucao: cancelamento.valorDevolucao,
+        podeRemarcar: remarcacao.podeRemarcar,
+        motivoBloqueioRemarcacao: remarcacao.motivoBloqueio,
+        taxaRemarcacao: remarcacao.taxaRemarcacao,
+        remarcacao,
     };
 }
 
@@ -389,10 +422,39 @@ export async function listarMinhasReservas(params: {
 
     const idsReserva = (rows as ReservaMinhasIncludes[]).map((item) => item.id);
     const pagamentosPorReserva = await carregarPagamentosPorReservas(idsReserva);
+    const remarcacoesPendentes =
+        await carregarRemarcacoesPendentesPorReservas(idsReserva);
+
+    const pixPendentes = new Map<number, PixRemarcacaoPendenteDto | null>();
+    const { buscarPaymentIdPixRemarcacaoPorTaxa } = await import(
+        './hospedagemRemarcacaoPagamentoService'
+    );
+    await Promise.all(
+        (rows as ReservaMinhasIncludes[]).map(async (reserva) => {
+            const pendente = remarcacoesPendentes.get(reserva.id);
+            if (!pendente || !reserva.idTransacao) {
+                pixPendentes.set(reserva.id, null);
+                return;
+            }
+            const paymentId = await buscarPaymentIdPixRemarcacaoPorTaxa(
+                reserva.idTransacao,
+                pendente.idTaxa
+            );
+            pixPendentes.set(
+                reserva.id,
+                paymentId
+                    ? { paymentId, reutilizado: true }
+                    : null
+            );
+        })
+    );
+
     const data = (rows as ReservaMinhasIncludes[]).map((reserva) =>
         mapearMinhaReservaCard(
             reserva,
-            pagamentosPorReserva.get(reserva.id) ?? []
+            pagamentosPorReserva.get(reserva.id) ?? [],
+            remarcacoesPendentes.get(reserva.id) ?? null,
+            pixPendentes.get(reserva.id) ?? null
         )
     );
     const totalPages = Math.max(1, Math.ceil(count / pageSize));
@@ -469,8 +531,25 @@ export async function obterMinhaReservaDetalhe(
         order: [['id', 'ASC']],
     });
 
+    const remarcacaoPendente = await buscarRemarcacaoPendentePorReserva(id);
+    let pixPendente: PixRemarcacaoPendenteDto | null = null;
+    if (remarcacaoPendente && reserva.idTransacao) {
+        const { buscarPaymentIdPixRemarcacaoPorTaxa } = await import(
+            './hospedagemRemarcacaoPagamentoService'
+        );
+        const paymentId = await buscarPaymentIdPixRemarcacaoPorTaxa(
+            reserva.idTransacao,
+            remarcacaoPendente.idTaxa
+        );
+        if (paymentId) {
+            pixPendente = { paymentId, reutilizado: true };
+        }
+    }
+
     return mapearMinhaReservaDetalhe(
         reserva,
-        mapearPagamentosResumo(pagamentos)
+        mapearPagamentosResumo(pagamentos),
+        remarcacaoPendente,
+        pixPendente
     );
 }

@@ -33,6 +33,40 @@ router.post(
     authenticate,
     ReservaSuiteController.cancelarMinhaReserva
 );
+router.post(
+    '/reservasuite/minhas-reservas/:id/remarcar',
+    authenticate,
+    ReservaSuiteController.remarcarMinhaReserva
+);
+router.get(
+    '/reservasuite/minhas-reservas/:id/remarcar/status',
+    authenticate,
+    ReservaSuiteController.statusRemarcacaoMinhaReserva
+);
+router.post(
+    '/reservasuite/minhas-reservas/:id/remarcar/pix',
+    authenticate,
+    ReservaSuiteController.pagamentoPixRemarcacaoMinhaReserva
+);
+router.post(
+    '/reservasuite/minhas-reservas/:id/remarcar/pagamento',
+    authenticate,
+    ReservaSuiteController.pagamentoCartaoRemarcacaoMinhaReserva
+);
+router.get(
+    '/reservasuite/minhas-reservas/:id/remarcar/consulta',
+    authenticate,
+    ReservaSuiteController.consultaPagamentoRemarcacaoMinhaReserva
+);
+router.get(
+    '/reservasuite/minhas-reservas/:id/remarcar/pix-pendente',
+    authenticate,
+    ReservaSuiteController.pixPendenteRemarcacaoMinhaReserva
+);
+router.post(
+    '/reservasuite/remarcar/webhook-mercadopago',
+    ReservaSuiteController.webhookMercadoPagoRemarcacao
+);
 
 // Público: consulta da reserva pelo token do link (sem auth)
 router.get('/reserva/:token', ReservaSuiteController.reservaPublicaPorToken);
