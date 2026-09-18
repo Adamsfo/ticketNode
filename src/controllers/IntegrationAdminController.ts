@@ -256,6 +256,28 @@ module.exports = {
         }
     },
 
+    async dismissHospedinOutboundExecutionError(req: any, res: any, next: any) {
+        try {
+            const id = Number(req.params.id);
+            const idUsuario = Number(req.user?.id);
+            if (!Number.isFinite(idUsuario) || idUsuario <= 0) {
+                throw new CustomError('Usuário não autenticado.', 401, '');
+            }
+
+            const { dismissHospedinOutboundExecutionError } = await import(
+                '../integrations/hospedin/outbound/hospedinOutboundExecutionDismissalService'
+            );
+
+            const data = await dismissHospedinOutboundExecutionError(
+                id,
+                idUsuario
+            );
+            return res.status(200).json({ data });
+        } catch (error) {
+            next(error);
+        }
+    },
+
     async executionStats(req: any, res: any, next: any) {
         try {
             const provider = String(

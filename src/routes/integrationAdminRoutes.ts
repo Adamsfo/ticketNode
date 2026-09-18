@@ -75,6 +75,12 @@ router.get(
     IntegrationAdminController.getExecution
 );
 
+router.post(
+    '/api/integrations/executions/:id/dismiss-error',
+    authenticate,
+    IntegrationAdminController.dismissHospedinOutboundExecutionError
+);
+
 router.get(
     '/api/integrations/:provider/execution-stats',
     authenticate,

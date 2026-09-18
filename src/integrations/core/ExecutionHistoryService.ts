@@ -7,6 +7,7 @@ import {
     type IntegrationSyncTriggerValue,
 } from '../../models/IntegrationSyncExecution';
 import type { SyncRunSummary } from './types';
+import { readHospedinOutboundAdminDismissal } from '../hospedin/outbound/hospedinOutboundExecutionDismissalService';
 
 export async function createRunningExecution(input: {
     provider: string;
@@ -85,6 +86,9 @@ export type ListExecutionsFilters = {
 };
 
 export function mapExecutionRow(r: IntegrationSyncExecution) {
+    const summaryJson = r.summaryJson ?? null;
+    const adminDismissal = readHospedinOutboundAdminDismissal(summaryJson);
+
     return {
         id: r.id,
         provider: r.provider,
@@ -106,7 +110,8 @@ export function mapExecutionRow(r: IntegrationSyncExecution) {
         skipped: r.skippedCount ?? null,
         unchanged: r.unchangedCount ?? null,
         errorMessage: r.errorMessage ?? null,
-        summaryJson: r.summaryJson ?? null,
+        summaryJson,
+        adminDismissal,
     };
 }
 
