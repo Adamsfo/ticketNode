@@ -293,10 +293,10 @@ describe('avaliarElegibilidadeRemarcacaoCliente — status', () => {
 });
 
 describe('configuração de valores da remarcação', () => {
-    it('total R$1,20, plataforma R$0,20, pousada R$1,00 (1,20 - 0,20)', () => {
-        assert.equal(TAXA_REMARCACAO_CLIENTE, 1.2);
-        assert.equal(TAXA_PLATAFORMA_REMARCACAO, 0.2);
-        assert.equal(VALOR_POUSADA_REMARCACAO, 1);
+    it('total R$120,00, plataforma R$20,00, pousada R$100,00 (120 - 20)', () => {
+        assert.equal(TAXA_REMARCACAO_CLIENTE, 120);
+        assert.equal(TAXA_PLATAFORMA_REMARCACAO, 20);
+        assert.equal(VALOR_POUSADA_REMARCACAO, 100);
         assert.equal(
             TAXA_REMARCACAO_CLIENTE - TAXA_PLATAFORMA_REMARCACAO,
             VALOR_POUSADA_REMARCACAO

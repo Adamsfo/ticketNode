@@ -65,8 +65,8 @@ export function isOrigemRemarcacaoClientePermitida(reserva: {
 }
 
 /** Configuração central dos valores da taxa de remarcação pelo cliente. */
-export const TAXA_REMARCACAO_CLIENTE = 1.2;
-export const TAXA_PLATAFORMA_REMARCACAO = 0.2;
+export const TAXA_REMARCACAO_CLIENTE = 120;
+export const TAXA_PLATAFORMA_REMARCACAO = 20;
 export const VALOR_POUSADA_REMARCACAO =
     TAXA_REMARCACAO_CLIENTE - TAXA_PLATAFORMA_REMARCACAO;
 
