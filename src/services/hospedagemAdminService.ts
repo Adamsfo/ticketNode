@@ -127,6 +127,27 @@ import {
     type ReservaOperacionalAgregada,
 } from '../utils/reservaSuiteOperacaoUtils';
 
+type UsuarioNomeResponsavel = {
+    nomeCompleto?: string | null;
+    sobreNome?: string | null;
+} | null | undefined;
+
+function formatNomeResponsavelUsuario(
+    usuario: UsuarioNomeResponsavel,
+    fallback: string | null = '—'
+): string | null {
+    if (!usuario) {
+        return fallback;
+    }
+    const nome = [usuario.nomeCompleto, usuario.sobreNome]
+        .map((part) => String(part || '').trim())
+        .filter(Boolean)
+        .join(' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    return nome || fallback;
+}
+
 function resolverOrigemReserva(
     reserva: ReservaHospedagem & {
         origemReserva?: OrigemReservaHospedagem | string | null;
@@ -634,7 +655,7 @@ function mapearResumoLista(reserva: ReservaComIncludes) {
             null,
         taxaServico: toNumber(reserva.taxaServico),
         preco: toNumber(reserva.preco),
-        nomeResponsavel: reserva.Usuario?.nomeCompleto ?? '—',
+        nomeResponsavel: formatNomeResponsavelUsuario(reserva.Usuario, '—'),
         telefone: reserva.Usuario?.telefone ?? null,
         email: reserva.Usuario?.email ?? null,
         quantidadeSuites: suites.length,
@@ -645,7 +666,7 @@ function mapearResumoLista(reserva: ReservaComIncludes) {
         nomeSuite: suitesResumo[0]?.nome ?? 'Suíte',
         adultos: totalAdultos,
         criancas: totalCriancas,
-        responsavel: reserva.Usuario?.nomeCompleto ?? '—',
+        responsavel: formatNomeResponsavelUsuario(reserva.Usuario, '—'),
         id: reserva.id,
         dataHoraCheckinReal:
             (reserva as ReservaHospedagem & {
@@ -746,7 +767,7 @@ export async function listarReservasAdmin(params: {
             {
                 model: Usuario,
                 as: 'Usuario',
-                attributes: ['id', 'nomeCompleto', 'telefone', 'email'],
+                attributes: ['id', 'nomeCompleto', 'sobreNome', 'telefone', 'email'],
                 required: false,
             },
             {
@@ -868,6 +889,7 @@ export async function obterReservaAdminDetalhe(
                 attributes: [
                     'id',
                     'nomeCompleto',
+                    'sobreNome',
                     'telefone',
                     'email',
                     'cpf',
@@ -1698,8 +1720,8 @@ export async function obterReservaAdminDetalhe(
             : null,
         linkPagamentoEnviadoEm: reserva.linkPagamentoEnviadoEm ?? null,
         expiraEm: reserva.expiraEm ?? null,
-        responsavel: reserva.Usuario?.nomeCompleto ?? '—',
-        nomeResponsavel: reserva.Usuario?.nomeCompleto ?? '—',
+        responsavel: formatNomeResponsavelUsuario(reserva.Usuario, '—'),
+        nomeResponsavel: formatNomeResponsavelUsuario(reserva.Usuario, '—'),
         telefone: reserva.Usuario?.telefone ?? null,
         email: reserva.Usuario?.email ?? null,
         evento: reserva.Evento
@@ -1861,7 +1883,7 @@ function montarEventoAgenda(
         // Barra termina no check-out real quando já foi feito
         fim: new Date(dataHoraCheckoutRealizado ?? checkout).toISOString(),
         status: rh.status,
-        responsavel: rh.Usuario?.nomeCompleto ?? null,
+        responsavel: formatNomeResponsavelUsuario(rh.Usuario, null),
         dataHoraCheckinReal: dataHoraCheckinReal
             ? new Date(dataHoraCheckinReal).toISOString()
             : null,
@@ -2127,7 +2149,7 @@ function reservasParaDisponibilidade(
                 totalSuites
             ),
             saldoPendente: financeiro.saldoPendente,
-            responsavelNome: rh.Usuario?.nomeCompleto ?? null,
+            responsavelNome: formatNomeResponsavelUsuario(rh.Usuario, null),
             origemReserva:
                 (rh as ReservaHospedagem & {
                     origemReserva?: string | null;
@@ -2417,7 +2439,7 @@ function mapearCardSuiteOperacional(
         badge: disp.badge,
         badgeLabel: disp.badgeLabel,
         botaoPrincipal: disp.botaoPrincipal,
-        responsavel: rh?.Usuario?.nomeCompleto ?? null,
+        responsavel: formatNomeResponsavelUsuario(rh?.Usuario, null),
         telefone: rh?.Usuario?.telefone ?? null,
         checkin: periodoCard.checkin ?? rh?.checkin ?? null,
         checkout: periodoCard.checkout ?? rh?.checkout ?? null,
@@ -2549,7 +2571,7 @@ async function carregarReservasSuitesOperacionais(
                     {
                         model: Usuario,
                         as: 'Usuario',
-                        attributes: ['nomeCompleto', 'telefone', 'email'],
+                        attributes: ['nomeCompleto', 'sobreNome', 'telefone', 'email'],
                         required: false,
                     },
                     {
