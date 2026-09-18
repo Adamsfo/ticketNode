@@ -121,13 +121,17 @@ const PdvApiJango = {
             throw error;
         }
     },
-    abreConta: async (id_cliente) => {
+    abreConta: async (id_cliente, options) => {
         const idClienteNum = Number(id_cliente);
         if (!Number.isFinite(idClienteNum) || idClienteNum <= 0) {
             throw new Error(`id_cliente inválido para abreConta: ${id_cliente}`);
         }
-        const qry = "insert into VENDA (ID_CLIENTE, TIPO, STATUS, ID_USUARIO) " +
-            `values (${idClienteNum}, 3, 0, 152) returning ID_VENDA`;
+        const suiteHospedagem = options?.suite === true;
+        const qry = suiteHospedagem
+            ? "insert into VENDA (ID_CLIENTE, TIPO, STATUS, ID_USUARIO, SUITE) " +
+                `values (${idClienteNum}, 3, 0, 152, 'SIM') returning ID_VENDA`
+            : "insert into VENDA (ID_CLIENTE, TIPO, STATUS, ID_USUARIO) " +
+                `values (${idClienteNum}, 3, 0, 152) returning ID_VENDA`;
         const url = BASEAPI + "/select/" + qry;
         let res;
         try {

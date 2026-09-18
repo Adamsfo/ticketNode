@@ -3057,7 +3057,9 @@ async function garantirContaJangoHospedagem(
     }
 
     try {
-        const idVenda = await apiJango().abreConta(idClienteNum);
+        const idVenda = await apiJango().abreConta(idClienteNum, {
+            suite: true,
+        });
         if (!idVendaJangoValido(idVenda)) {
             throw new CustomError(
                 'Não foi possível obter a conta Jango após abertura.',
