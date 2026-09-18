@@ -5,8 +5,16 @@ import {
 } from '../../../models/HospedinOutboundSyncState';
 import type { SyncRunContext, SyncRunSummary } from '../../core/types';
 import { providerEnvHelpers } from '../../core/ProviderConfigService';
+import { HospedinApiError } from '../types/errors';
 import { hospedinOutboundCancelService } from './HospedinOutboundCancelService';
 import { hospedinOutboundCreateService } from './HospedinOutboundCreateService';
+import {
+    enrichOutboundFailedReservations,
+    isOutboundFailureOutcome,
+    type OutboundFailureDraft,
+    type OutboundFailedReservationDetail,
+    resolveOutboundHttpStatus,
+} from './hospedinOutboundExecutionFailureDetails';
 import { hospedinOutboundUpdateService } from './HospedinOutboundUpdateService';
 import { hospedinOutboundStateService } from './HospedinOutboundStateService';
 
@@ -56,6 +64,44 @@ export class HospedinOutboundRunner {
         let skipped = 0;
         let failed = 0;
         const items: OutboundRunItemResult[] = [];
+        const failureDrafts: OutboundFailureDraft[] = [];
+
+        const registerFailure = (input: OutboundFailureDraft) => {
+            failureDrafts.push(input);
+        };
+
+        const registerServiceFailure = (
+            candidate: { id: number; id_reserva_hospedagem: number; hospedin_reservation_id?: string | null },
+            operacao: string,
+            result: {
+                outcome: string;
+                idReservaHospedagem: number;
+                hospedinReservationId?: string | null;
+                errorCode?: string | null;
+                message?: string | null;
+            }
+        ) => {
+            if (!isOutboundFailureOutcome(result.outcome)) {
+                return;
+            }
+
+            registerFailure({
+                idOutboundState: candidate.id,
+                idReservaHospedagem: result.idReservaHospedagem,
+                operacao,
+                outcome: result.outcome,
+                hospedinReservationId:
+                    result.hospedinReservationId ??
+                    candidate.hospedin_reservation_id ??
+                    null,
+                mensagemErro: result.message ?? null,
+                errorCode: result.errorCode ?? null,
+                httpStatus: resolveOutboundHttpStatus({
+                    errorCode: result.errorCode,
+                }),
+                correlationId,
+            });
+        };
 
         for (const candidate of candidates) {
             const claimed = await hospedinOutboundStateService.tryClaim(
@@ -116,6 +162,11 @@ export class HospedinOutboundRunner {
                         claimed: true,
                         outcome: result.outcome,
                     });
+                    registerServiceFailure(
+                        candidate,
+                        HospedinOutboundDesiredAction.CANCEL,
+                        result
+                    );
                 } else if (isCreate) {
                     const result = await hospedinOutboundCreateService.create(
                         candidate,
@@ -146,6 +197,11 @@ export class HospedinOutboundRunner {
                         claimed: true,
                         outcome: result.outcome,
                     });
+                    registerServiceFailure(
+                        candidate,
+                        HospedinOutboundDesiredAction.CREATE,
+                        result
+                    );
                 } else {
                     const result = await hospedinOutboundUpdateService.update(
                         candidate,
@@ -179,6 +235,11 @@ export class HospedinOutboundRunner {
                         claimed: true,
                         outcome: result.outcome,
                     });
+                    registerServiceFailure(
+                        candidate,
+                        HospedinOutboundDesiredAction.UPDATE,
+                        result
+                    );
                 }
             } catch (error: unknown) {
                 failed += 1;
@@ -222,6 +283,53 @@ export class HospedinOutboundRunner {
                     claimed: true,
                     outcome: 'error',
                 });
+                registerFailure({
+                    idOutboundState: candidate.id,
+                    idReservaHospedagem: candidate.id_reserva_hospedagem,
+                    operacao: action,
+                    outcome: 'error',
+                    hospedinReservationId: candidate.hospedin_reservation_id ?? null,
+                    mensagemErro: message,
+                    errorCode: 'UNEXPECTED_ERROR',
+                    httpStatus:
+                        error instanceof HospedinApiError ? error.status : null,
+                    correlationId,
+                });
+            }
+        }
+
+        let failedReservations: OutboundFailedReservationDetail[] = [];
+        if (failureDrafts.length > 0) {
+            try {
+                failedReservations =
+                    await enrichOutboundFailedReservations(failureDrafts);
+            } catch (enrichError: unknown) {
+                const enrichMessage =
+                    enrichError instanceof Error
+                        ? enrichError.message
+                        : String(enrichError);
+                log.warn('outbound:runCycle:failedReservationsEnrich', {
+                    correlationId,
+                    message: enrichMessage,
+                });
+                failedReservations = failureDrafts.map((draft) => ({
+                    idReservaHospedagem: draft.idReservaHospedagem,
+                    idOutboundState: draft.idOutboundState,
+                    hospedinReservationId: draft.hospedinReservationId ?? null,
+                    hospedinIdExterno: null,
+                    nomeHospede: null,
+                    checkin: null,
+                    checkout: null,
+                    operacao: draft.operacao,
+                    outcome: draft.outcome,
+                    mensagemErro: draft.mensagemErro ?? null,
+                    errorCode: draft.errorCode ?? null,
+                    httpStatus: resolveOutboundHttpStatus({
+                        httpStatus: draft.httpStatus,
+                        errorCode: draft.errorCode,
+                    }),
+                    correlationId: draft.correlationId,
+                }));
             }
         }
 
@@ -257,6 +365,7 @@ export class HospedinOutboundRunner {
                 recovered: recovery.recovered,
                 candidates: candidates.length,
                 items,
+                failedReservations,
             },
         };
     }
