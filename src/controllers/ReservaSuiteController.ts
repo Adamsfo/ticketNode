@@ -26,6 +26,11 @@ import {
 
 } from '../services/reservaSuiteService';
 
+import {
+    listarMinhasReservas,
+    obterMinhaReservaDetalhe,
+} from '../services/minhasReservasService';
+
 
 
 module.exports = {
@@ -193,6 +198,42 @@ module.exports = {
             if (!resultado) {
                 throw new CustomError('Reserva de hospedagem não encontrada.', 404, '');
             }
+
+            return res.status(200).json({ data: resultado });
+        } catch (error) {
+            next(error);
+        }
+    },
+
+    async minhasReservas(req: any, res: any, next: any) {
+        try {
+            const idUsuario = Number(req.user?.id);
+            if (!idUsuario) {
+                throw new CustomError('Usuário não autenticado.', 401, '');
+            }
+
+            const resultado = await listarMinhasReservas({
+                idUsuario,
+                status: req.query.status,
+                page: Number(req.query.page) || 1,
+                pageSize: Number(req.query.pageSize) || 20,
+            });
+
+            return res.status(200).json(resultado);
+        } catch (error) {
+            next(error);
+        }
+    },
+
+    async minhaReservaDetalhe(req: any, res: any, next: any) {
+        try {
+            const idUsuario = Number(req.user?.id);
+            if (!idUsuario) {
+                throw new CustomError('Usuário não autenticado.', 401, '');
+            }
+
+            const idReserva = Number(req.params.id);
+            const resultado = await obterMinhaReservaDetalhe(idReserva, idUsuario);
 
             return res.status(200).json({ data: resultado });
         } catch (error) {

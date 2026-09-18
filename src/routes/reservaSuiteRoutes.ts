@@ -18,6 +18,16 @@ router.get(
     authenticate,
     ReservaSuiteController.reservaConfirmada
 );
+router.get(
+    '/reservasuite/minhas-reservas',
+    authenticate,
+    ReservaSuiteController.minhasReservas
+);
+router.get(
+    '/reservasuite/minhas-reservas/:id',
+    authenticate,
+    ReservaSuiteController.minhaReservaDetalhe
+);
 
 // Público: consulta da reserva pelo token do link (sem auth)
 router.get('/reserva/:token', ReservaSuiteController.reservaPublicaPorToken);
