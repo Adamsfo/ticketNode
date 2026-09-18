@@ -18,6 +18,7 @@ import {
     mapExecutionRow,
     type ExecutionVolumeStats,
 } from './ExecutionHistoryService';
+import type { HospedinOutboundExecutionAdminDismissal } from '../hospedin/outbound/hospedinOutboundExecutionDismissalService';
 
 export type SyncSummaryLastExecution = {
     id: number;
@@ -39,6 +40,7 @@ export type SyncSummaryLastExecution = {
     unchanged: number | null;
     ignored: number | null;
     errorMessage: string | null;
+    adminDismissal?: HospedinOutboundExecutionAdminDismissal | null;
 };
 
 export type SyncSummarySaude = {
@@ -244,6 +246,7 @@ export async function getSyncSummaryCounts(
                   unchanged: mapped.unchanged,
                   ignored,
                   errorMessage: mapped.errorMessage,
+                  adminDismissal: mapped.adminDismissal,
               };
           })()
         : null;

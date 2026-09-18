@@ -6,6 +6,7 @@ import { providerRunLock } from './ProviderRunLock';
 import { getProviderScheduleConfig } from './ProviderConfigService';
 import {
     getProviderExecutionStats,
+    mapExecutionRow,
     type ProviderExecutionStats,
 } from './ExecutionHistoryService';
 
@@ -31,25 +32,7 @@ export type ProviderStatusView = {
     nextRunAt: string | null;
     lastDurationMs: number | null;
     consecutiveFailures: number;
-    lastExecution: {
-        id: number;
-        status: string;
-        triggerSource: string;
-        startedAt: string;
-        finishedAt: string | null;
-        durationMs: number | null;
-        imported: number | null;
-        validated: number | null;
-        validatedReady: number | null;
-        validatedIgnored: number | null;
-        created: number | null;
-        updated: number | null;
-        cancelled: number | null;
-        failed: number | null;
-        skipped: number | null;
-        unchanged: number | null;
-        errorMessage: string | null;
-    } | null;
+    lastExecution: ReturnType<typeof mapExecutionRow> | null;
     /** Agregados de integration_sync_execution (COUNT/AVG). */
     executionStats: ProviderExecutionStats | null;
     registered: boolean;
@@ -135,27 +118,7 @@ export async function listIntegrationsStatus(): Promise<ProviderStatusView[]> {
             nextRunAt: toIso(state?.nextRunAt),
             lastDurationMs: state?.lastDurationMs ?? null,
             consecutiveFailures: state?.consecutiveFailures ?? 0,
-            lastExecution: lastExec
-                ? {
-                      id: lastExec.id,
-                      status: String(lastExec.status),
-                      triggerSource: String(lastExec.triggerSource),
-                      startedAt: toIso(lastExec.startedAt) || '',
-                      finishedAt: toIso(lastExec.finishedAt),
-                      durationMs: lastExec.durationMs ?? null,
-                      imported: lastExec.imported ?? null,
-                      validated: lastExec.validated ?? null,
-                      validatedReady: lastExec.validatedReady ?? null,
-                      validatedIgnored: lastExec.validatedIgnored ?? null,
-                      created: lastExec.createdCount ?? null,
-                      updated: lastExec.updatedCount ?? null,
-                      cancelled: lastExec.cancelledCount ?? null,
-                      failed: lastExec.failedCount ?? null,
-                      skipped: lastExec.skippedCount ?? null,
-                      unchanged: lastExec.unchangedCount ?? null,
-                      errorMessage: lastExec.errorMessage ?? null,
-                  }
-                : null,
+            lastExecution: lastExec ? mapExecutionRow(lastExec) : null,
             executionStats,
             registered: registeredIds.has(config.provider.toUpperCase()),
         });
