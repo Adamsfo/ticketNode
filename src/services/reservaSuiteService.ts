@@ -1750,10 +1750,23 @@ export async function checkoutHospedagem(params: {
     });
 
     if (idPagamentoCheckoutCriado) {
-        const { persistirCaixaPagamentoHospedagem } = await import(
-            './hospedagemPagamentoService'
-        );
-        await persistirCaixaPagamentoHospedagem(idPagamentoCheckoutCriado);
+        try {
+            const {
+                garantirCaixaJangoAbertoParaHospedagem,
+                persistirCaixaPagamentoHospedagem,
+            } = await import('./hospedagemPagamentoService');
+
+            if (origem === 'recepcao' && !isLinkCliente) {
+                await garantirCaixaJangoAbertoParaHospedagem();
+            }
+
+            await persistirCaixaPagamentoHospedagem(idPagamentoCheckoutCriado);
+        } catch (error) {
+            console.error(
+                'Falha ao replicar pagamento de hospedagem no Jango (checkout recepção):',
+                error
+            );
+        }
     }
 
     if (confirmaImediatamente && resultado.hospedagem.idTransacao) {
