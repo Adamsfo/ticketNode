@@ -26,7 +26,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.STATUS_COTACAO_INTERNA = exports.STATUS_COTACAO_PUBLICA = exports.STATUS_CATALOGO_DISPONIBILIDADE_INTERNO = exports.STATUS_CATALOGO_DISPONIBILIDADE_PUBLICO = exports.MINUTOS_EXPIRACAO_LINK_PAGAMENTO = void 0;
+exports.STATUS_COTACAO_INTERNA = exports.STATUS_COTACAO_PUBLICA = exports.STATUS_CATALOGO_DISPONIBILIDADE_INTERNO = exports.STATUS_CATALOGO_DISPONIBILIDADE_PUBLICO = exports.calcularExpiraEmReservaOnline = exports.calcularExpiraEmLinkPagamento = exports.MINUTOS_EXPIRACAO_LINK_PAGAMENTO = void 0;
 exports.gerarTokenPagamentoReserva = gerarTokenPagamentoReserva;
 exports.cancelarReservasExpiradas = cancelarReservasExpiradas;
 exports.assertTransacaoHospedagemPagaivel = assertTransacaoHospedagemPagaivel;
@@ -78,23 +78,21 @@ const reservaSuiteUtils_1 = require("../utils/reservaSuiteUtils");
 const suiteDisponibilidadeService_1 = require("./suiteDisponibilidadeService");
 const hospedagemConfirmacaoNotificacao_1 = require("./hospedagemConfirmacaoNotificacao");
 const reservaObservacoesUtils_1 = require("../utils/reservaObservacoesUtils");
+const reservaHospedagemExpiracaoUtils_1 = require("./reservaHospedagemExpiracaoUtils");
+Object.defineProperty(exports, "MINUTOS_EXPIRACAO_LINK_PAGAMENTO", { enumerable: true, get: function () { return reservaHospedagemExpiracaoUtils_1.MINUTOS_EXPIRACAO_LINK_PAGAMENTO; } });
+Object.defineProperty(exports, "calcularExpiraEmLinkPagamento", { enumerable: true, get: function () { return reservaHospedagemExpiracaoUtils_1.calcularExpiraEmLinkPagamento; } });
+Object.defineProperty(exports, "calcularExpiraEmReservaOnline", { enumerable: true, get: function () { return reservaHospedagemExpiracaoUtils_1.calcularExpiraEmReservaOnline; } });
 const STATUS_RESERVA_SUITE_OCUPA = [
     ReservaSuite_1.StatusReservaSuite.AguardandoPagamento,
     ReservaSuite_1.StatusReservaSuite.Confirmada,
     ReservaSuite_1.StatusReservaSuite.Hospedada,
 ];
-/** Expiração legada do checkout online (CLIENTE/SITE) quando expiraEm está nulo. */
-const MINUTOS_EXPIRACAO_RESERVA = 15;
-/** Link externo /reserva/:token (recepção → enviar para cliente). */
-exports.MINUTOS_EXPIRACAO_LINK_PAGAMENTO = 30;
 /** Origens de reserva feitas pelo cliente (online) — compatível com produção (CLIENTE) e legado (SITE). */
 const ORIGENS_RESERVA_CLIENTE_ONLINE = ['CLIENTE', 'SITE'];
 function minutosParaLimite(minutos) {
     return new Date(Date.now() - minutos * 60 * 1000);
 }
-function calcularExpiraEmLinkPagamento(desde = new Date()) {
-    return new Date(desde.getTime() + exports.MINUTOS_EXPIRACAO_LINK_PAGAMENTO * 60 * 1000);
-}
+const MINUTOS_EXPIRACAO_RESERVA = reservaHospedagemExpiracaoUtils_1.MINUTOS_EXPIRACAO_RESERVA_ONLINE;
 async function marcarReservaComoExpirada(hospedagem, descricaoHistorico) {
     if (hospedagem.status !== ReservaHospedagem_1.StatusReservaHospedagem.AguardandoPagamento) {
         return;
@@ -180,7 +178,7 @@ async function listarReservasSuiteConflitantes(idEventoSuite, intervalo, options
 async function cancelarReservasExpiradas() {
     const agora = new Date();
     const limiteLegacy = minutosParaLimite(MINUTOS_EXPIRACAO_RESERVA);
-    const limiteLink = minutosParaLimite(exports.MINUTOS_EXPIRACAO_LINK_PAGAMENTO);
+    const limiteLink = minutosParaLimite(reservaHospedagemExpiracaoUtils_1.MINUTOS_EXPIRACAO_LINK_PAGAMENTO);
     // 1) expiraEm preenchido → usa a data
     // 2) nulo + CLIENTE/SITE → legado 15 min
     // 3) nulo + link externo (tokenPagamento) → 30 min a partir de createdAt
@@ -212,7 +210,7 @@ async function cancelarReservasExpiradas() {
     for (const hospedagem of hospedagens) {
         const temLink = Boolean(hospedagem.tokenPagamento);
         const minutos = temLink
-            ? exports.MINUTOS_EXPIRACAO_LINK_PAGAMENTO
+            ? reservaHospedagemExpiracaoUtils_1.MINUTOS_EXPIRACAO_LINK_PAGAMENTO
             : MINUTOS_EXPIRACAO_RESERVA;
         await marcarReservaComoExpirada(hospedagem, `Reserva de hospedagem expirada por falta de pagamento (${minutos} minutos).`);
         quantidade += 1;
@@ -252,9 +250,9 @@ async function assertTransacaoHospedagemPagaivel(idTransacao) {
         0);
     const limite = hospedagem.expiraEm != null
         ? new Date(hospedagem.expiraEm)
-        : calcularExpiraEmLinkPagamento(createdAt);
+        : (0, reservaHospedagemExpiracaoUtils_1.calcularExpiraEmLinkPagamento)(createdAt);
     if (Date.now() >= limite.getTime()) {
-        await marcarReservaComoExpirada(hospedagem, `Reserva de hospedagem expirada por falta de pagamento (${exports.MINUTOS_EXPIRACAO_LINK_PAGAMENTO} minutos).`);
+        await marcarReservaComoExpirada(hospedagem, `Reserva de hospedagem expirada por falta de pagamento (${reservaHospedagemExpiracaoUtils_1.MINUTOS_EXPIRACAO_LINK_PAGAMENTO} minutos).`);
         throw new customError_1.CustomError('Reserva expirada.', 400, '');
     }
 }
@@ -1005,7 +1003,7 @@ async function checkoutHospedagem(params) {
             tokenPagamento,
             // Link externo: expira 30 min após a criação (createdAt / agora).
             expiraEm: isLinkCliente
-                ? calcularExpiraEmLinkPagamento(agora)
+                ? (0, reservaHospedagemExpiracaoUtils_1.calcularExpiraEmLinkPagamento)(agora)
                 : null,
             linkPagamentoEnviadoEm: null,
         }, { transaction: t });
@@ -1510,11 +1508,11 @@ async function expirarReservaLinkSeVencida(hospedagem) {
     const createdAt = new Date(hospedagem.createdAt ?? Date.now());
     const limite = hospedagem.expiraEm != null
         ? new Date(hospedagem.expiraEm)
-        : calcularExpiraEmLinkPagamento(createdAt);
+        : (0, reservaHospedagemExpiracaoUtils_1.calcularExpiraEmLinkPagamento)(createdAt);
     if (Date.now() < limite.getTime()) {
         return;
     }
-    await marcarReservaComoExpirada(hospedagem, `Reserva de hospedagem expirada por falta de pagamento (${exports.MINUTOS_EXPIRACAO_LINK_PAGAMENTO} minutos).`);
+    await marcarReservaComoExpirada(hospedagem, `Reserva de hospedagem expirada por falta de pagamento (${reservaHospedagemExpiracaoUtils_1.MINUTOS_EXPIRACAO_LINK_PAGAMENTO} minutos).`);
     hospedagem.status = ReservaHospedagem_1.StatusReservaHospedagem.Expirada;
 }
 async function assertReservaEditavelPorLink(hospedagem) {
@@ -1758,9 +1756,9 @@ async function autenticarReservaPublicaPorToken(token) {
             Date.now());
         const limite = hospedagem.expiraEm != null
             ? new Date(hospedagem.expiraEm)
-            : calcularExpiraEmLinkPagamento(createdAt);
+            : (0, reservaHospedagemExpiracaoUtils_1.calcularExpiraEmLinkPagamento)(createdAt);
         if (Date.now() >= limite.getTime()) {
-            await marcarReservaComoExpirada(hospedagem, `Reserva de hospedagem expirada por falta de pagamento (${exports.MINUTOS_EXPIRACAO_LINK_PAGAMENTO} minutos).`);
+            await marcarReservaComoExpirada(hospedagem, `Reserva de hospedagem expirada por falta de pagamento (${reservaHospedagemExpiracaoUtils_1.MINUTOS_EXPIRACAO_LINK_PAGAMENTO} minutos).`);
             throw new customError_1.CustomError('Reserva expirada.', 400, '');
         }
     }

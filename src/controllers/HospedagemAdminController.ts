@@ -38,6 +38,7 @@ import {
     excluirTaxaAdicionalReserva,
 } from '../services/reservaHospedagemTaxaAdicionalService';
 import { cancelarReservaHospedagemAdmin } from '../services/hospedagemCancelamentoAdminService';
+import { reativarReservaExpiradaAdmin } from '../services/hospedagemReativacaoAdminService';
 import {
     parseSuitesCheckout,
     parseTaxasAdicionaisCheckout,
@@ -506,6 +507,41 @@ module.exports = {
             return res.status(200).json({
                 success: true,
                 message: 'Link de pagamento reenviado ao cliente.',
+                data,
+            });
+        } catch (error) {
+            next(error);
+        }
+    },
+
+    async reativarReserva(req: any, res: any, next: any) {
+        try {
+            const idUsuarioOperador = Number(req.user?.id);
+            const idReserva = Number(req.params.id);
+            if (!idUsuarioOperador) {
+                throw new CustomError('Usuário não autenticado.', 401, '');
+            }
+            if (!idReserva) {
+                throw new CustomError('ID da reserva é obrigatório.', 400, '');
+            }
+
+            const resultado = await reativarReservaExpiradaAdmin({
+                idReservaHospedagem: idReserva,
+                idUsuarioOperador,
+            });
+
+            const data = await obterReservaAdminDetalhe(
+                idReserva,
+                idUsuarioOperador
+            );
+
+            const message = resultado.notificacaoEnviada
+                ? 'Reserva reativada com sucesso. A reserva está aguardando pagamento e um novo link foi enviado ao cliente.'
+                : 'Reserva reativada com sucesso. A reserva está aguardando pagamento.';
+
+            return res.status(200).json({
+                success: true,
+                message,
                 data,
             });
         } catch (error) {

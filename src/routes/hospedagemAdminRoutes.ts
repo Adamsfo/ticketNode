@@ -71,6 +71,11 @@ router.post(
     authenticate,
     HospedagemAdminController.reenviarLinkPagamento
 );
+router.post(
+    '/hospedagem/reservas/:id/reativar',
+    authenticate,
+    HospedagemAdminController.reativarReserva
+);
 router.get(
     '/hospedagem/reservas/:id/suites-disponiveis-troca',
     authenticate,
@@ -208,6 +213,11 @@ router.post(
     '/hospedagem-admin/reservas/:id/reenviar-link',
     authenticate,
     HospedagemAdminController.reenviarLinkPagamento
+);
+router.post(
+    '/hospedagem-admin/reservas/:id/reativar',
+    authenticate,
+    HospedagemAdminController.reativarReserva
 );
 router.get(
     '/hospedagem-admin/reservas/:id/suites-disponiveis-troca',

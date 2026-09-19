@@ -19,6 +19,7 @@
     "test:suite-disponibilidade": "node --require ts-node/register/transpile-only --test src/services/suiteDisponibilidadeService.test.ts",
     "test:hospedagem-checkin-filtro": "node --require ts-node/register/transpile-only --test src/services/hospedagemAdminCheckinFiltro.test.ts",
     "test:hospedagem-cancelamento-admin": "node --require ts-node/register/transpile-only --test src/services/hospedagemCancelamentoAdminService.test.ts",
+    "test:hospedagem-reativacao-admin": "node --require ts-node/register/transpile-only --test src/services/hospedagemReativacaoAdminService.test.ts",
     "test:minhas-reservas": "node --require ts-node/register/transpile-only --test src/services/minhasReservasService.test.ts",
     "test:cancelamento-cliente": "node --require ts-node/register/transpile-only --test src/services/hospedagemCancelamentoClientePolicy.test.ts",
     "test:remarcacao-cliente": "node --require ts-node/register/transpile-only --test src/services/hospedagemRemarcacaoClientePolicy.test.ts src/services/hospedagemRemarcacaoClienteService.test.ts src/services/hospedagemRemarcacaoPagamentoService.test.ts",

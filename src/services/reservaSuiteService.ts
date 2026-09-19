@@ -73,18 +73,24 @@ import {
     notificarLinkPagamentoHospedagem,
 } from './hospedagemConfirmacaoNotificacao';
 import { buildObservacoesFieldsForCreate } from '../utils/reservaObservacoesUtils';
+import {
+    MINUTOS_EXPIRACAO_LINK_PAGAMENTO,
+    MINUTOS_EXPIRACAO_RESERVA_ONLINE,
+    calcularExpiraEmLinkPagamento,
+    calcularExpiraEmReservaOnline,
+} from './reservaHospedagemExpiracaoUtils';
+
+export {
+    MINUTOS_EXPIRACAO_LINK_PAGAMENTO,
+    calcularExpiraEmLinkPagamento,
+    calcularExpiraEmReservaOnline,
+};
 
 const STATUS_RESERVA_SUITE_OCUPA = [
     StatusReservaSuite.AguardandoPagamento,
     StatusReservaSuite.Confirmada,
     StatusReservaSuite.Hospedada,
 ];
-
-/** Expiração legada do checkout online (CLIENTE/SITE) quando expiraEm está nulo. */
-const MINUTOS_EXPIRACAO_RESERVA = 15;
-
-/** Link externo /reserva/:token (recepção → enviar para cliente). */
-export const MINUTOS_EXPIRACAO_LINK_PAGAMENTO = 30;
 
 /** Origens de reserva feitas pelo cliente (online) — compatível com produção (CLIENTE) e legado (SITE). */
 const ORIGENS_RESERVA_CLIENTE_ONLINE = ['CLIENTE', 'SITE'] as const;
@@ -93,9 +99,7 @@ function minutosParaLimite(minutos: number): Date {
     return new Date(Date.now() - minutos * 60 * 1000);
 }
 
-function calcularExpiraEmLinkPagamento(desde: Date = new Date()): Date {
-    return new Date(desde.getTime() + MINUTOS_EXPIRACAO_LINK_PAGAMENTO * 60 * 1000);
-}
+const MINUTOS_EXPIRACAO_RESERVA = MINUTOS_EXPIRACAO_RESERVA_ONLINE;
 
 async function marcarReservaComoExpirada(
     hospedagem: ReservaHospedagem & { ReservaSuite?: ReservaSuite[] },
