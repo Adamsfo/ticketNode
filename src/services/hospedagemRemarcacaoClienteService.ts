@@ -186,6 +186,37 @@ async function carregarReservasParaDisponibilidade(
     return out;
 }
 
+function obterNoitesImutaveisReserva(
+    reserva: Pick<ReservaHospedagem, 'noites' | 'checkin' | 'checkout'>
+): number {
+    const n = Number(reserva.noites);
+    if (Number.isFinite(n) && n >= 0) {
+        return Math.floor(n);
+    }
+    return calcularNoitesHotelaria(
+        new Date(reserva.checkin),
+        new Date(reserva.checkout)
+    );
+}
+
+/** Remarcação pelo cliente: o período novo deve ter a mesma quantidade de noites da reserva. */
+export function validarQuantidadeNoitesRemarcacaoCliente(
+    reserva: Pick<ReservaHospedagem, 'noites' | 'checkin' | 'checkout'>,
+    checkinNovo: Date,
+    checkoutNovo: Date
+): void {
+    const noitesOriginais = obterNoitesImutaveisReserva(reserva);
+    const noitesNovas = calcularNoitesHotelaria(checkinNovo, checkoutNovo);
+    if (noitesNovas !== noitesOriginais) {
+        const sufixo = noitesOriginais === 1 ? 'noite' : 'noites';
+        throw new CustomError(
+            `A remarcação deve manter a mesma quantidade de noites da reserva (${noitesOriginais} ${sufixo}).`,
+            400,
+            ''
+        );
+    }
+}
+
 export async function validarDisponibilidadeRemarcacao(
     reserva: ReservaRemarcacaoIncludes,
     checkinNovo: Date,
@@ -412,7 +443,12 @@ export async function alterarPeriodoReservaCliente(params: {
         );
     }
 
-    const noites = calcularNoitesHotelaria(checkinNovo, checkoutNovo);
+    validarQuantidadeNoitesRemarcacaoCliente(
+        reserva,
+        checkinNovo,
+        checkoutNovo
+    );
+    const noitesPreservadas = obterNoitesImutaveisReserva(reserva);
     const checkinAnterior = new Date(reserva.checkin);
     const checkoutAnterior = new Date(reserva.checkout);
     const motivo = params.motivo?.trim() || 'Remarcação pelo cliente';
@@ -438,7 +474,7 @@ export async function alterarPeriodoReservaCliente(params: {
             {
                 checkin: checkinNovo,
                 checkout: checkoutNovo,
-                noites,
+                noites: noitesPreservadas,
             },
             { transaction: t }
         );
@@ -489,6 +525,12 @@ export async function atualizarDatasRemarcacaoPendente(params: {
     ) {
         throw new CustomError('O período informado é o mesmo da reserva.', 400, '');
     }
+
+    validarQuantidadeNoitesRemarcacaoCliente(
+        reserva,
+        params.checkin,
+        params.checkout
+    );
 
     await validarDisponibilidadeRemarcacao(
         reserva,
@@ -714,6 +756,12 @@ export async function remarcarMinhaReservaHospedagem(
         throw new CustomError('O período informado é o mesmo da reserva.', 400, '');
     }
 
+    validarQuantidadeNoitesRemarcacaoCliente(
+        reserva,
+        checkinNovo,
+        checkoutNovo
+    );
+
     await validarDisponibilidadeRemarcacao(reserva, checkinNovo, checkoutNovo);
 
     const taxa = elegibilidade.taxaRemarcacao ?? 0;
@@ -896,6 +944,11 @@ export async function aplicarRemarcacaoPagaCliente(params: {
         await adquirirLockRemarcacaoCliente(params.idReserva, t);
 
         const reservaLocked = await carregarReservaRemarcacao(params.idReserva);
+        validarQuantidadeNoitesRemarcacaoCliente(
+            reservaLocked,
+            pendente.checkin,
+            pendente.checkout
+        );
         await validarDisponibilidadeRemarcacao(
             reservaLocked,
             pendente.checkin,

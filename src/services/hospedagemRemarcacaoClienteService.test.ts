@@ -183,3 +183,266 @@ describe('validarDisponibilidadeRemarcacao — suíte da própria reserva', () =
         );
     });
 });
+
+describe('validarQuantidadeNoitesRemarcacaoCliente', () => {
+    const checkinOriginal = new Date(2026, 9, 5, 16, 0, 0);
+    const checkoutOriginal1 = new Date(2026, 9, 6, 13, 0, 0);
+    const checkoutOriginal2 = new Date(2026, 9, 7, 13, 0, 0);
+    const checkoutOriginal3 = new Date(2026, 9, 8, 13, 0, 0);
+
+    const novoCi = new Date(2026, 9, 10, 16, 0, 0);
+    const novoCo1 = new Date(2026, 9, 11, 13, 0, 0);
+    const novoCo2 = new Date(2026, 9, 12, 13, 0, 0);
+    const novoCo3 = new Date(2026, 9, 13, 13, 0, 0);
+    const novoCo0 = new Date(2026, 9, 10, 20, 0, 0);
+
+    async function validar() {
+        const mod = await import('./hospedagemRemarcacaoClienteService');
+        return mod.validarQuantidadeNoitesRemarcacaoCliente;
+    }
+
+    it('permite original 1 noite → nova data 1 noite', async () => {
+        const fn = await validar();
+        fn(
+            { noites: 1, checkin: checkinOriginal, checkout: checkoutOriginal1 },
+            novoCi,
+            novoCo1
+        );
+    });
+
+    it('permite original 2 noites → nova data 2 noites', async () => {
+        const fn = await validar();
+        fn(
+            {
+                noites: 2,
+                checkin: checkinOriginal,
+                checkout: checkoutOriginal2,
+            },
+            novoCi,
+            novoCo2
+        );
+    });
+
+    it('permite original 3 noites → nova data 3 noites', async () => {
+        const fn = await validar();
+        fn(
+            {
+                noites: 3,
+                checkin: checkinOriginal,
+                checkout: checkoutOriginal3,
+            },
+            novoCi,
+            novoCo3
+        );
+    });
+
+    it('bloqueia 1 → 2 noites', async () => {
+        const fn = await validar();
+        assert.throws(
+            () =>
+                fn(
+                    {
+                        noites: 1,
+                        checkin: checkinOriginal,
+                        checkout: checkoutOriginal1,
+                    },
+                    novoCi,
+                    novoCo2
+                ),
+            (e: unknown) => {
+                assert.ok(e instanceof CustomError);
+                assert.match(String(e.message), /mesma quantidade de noites/i);
+                return true;
+            }
+        );
+    });
+
+    it('bloqueia 1 → 3 noites', async () => {
+        const fn = await validar();
+        assert.throws(
+            () =>
+                fn(
+                    {
+                        noites: 1,
+                        checkin: checkinOriginal,
+                        checkout: checkoutOriginal1,
+                    },
+                    novoCi,
+                    novoCo3
+                ),
+            (e: unknown) => e instanceof CustomError
+        );
+    });
+
+    it('bloqueia 2 → 1 noite', async () => {
+        const fn = await validar();
+        assert.throws(
+            () =>
+                fn(
+                    {
+                        noites: 2,
+                        checkin: checkinOriginal,
+                        checkout: checkoutOriginal2,
+                    },
+                    novoCi,
+                    novoCo1
+                ),
+            (e: unknown) => e instanceof CustomError
+        );
+    });
+
+    it('bloqueia 2 → 3 noites', async () => {
+        const fn = await validar();
+        assert.throws(
+            () =>
+                fn(
+                    {
+                        noites: 2,
+                        checkin: checkinOriginal,
+                        checkout: checkoutOriginal2,
+                    },
+                    novoCi,
+                    novoCo3
+                ),
+            (e: unknown) => e instanceof CustomError
+        );
+    });
+
+    it('bloqueia 3 → 1 noite', async () => {
+        const fn = await validar();
+        assert.throws(
+            () =>
+                fn(
+                    {
+                        noites: 3,
+                        checkin: checkinOriginal,
+                        checkout: checkoutOriginal3,
+                    },
+                    novoCi,
+                    novoCo1
+                ),
+            (e: unknown) => e instanceof CustomError
+        );
+    });
+
+    it('bloqueia 3 → 2 noites', async () => {
+        const fn = await validar();
+        assert.throws(
+            () =>
+                fn(
+                    {
+                        noites: 3,
+                        checkin: checkinOriginal,
+                        checkout: checkoutOriginal3,
+                    },
+                    novoCi,
+                    novoCo2
+                ),
+            (e: unknown) => e instanceof CustomError
+        );
+    });
+
+    it('bloqueia qualquer quantidade → 0 noites', async () => {
+        const fn = await validar();
+        assert.throws(
+            () =>
+                fn(
+                    {
+                        noites: 1,
+                        checkin: checkinOriginal,
+                        checkout: checkoutOriginal1,
+                    },
+                    novoCi,
+                    novoCo0
+                ),
+            (e: unknown) => {
+                assert.ok(e instanceof CustomError);
+                assert.match(String(e.message), /mínimo 1 noite/i);
+                return true;
+            }
+        );
+    });
+});
+
+describe('alterarPeriodoReservaCliente — noites preservadas', () => {
+    it('mantém noites=1 após remarcação válida', async () => {
+        const { ReservaPeriodoMovimentacao } = await import(
+            '../models/ReservaPeriodoMovimentacao'
+        );
+        const connection = (await import('../database')).default;
+        mock.method(ReservaPeriodoMovimentacao, 'create', async () => ({ id: 1 }));
+        mock.method(connection, 'transaction', async (fn: (t: unknown) => Promise<void>) => {
+            await fn({});
+        });
+
+        const updates: Array<Record<string, unknown>> = [];
+        const checkin = new Date(2026, 9, 5, 16, 0, 0);
+        const checkout = new Date(2026, 9, 6, 13, 0, 0);
+        const novoCi = new Date(2026, 9, 10, 16, 0, 0);
+        const novoCo = new Date(2026, 9, 11, 13, 0, 0);
+        const reserva = {
+            id: 99,
+            noites: 1,
+            checkin,
+            checkout,
+            update: async (data: Record<string, unknown>) => {
+                updates.push(data);
+            },
+        };
+
+        const { alterarPeriodoReservaCliente } = await import(
+            './hospedagemRemarcacaoClienteService'
+        );
+
+        await alterarPeriodoReservaCliente({
+            reserva: reserva as any,
+            idUsuario: 1,
+            checkin: novoCi,
+            checkout: novoCo,
+        });
+
+        assert.equal(updates.length, 1);
+        assert.equal(updates[0].noites, 1);
+        assert.equal((updates[0].checkin as Date).getTime(), novoCi.getTime());
+        assert.equal((updates[0].checkout as Date).getTime(), novoCo.getTime());
+    });
+
+    it('mantém noites=2 após remarcação válida', async () => {
+        const { ReservaPeriodoMovimentacao } = await import(
+            '../models/ReservaPeriodoMovimentacao'
+        );
+        const connection = (await import('../database')).default;
+        mock.method(ReservaPeriodoMovimentacao, 'create', async () => ({ id: 1 }));
+        mock.method(connection, 'transaction', async (fn: (t: unknown) => Promise<void>) => {
+            await fn({});
+        });
+
+        const updates: Array<Record<string, unknown>> = [];
+        const checkin = new Date(2026, 9, 5, 16, 0, 0);
+        const checkout = new Date(2026, 9, 7, 13, 0, 0);
+        const novoCi = new Date(2026, 9, 15, 16, 0, 0);
+        const novoCo = new Date(2026, 9, 17, 13, 0, 0);
+        const reserva = {
+            id: 100,
+            noites: 2,
+            checkin,
+            checkout,
+            update: async (data: Record<string, unknown>) => {
+                updates.push(data);
+            },
+        };
+
+        const { alterarPeriodoReservaCliente } = await import(
+            './hospedagemRemarcacaoClienteService'
+        );
+
+        await alterarPeriodoReservaCliente({
+            reserva: reserva as any,
+            idUsuario: 1,
+            checkin: novoCi,
+            checkout: novoCo,
+        });
+
+        assert.equal(updates[0].noites, 2);
+    });
+});
