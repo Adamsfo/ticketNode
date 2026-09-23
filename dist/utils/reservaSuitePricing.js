@@ -9,7 +9,7 @@ exports.calcularExtrasOcupacao = calcularExtrasOcupacao;
 exports.obterValoresExtrasSuite = obterValoresExtrasSuite;
 exports.calcularTotaisSuitePousada = calcularTotaisSuitePousada;
 exports.calcularSubtotalSuitePousada = calcularSubtotalSuitePousada;
-exports.VALOR_ADICIONAL_ADULTO_EXTRA = 150;
+exports.VALOR_ADICIONAL_ADULTO_EXTRA = 160;
 exports.VALOR_ADICIONAL_CRIANCA_EXTRA = 120;
 function toNumber(value) {
     return Number(value ?? 0);

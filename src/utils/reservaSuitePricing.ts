@@ -1,4 +1,4 @@
-export const VALOR_ADICIONAL_ADULTO_EXTRA = 150;
+export const VALOR_ADICIONAL_ADULTO_EXTRA = 160;
 export const VALOR_ADICIONAL_CRIANCA_EXTRA = 120;
 
 export type SuitePrecificacaoInput = {

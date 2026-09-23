@@ -47,6 +47,10 @@ import {
 } from '../utils/hospedagemPagamentoRecepcao';
 import { validarInputTaxaAdicional } from './reservaSuiteFinanceiroService';
 import {
+    montarLinhasTaxaPlataformaDeCotacoesCheckout,
+    montarValoresTransacaoHospedagemSite,
+} from './hospedagemTaxaPlataformaService';
+import {
     calcularExtrasPousada,
     calcularNoitesHotelaria,
     calcularTotaisSuitePousada,
@@ -55,6 +59,7 @@ import {
     parsePositiveInt,
     roundMoney,
     toNumber,
+    VALOR_ADICIONAL_ADULTO_EXTRA,
     validarHorarioCheckinHospedagem,
     validarHorarioCheckoutHospedagem,
     validarCheckinNaoEmDataPassada,
@@ -1027,7 +1032,7 @@ export async function calcularCotacao(params: {
             criancasIncluidas: 0,
             adultosExtras: 0,
             criancasExtras: 0,
-            valorAdultoExtra: 150,
+            valorAdultoExtra: VALOR_ADICIONAL_ADULTO_EXTRA,
             valorCriancaExtra: 120,
             precoDiaria,
             taxaDiaria,
@@ -1597,13 +1602,23 @@ export async function checkoutHospedagem(params: {
         }
 
         const dataTransacao = agora;
+        const linhasTaxaPlataformaCheckout =
+            montarLinhasTaxaPlataformaDeCotacoesCheckout(suitesComTotais);
+        const aplicarTaxaPlataformaNaTransacao =
+            isReservaSite || isLinkCliente;
+        const valoresTransacao = aplicarTaxaPlataformaNaTransacao
+            ? montarValoresTransacaoHospedagemSite({
+                  transacaoCheckout,
+                  linhas: linhasTaxaPlataformaCheckout,
+              })
+            : transacaoCheckout;
         const transacao = await Transacao.create(
             {
                 idUsuario,
                 dataTransacao,
-                preco: transacaoCheckout.preco,
-                taxaServico: transacaoCheckout.taxaServico,
-                valorTotal: transacaoCheckout.valorTotal,
+                preco: valoresTransacao.preco,
+                taxaServico: valoresTransacao.taxaServico,
+                valorTotal: valoresTransacao.valorTotal,
                 status: confirmaImediatamente
                     ? quitada
                         ? 'Pago'
@@ -1743,6 +1758,27 @@ export async function checkoutHospedagem(params: {
                 hospedagem.id,
                 t
             );
+
+            if (isLinkCliente) {
+                await transacao.reload({ transaction: t });
+                const valoresLinkPosRecalculo =
+                    montarValoresTransacaoHospedagemSite({
+                        transacaoCheckout: {
+                            preco: toNumber(transacao.preco),
+                            taxaServico: toNumber(transacao.taxaServico),
+                            valorTotal: toNumber(transacao.valorTotal),
+                        },
+                        linhas: linhasTaxaPlataformaCheckout,
+                    });
+                await transacao.update(
+                    {
+                        preco: valoresLinkPosRecalculo.preco,
+                        taxaServico: valoresLinkPosRecalculo.taxaServico,
+                        valorTotal: valoresLinkPosRecalculo.valorTotal,
+                    },
+                    { transaction: t }
+                );
+            }
         }
 
         return {

@@ -74,6 +74,7 @@ const jwtUtils_1 = require("../utils/jwtUtils");
 const hospedagemDescontoRecepcao_1 = require("../utils/hospedagemDescontoRecepcao");
 const hospedagemPagamentoRecepcao_1 = require("../utils/hospedagemPagamentoRecepcao");
 const reservaSuiteFinanceiroService_2 = require("./reservaSuiteFinanceiroService");
+const hospedagemTaxaPlataformaService_1 = require("./hospedagemTaxaPlataformaService");
 const reservaSuiteUtils_1 = require("../utils/reservaSuiteUtils");
 const suiteDisponibilidadeService_1 = require("./suiteDisponibilidadeService");
 const hospedagemConfirmacaoNotificacao_1 = require("./hospedagemConfirmacaoNotificacao");
@@ -673,7 +674,7 @@ async function calcularCotacao(params) {
             criancasIncluidas: 0,
             adultosExtras: 0,
             criancasExtras: 0,
-            valorAdultoExtra: 150,
+            valorAdultoExtra: reservaSuiteUtils_1.VALOR_ADICIONAL_ADULTO_EXTRA,
             valorCriancaExtra: 120,
             precoDiaria,
             taxaDiaria,
@@ -1058,12 +1059,20 @@ async function checkoutHospedagem(params) {
             }, { transaction: t });
         }
         const dataTransacao = agora;
+        const linhasTaxaPlataformaCheckout = (0, hospedagemTaxaPlataformaService_1.montarLinhasTaxaPlataformaDeCotacoesCheckout)(suitesComTotais);
+        const aplicarTaxaPlataformaNaTransacao = isReservaSite || isLinkCliente;
+        const valoresTransacao = aplicarTaxaPlataformaNaTransacao
+            ? (0, hospedagemTaxaPlataformaService_1.montarValoresTransacaoHospedagemSite)({
+                transacaoCheckout,
+                linhas: linhasTaxaPlataformaCheckout,
+            })
+            : transacaoCheckout;
         const transacao = await Transacao_1.Transacao.create({
             idUsuario,
             dataTransacao,
-            preco: transacaoCheckout.preco,
-            taxaServico: transacaoCheckout.taxaServico,
-            valorTotal: transacaoCheckout.valorTotal,
+            preco: valoresTransacao.preco,
+            taxaServico: valoresTransacao.taxaServico,
+            valorTotal: valoresTransacao.valorTotal,
             status: confirmaImediatamente
                 ? quitada
                     ? 'Pago'
@@ -1158,6 +1167,22 @@ async function checkoutHospedagem(params) {
         if (taxasAdicionais.length > 0) {
             const { recalcularFinanceiroReservaComServicos } = await Promise.resolve().then(() => __importStar(require('./reservaSuiteFinanceiroService')));
             await recalcularFinanceiroReservaComServicos(hospedagem.id, t);
+            if (isLinkCliente) {
+                await transacao.reload({ transaction: t });
+                const valoresLinkPosRecalculo = (0, hospedagemTaxaPlataformaService_1.montarValoresTransacaoHospedagemSite)({
+                    transacaoCheckout: {
+                        preco: (0, reservaSuiteUtils_1.toNumber)(transacao.preco),
+                        taxaServico: (0, reservaSuiteUtils_1.toNumber)(transacao.taxaServico),
+                        valorTotal: (0, reservaSuiteUtils_1.toNumber)(transacao.valorTotal),
+                    },
+                    linhas: linhasTaxaPlataformaCheckout,
+                });
+                await transacao.update({
+                    preco: valoresLinkPosRecalculo.preco,
+                    taxaServico: valoresLinkPosRecalculo.taxaServico,
+                    valorTotal: valoresLinkPosRecalculo.valorTotal,
+                }, { transaction: t });
+            }
         }
         return {
             hospedagem,
