@@ -1,8 +1,11 @@
 import { cancelarReservasExpiradas } from '../services/reservaSuiteService';
+import { iniciarJobCheckoutAutomaticoHospedagem } from './hospedagemCheckoutAutomaticoJob';
 
 const INTERVALO_MS = 60 * 1000;
 
 export function iniciarJobsReservaHospedagem(): void {
+    iniciarJobCheckoutAutomaticoHospedagem();
+
     setInterval(async () => {
         try {
             const quantidade = await cancelarReservasExpiradas();

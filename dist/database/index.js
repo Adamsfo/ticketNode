@@ -1,5 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.databaseReady = void 0;
 const Sequelize = require('sequelize');
 const dbConfig = require('../config/database');
 const logger_1 = require("../utils/logger");
@@ -47,6 +48,13 @@ const HospedagemRefreshState_1 = require("../models/HospedagemRefreshState");
 const ConfigIniciais = require('./ConfigIniciais');
 const FuncaoSistema = require('./FuncaoSistema');
 const connection = new Sequelize(dbConfig);
+let resolveDatabaseReady;
+let rejectDatabaseReady;
+/** Resolve após authenticate + todos os *Init(connection) da aplicação. */
+exports.databaseReady = new Promise((resolve, reject) => {
+    resolveDatabaseReady = resolve;
+    rejectDatabaseReady = reject;
+});
 (async () => {
     try {
         // Autenticação da conexão
@@ -105,12 +113,14 @@ const connection = new Sequelize(dbConfig);
         // Executando configurações iniciais
         // await FuncaoSistema.funcaoSistema();
         // await ConfigIniciais.configUsuario();
+        resolveDatabaseReady();
     }
     catch (error) {
         logger_1.logger.error('Banco de dados não conectado', {
             message: error?.message,
             stack: error?.stack,
         });
+        rejectDatabaseReady(error);
     }
 })();
 exports.default = connection;

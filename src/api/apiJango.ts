@@ -149,6 +149,38 @@ const PdvApiJango = {
     }
   },
 
+  /**
+   * Consulta read-only de uma venda PDV por ID_VENDA (checkout automático hospedagem).
+   * Não altera getConta/abreConta. Retorna null em falha de comunicação/parse.
+   */
+  consultarVendaHospedagemPorId: async (
+    id_venda: number
+  ): Promise<Array<Record<string, unknown>> | null> => {
+    const idVendaNum = Number(id_venda);
+    if (!Number.isFinite(idVendaNum) || idVendaNum <= 0) {
+      return null;
+    }
+
+    const qry =
+      "select ID_VENDA, STATUS, DATA_HORA, ID_CLIENTE, TOTAL_VENDA, " +
+      "VALOR_RECEBIDO, VALOR_A_RECEBER, SUITE from VENDA where ID_VENDA = " +
+      idVendaNum;
+
+    try {
+      const json = await apiFetchGet("/select/" + qry);
+      if (!Array.isArray(json)) {
+        return null;
+      }
+      return json as Array<Record<string, unknown>>;
+    } catch (error) {
+      console.error(
+        "Erro ao consultar venda hospedagem por ID_VENDA:",
+        error
+      );
+      return null;
+    }
+  },
+
   abreConta: async (
     id_cliente: number,
     options?: { suite?: boolean }

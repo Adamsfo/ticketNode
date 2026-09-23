@@ -47,6 +47,15 @@ const FuncaoSistema = require('./FuncaoSistema')
 
 const connection = new Sequelize(dbConfig);
 
+let resolveDatabaseReady!: () => void;
+let rejectDatabaseReady!: (reason?: unknown) => void;
+
+/** Resolve após authenticate + todos os *Init(connection) da aplicação. */
+export const databaseReady = new Promise<void>((resolve, reject) => {
+    resolveDatabaseReady = resolve;
+    rejectDatabaseReady = reject;
+});
+
 (async () => {
   try {
     // Autenticação da conexão
@@ -110,12 +119,13 @@ const connection = new Sequelize(dbConfig);
     // await FuncaoSistema.funcaoSistema();
     // await ConfigIniciais.configUsuario();
 
-
+    resolveDatabaseReady();
   } catch (error: any) {
     logger.error('Banco de dados não conectado', {
       message: error?.message,
       stack: error?.stack,
     });
+    rejectDatabaseReady(error);
   }
 })();
 
