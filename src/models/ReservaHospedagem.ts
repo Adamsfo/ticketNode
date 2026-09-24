@@ -77,6 +77,9 @@ interface ReservaHospedagemAttributes {
     observacoes?: string | null;
     observacaoImportada?: string | null;
     observacaoOperador?: string | null;
+    aceitePoliticaHospedagem?: boolean;
+    dataAceitePoliticaHospedagem?: Date | null;
+    versaoPoliticaHospedagem?: string | null;
 }
 
 interface ReservaHospedagemCreationAttributes
@@ -111,6 +114,9 @@ interface ReservaHospedagemCreationAttributes
         | 'tokenPagamento'
         | 'expiraEm'
         | 'linkPagamentoEnviadoEm'
+        | 'aceitePoliticaHospedagem'
+        | 'dataAceitePoliticaHospedagem'
+        | 'versaoPoliticaHospedagem'
     > {}
 
 class ReservaHospedagem
@@ -154,6 +160,9 @@ class ReservaHospedagem
     public observacoes?: string | null;
     public observacaoImportada?: string | null;
     public observacaoOperador?: string | null;
+    public aceitePoliticaHospedagem?: boolean;
+    public dataAceitePoliticaHospedagem?: Date | null;
+    public versaoPoliticaHospedagem?: string | null;
 
     static initialize(sequelize: Sequelize) {
         ReservaHospedagem.init({
@@ -319,6 +328,19 @@ class ReservaHospedagem
             },
             observacaoOperador: {
                 type: DataTypes.TEXT,
+                allowNull: true,
+            },
+            aceitePoliticaHospedagem: {
+                type: DataTypes.BOOLEAN,
+                allowNull: false,
+                defaultValue: false,
+            },
+            dataAceitePoliticaHospedagem: {
+                type: DataTypes.DATE,
+                allowNull: true,
+            },
+            versaoPoliticaHospedagem: {
+                type: DataTypes.STRING(32),
                 allowNull: true,
             },
         }, {

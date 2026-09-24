@@ -25,6 +25,7 @@ import {
     salvarHospedesReservaPublicaPorToken,
 
 } from '../services/reservaSuiteService';
+import { ehContratacaoClienteCheckoutSite } from '../services/hospedagemPoliticaAceitePolicy';
 
 import {
     listarMinhasReservas,
@@ -173,6 +174,13 @@ module.exports = {
 
 
 
+            const contratacaoCliente = ehContratacaoClienteCheckoutSite(
+                Number(idUsuarioFinal),
+                req.user?.id
+            );
+            const aceitePoliticaHospedagem =
+                req.body?.aceitePoliticaHospedagem === true;
+
             const resultado = await checkoutHospedagem({
 
                 idEvento: Number(idEvento),
@@ -184,6 +192,10 @@ module.exports = {
                 checkout: checkoutDate,
 
                 suites,
+
+                contratacaoCliente,
+
+                aceitePoliticaHospedagem,
 
             });
 

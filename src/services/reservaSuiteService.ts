@@ -28,6 +28,12 @@ import {
 } from '../models/PagamentoHospedagem';
 import { Usuario } from '../models/Usuario';
 import { CustomError } from '../utils/customError';
+import {
+    camposAceitePoliticaParaCreateCliente,
+    camposAceitePoliticaParaUpdateLink,
+    exigirAceitePoliticaCheckoutCliente,
+    exigirAceitePoliticaReservaPublica,
+} from './hospedagemPoliticaAceitePolicy';
 import { generateToken } from '../utils/jwtUtils';
 import {
     aplicarDescontoProporcional,
@@ -1234,6 +1240,12 @@ export async function checkoutHospedagem(params: {
     pagamento?: PagamentoRecepcaoInput | null;
     /** Exclusivo recepção — taxas adicionais manuais ao nível da reserva */
     taxasAdicionais?: TaxaAdicionalCheckoutInput[];
+    /**
+     * true somente no checkout feito pelo cliente no site (não PDV/recepção).
+     * Com essa flag, `aceitePoliticaHospedagem: true` é obrigatório.
+     */
+    contratacaoCliente?: boolean;
+    aceitePoliticaHospedagem?: boolean;
 }) {
     const {
         idEvento,
@@ -1247,6 +1259,8 @@ export async function checkoutHospedagem(params: {
         idUsuarioOperador,
         pagamento = null,
         taxasAdicionais = [],
+        contratacaoCliente = false,
+        aceitePoliticaHospedagem,
     } = params;
 
     if (!suites?.length) {
@@ -1288,6 +1302,10 @@ export async function checkoutHospedagem(params: {
     // Site (origem online): janela oficial, data e capacidade.
     // Recepção / Hospedin / internos: não aplicam essas validações.
     const isReservaSite = origem === 'online';
+    exigirAceitePoliticaCheckoutCliente(
+        contratacaoCliente === true,
+        aceitePoliticaHospedagem
+    );
     if (isReservaSite) {
         validarHorarioCheckinHospedagem(checkin);
         validarHorarioCheckoutHospedagem(checkout);
@@ -1525,6 +1543,11 @@ export async function checkoutHospedagem(params: {
                     ? calcularExpiraEmLinkPagamento(agora)
                     : null,
                 linkPagamentoEnviadoEm: null,
+                ...camposAceitePoliticaParaCreateCliente(
+                    contratacaoCliente === true,
+                    aceitePoliticaHospedagem,
+                    agora
+                ),
             },
             { transaction: t }
         );
@@ -2694,10 +2717,16 @@ export async function salvarHospedesReservaPublicaPorToken(
     const hospedagem = await carregarReservaHospedagemPorTokenPagamento(token);
     await assertReservaEditavelPorLink(hospedagem);
     assertUsuarioDonoReservaPublica(hospedagem, idUsuarioJwt);
+    exigirAceitePoliticaReservaPublica(body);
 
     const suitesDb = hospedagem.ReservaSuite ?? [];
     const suitesBody = (body as { suites?: unknown })?.suites;
     const updates = prepararAtualizacaoHospedesReservaPublica(suitesDb, suitesBody);
+    const agoraAceite = new Date();
+    const camposAceite = camposAceitePoliticaParaUpdateLink(
+        agoraAceite,
+        Boolean(hospedagem.aceitePoliticaHospedagem)
+    );
 
     await connection.transaction(async (t: Transaction) => {
         for (const update of updates) {
@@ -2711,6 +2740,12 @@ export async function salvarHospedesReservaPublicaPorToken(
                     transaction: t,
                 }
             );
+        }
+        if (Object.keys(camposAceite).length > 0) {
+            await ReservaHospedagem.update(camposAceite, {
+                where: { id: hospedagem.id },
+                transaction: t,
+            });
         }
     });
 

@@ -181,6 +181,19 @@ class ReservaHospedagem extends sequelize_1.Model {
                 type: sequelize_1.DataTypes.TEXT,
                 allowNull: true,
             },
+            aceitePoliticaHospedagem: {
+                type: sequelize_1.DataTypes.BOOLEAN,
+                allowNull: false,
+                defaultValue: false,
+            },
+            dataAceitePoliticaHospedagem: {
+                type: sequelize_1.DataTypes.DATE,
+                allowNull: true,
+            },
+            versaoPoliticaHospedagem: {
+                type: sequelize_1.DataTypes.STRING(32),
+                allowNull: true,
+            },
         }, {
             sequelize,
             modelName: 'ReservaHospedagem',

@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 const customError_1 = require("../utils/customError");
 const reservaSuiteService_1 = require("../services/reservaSuiteService");
+const hospedagemPoliticaAceitePolicy_1 = require("../services/hospedagemPoliticaAceitePolicy");
 const minhasReservasService_1 = require("../services/minhasReservasService");
 const hospedagemCancelamentoClienteService_1 = require("../services/hospedagemCancelamentoClienteService");
 const hospedagemRemarcacaoClienteService_1 = require("../services/hospedagemRemarcacaoClienteService");
@@ -56,12 +57,16 @@ module.exports = {
             if (checkinDate >= checkoutDate) {
                 throw new customError_1.CustomError('check-out deve ser após o check-in.', 400, '');
             }
+            const contratacaoCliente = (0, hospedagemPoliticaAceitePolicy_1.ehContratacaoClienteCheckoutSite)(Number(idUsuarioFinal), req.user?.id);
+            const aceitePoliticaHospedagem = req.body?.aceitePoliticaHospedagem === true;
             const resultado = await (0, reservaSuiteService_1.checkoutHospedagem)({
                 idEvento: Number(idEvento),
                 idUsuario: Number(idUsuarioFinal),
                 checkin: checkinDate,
                 checkout: checkoutDate,
                 suites,
+                contratacaoCliente,
+                aceitePoliticaHospedagem,
             });
             return res.status(201).json({ data: resultado });
         }

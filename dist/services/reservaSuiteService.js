@@ -70,6 +70,7 @@ const CupomPromocional_1 = require("../models/CupomPromocional");
 const PagamentoHospedagem_1 = require("../models/PagamentoHospedagem");
 const Usuario_1 = require("../models/Usuario");
 const customError_1 = require("../utils/customError");
+const hospedagemPoliticaAceitePolicy_1 = require("./hospedagemPoliticaAceitePolicy");
 const jwtUtils_1 = require("../utils/jwtUtils");
 const hospedagemDescontoRecepcao_1 = require("../utils/hospedagemDescontoRecepcao");
 const hospedagemPagamentoRecepcao_1 = require("../utils/hospedagemPagamentoRecepcao");
@@ -825,7 +826,7 @@ async function listarSuitesDisponiveis(params) {
     };
 }
 async function checkoutHospedagem(params) {
-    const { idEvento, idUsuario, checkin, checkout, suites, origem = 'online', enviarParaCliente = false, observacoes, idUsuarioOperador, pagamento = null, taxasAdicionais = [], } = params;
+    const { idEvento, idUsuario, checkin, checkout, suites, origem = 'online', enviarParaCliente = false, observacoes, idUsuarioOperador, pagamento = null, taxasAdicionais = [], contratacaoCliente = false, aceitePoliticaHospedagem, } = params;
     if (!suites?.length) {
         throw new customError_1.CustomError('Informe ao menos uma suíte no checkout.', 400, '');
     }
@@ -847,6 +848,7 @@ async function checkoutHospedagem(params) {
     // Site (origem online): janela oficial, data e capacidade.
     // Recepção / Hospedin / internos: não aplicam essas validações.
     const isReservaSite = origem === 'online';
+    (0, hospedagemPoliticaAceitePolicy_1.exigirAceitePoliticaCheckoutCliente)(contratacaoCliente === true, aceitePoliticaHospedagem);
     if (isReservaSite) {
         (0, reservaSuiteUtils_1.validarHorarioCheckinHospedagem)(checkin);
         (0, reservaSuiteUtils_1.validarHorarioCheckoutHospedagem)(checkout);
@@ -1007,6 +1009,7 @@ async function checkoutHospedagem(params) {
                 ? (0, reservaHospedagemExpiracaoUtils_1.calcularExpiraEmLinkPagamento)(agora)
                 : null,
             linkPagamentoEnviadoEm: null,
+            ...(0, hospedagemPoliticaAceitePolicy_1.camposAceitePoliticaParaCreateCliente)(contratacaoCliente === true, aceitePoliticaHospedagem, agora),
         }, { transaction: t });
         const itens = [];
         for (const suite of suitesComTotais) {
@@ -1737,9 +1740,12 @@ async function salvarHospedesReservaPublicaPorToken(token, body, idUsuarioJwt) {
     const hospedagem = await carregarReservaHospedagemPorTokenPagamento(token);
     await assertReservaEditavelPorLink(hospedagem);
     assertUsuarioDonoReservaPublica(hospedagem, idUsuarioJwt);
+    (0, hospedagemPoliticaAceitePolicy_1.exigirAceitePoliticaReservaPublica)(body);
     const suitesDb = hospedagem.ReservaSuite ?? [];
     const suitesBody = body?.suites;
     const updates = prepararAtualizacaoHospedesReservaPublica(suitesDb, suitesBody);
+    const agoraAceite = new Date();
+    const camposAceite = (0, hospedagemPoliticaAceitePolicy_1.camposAceitePoliticaParaUpdateLink)(agoraAceite, Boolean(hospedagem.aceitePoliticaHospedagem));
     await database_1.default.transaction(async (t) => {
         for (const update of updates) {
             await ReservaHospede_1.ReservaHospede.update({
@@ -1747,6 +1753,12 @@ async function salvarHospedesReservaPublicaPorToken(token, body, idUsuarioJwt) {
                 dataNascimento: update.dataNascimento,
             }, {
                 where: { id: update.id },
+                transaction: t,
+            });
+        }
+        if (Object.keys(camposAceite).length > 0) {
+            await ReservaHospedagem_1.ReservaHospedagem.update(camposAceite, {
+                where: { id: hospedagem.id },
                 transaction: t,
             });
         }
