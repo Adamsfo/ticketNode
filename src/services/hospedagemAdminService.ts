@@ -176,6 +176,9 @@ function resolverOrigemReserva(
     if (reserva.origemReserva === 'ATENDENTE') {
         return 'ATENDENTE';
     }
+    if (raw === 'CLIENTE') {
+        return 'CLIENTE';
+    }
     if (
         temPagamentoHospedagem ||
         Number(reserva.idUsuarioCriacao ?? 0) > 0 ||
