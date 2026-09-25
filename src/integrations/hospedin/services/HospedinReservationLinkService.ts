@@ -1,8 +1,9 @@
 import type { HospedinReservation } from '../../../models/HospedinReservation';
 import {
+    extractHospedinPlaceId,
     extractHospedinSearchableCode,
-    findReservaHospedagemByHospedinIdentifiers,
     reservaMatchesHospedinExternalIds,
+    resolveHospedinReservaHospedagemMatch,
     type ExternalReservationMatch,
 } from './ReservationExternalMatchService';
 
@@ -44,6 +45,7 @@ export async function resolveExistingReservationLink(input: {
         input.payload ??
         (input.staging ? readPayload(input.staging) : null);
     const searchableCode = extractHospedinSearchableCode(payload);
+    const placeId = extractHospedinPlaceId(payload);
 
     if (linkedId != null) {
         const { ReservaHospedagem } = await import(
@@ -74,19 +76,37 @@ export async function resolveExistingReservationLink(input: {
                     linkOnly: false,
                 };
             }
+
+            const suiteOutcome = await resolveHospedinReservaHospedagemMatch({
+                reservationId: input.reservationId,
+                searchableCode,
+                placeId,
+            });
+            if (
+                suiteOutcome.status === 'matched' &&
+                suiteOutcome.match.idReservaHospedagem === linkedId
+            ) {
+                const linkOnly = origem !== 'HOSPEDIN';
+                return {
+                    ...suiteOutcome.match,
+                    linkOnly,
+                };
+            }
         }
         return null;
     }
 
-    const match = await findReservaHospedagemByHospedinIdentifiers({
+    const outcome = await resolveHospedinReservaHospedagemMatch({
         reservationId: input.reservationId,
         searchableCode,
+        placeId,
     });
 
-    if (!match) {
+    if (outcome.status !== 'matched') {
         return null;
     }
 
+    const match = outcome.match;
     const origem = String(match.origemReserva || '').toUpperCase();
     return {
         ...match,

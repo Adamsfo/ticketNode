@@ -38,9 +38,11 @@ import {
 } from '../../core/syncErrorClassification';
 import { recordEntitySyncEvent } from '../../core/EntitySyncEventService';
 import {
+    extractHospedinPlaceId,
     extractHospedinSearchableCode,
-    findReservaHospedagemByHospedinIdentifiers,
     reservaMatchesHospedinExternalIds,
+    resolveHospedinReservaHospedagemMatch,
+    type HospedinReservaHospedagemMatchOutcome,
 } from './ReservationExternalMatchService';
 
 type ValidationContext = {
@@ -463,6 +465,61 @@ export class HospedinReservationValidationService {
         };
     }
 
+    private validationStepFromHospedinMatchOutcome(
+        outcome: HospedinReservaHospedagemMatchOutcome,
+        started: number
+    ): ValidationStep | null {
+        if (outcome.status === 'not_found') {
+            return null;
+        }
+        if (outcome.status === 'matched') {
+            const match = outcome.match;
+            const origem = String(match.origemReserva || '').toUpperCase();
+            if (origem === 'HOSPEDIN') {
+                return {
+                    rule: 'validateExistingReservation',
+                    success: true,
+                    message: `Reserva Jango #${match.idReservaHospedagem} encontrada por ${match.matchedBy} — candidato a UPDATE.`,
+                    durationMs: Date.now() - started,
+                    implemented: true,
+                    code: 'ALREADY_IMPORTED',
+                    internalEntityId: match.idReservaHospedagem,
+                };
+            }
+            return {
+                rule: 'validateExistingReservation',
+                success: true,
+                message: `Reserva Jango #${match.idReservaHospedagem} encontrada por ${match.matchedBy} (origem=${match.origemReserva}) — vincular sem CREATE.`,
+                durationMs: Date.now() - started,
+                implemented: true,
+                code: 'LINKED_EXISTING',
+                internalEntityId: match.idReservaHospedagem,
+            };
+        }
+
+        const codeByStatus: Record<
+            Exclude<
+                HospedinReservaHospedagemMatchOutcome['status'],
+                'matched' | 'not_found'
+            >,
+            string
+        > = {
+            ambiguous_suite_id: 'DUPLICATE_HOSPEDIN_SUITE_ID',
+            orphan_suite: 'ORPHAN_RESERVA_SUITE',
+            place_mismatch: 'HOSPEDIN_SUITE_PLACE_MISMATCH',
+        };
+
+        const status = outcome.status as keyof typeof codeByStatus;
+        return {
+            rule: 'validateExistingReservation',
+            success: false,
+            message: outcome.message,
+            durationMs: Date.now() - started,
+            implemented: true,
+            code: codeByStatus[status],
+        };
+    }
+
     async validateExistingReservation(
         ctx: ValidationContext
     ): Promise<ValidationStep> {
@@ -519,6 +576,38 @@ export class HospedinReservationValidationService {
                     };
                 }
 
+                const searchableCodeLinked =
+                    extractHospedinSearchableCode(ctx.payload);
+                const placeIdLinked = extractHospedinPlaceId(ctx.payload);
+                const suiteOutcomeLinked =
+                    await resolveHospedinReservaHospedagemMatch({
+                        reservationId: ctx.reservationId,
+                        searchableCode: searchableCodeLinked,
+                        placeId: placeIdLinked,
+                    });
+                if (
+                    suiteOutcomeLinked.status === 'matched' &&
+                    suiteOutcomeLinked.match.idReservaHospedagem ===
+                        internalId
+                ) {
+                    return {
+                        rule: 'validateExistingReservation',
+                        success: true,
+                        message: `Reserva Jango #${internalId} (${origem}) vinculada por ${suiteOutcomeLinked.match.matchedBy} — sem CREATE/UPDATE.`,
+                        durationMs: Date.now() - started,
+                        implemented: true,
+                        code: 'LINKED_EXISTING',
+                        internalEntityId: internalId,
+                    };
+                }
+                const failedLinked = this.validationStepFromHospedinMatchOutcome(
+                    suiteOutcomeLinked,
+                    started
+                );
+                if (failedLinked && !failedLinked.success) {
+                    return failedLinked;
+                }
+
                 return {
                     rule: 'validateExistingReservation',
                     success: false,
@@ -541,34 +630,19 @@ export class HospedinReservationValidationService {
         }
 
         const searchableCode = extractHospedinSearchableCode(ctx.payload);
-        const externalMatch = await findReservaHospedagemByHospedinIdentifiers({
+        const placeId = extractHospedinPlaceId(ctx.payload);
+        const matchOutcome = await resolveHospedinReservaHospedagemMatch({
             reservationId: ctx.reservationId,
             searchableCode,
+            placeId,
         });
 
-        if (externalMatch) {
-            const origem = String(externalMatch.origemReserva || '').toUpperCase();
-            if (origem === 'HOSPEDIN') {
-                return {
-                    rule: 'validateExistingReservation',
-                    success: true,
-                    message: `Reserva Jango #${externalMatch.idReservaHospedagem} encontrada por ${externalMatch.matchedBy} — candidato a UPDATE.`,
-                    durationMs: Date.now() - started,
-                    implemented: true,
-                    code: 'ALREADY_IMPORTED',
-                    internalEntityId: externalMatch.idReservaHospedagem,
-                };
-            }
-
-            return {
-                rule: 'validateExistingReservation',
-                success: true,
-                message: `Reserva Jango #${externalMatch.idReservaHospedagem} encontrada por ${externalMatch.matchedBy} (origem=${externalMatch.origemReserva}) — vincular sem CREATE.`,
-                durationMs: Date.now() - started,
-                implemented: true,
-                code: 'LINKED_EXISTING',
-                internalEntityId: externalMatch.idReservaHospedagem,
-            };
+        const matchedStep = this.validationStepFromHospedinMatchOutcome(
+            matchOutcome,
+            started
+        );
+        if (matchedStep) {
+            return matchedStep;
         }
 
         return {

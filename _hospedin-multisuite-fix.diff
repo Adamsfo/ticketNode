@@ -1,0 +1,740 @@
+﻿diff --git a/src/integrations/hospedin/services/HospedinReservationExternalLink.test.ts b/src/integrations/hospedin/services/HospedinReservationExternalLink.test.ts
+index bc9ed12..0acc988 100644
+--- a/src/integrations/hospedin/services/HospedinReservationExternalLink.test.ts
++++ b/src/integrations/hospedin/services/HospedinReservationExternalLink.test.ts
+@@ -7,9 +7,12 @@
+ import assert from 'node:assert/strict';
+ import { afterEach, describe, it, mock } from 'node:test';
+ import { ReservaHospedagem } from '../../../models/ReservaHospedagem';
++import { ReservaSuite } from '../../../models/ReservaSuite';
++import { placeSuiteResolver } from './PlaceSuiteResolver';
+ import {
+     findReservaHospedagemByHospedinIdentifiers,
+     reservaMatchesHospedinExternalIds,
++    resolveHospedinReservaHospedagemMatch,
+ } from './ReservationExternalMatchService';
+ import { resolveExistingReservationLink } from './HospedinReservationLinkService';
+ 
+@@ -20,6 +23,13 @@ type RowLike = {
+     codigoExterno?: string | null;
+ };
+ 
++type SuiteRowLike = {
++    id: number;
++    idReservaHospedagem: number;
++    idEventoSuite: number;
++    hospedinReservationId: string;
++};
++
+ function stubFindAll(rows: RowLike[]) {
+     return mock.method(ReservaHospedagem, 'findAll', async () =>
+         rows.map((row) => ({
+@@ -31,6 +41,99 @@ function stubFindAll(rows: RowLike[]) {
+     );
+ }
+ 
++function stubSuiteFindAll(rows: SuiteRowLike[]) {
++    return mock.method(ReservaSuite, 'findAll', async () =>
++        rows.map((row) => ({
++            id: row.id,
++            idReservaHospedagem: row.idReservaHospedagem,
++            idEventoSuite: row.idEventoSuite,
++            hospedinReservationId: row.hospedinReservationId,
++        }))
++    );
++}
++
++function stubHospedagemFindByPk(
++    row: RowLike | null,
++    origemOnly = false
++) {
++    return mock.method(ReservaHospedagem, 'findByPk', async () => {
++        if (!row) return null;
++        if (origemOnly) {
++            return {
++                id: row.id,
++                origemReserva: row.origemReserva ?? 'ATENDENTE',
++            };
++        }
++        return {
++            id: row.id,
++            origemReserva: row.origemReserva ?? 'ATENDENTE',
++            idExterno: row.idExterno ?? null,
++            codigoExterno: row.codigoExterno ?? null,
++        };
++    });
++}
++
++function stubPlaceResolver(idEventoSuite: number, placeId = 9001) {
++    return mock.method(placeSuiteResolver, 'resolveInternalSuite', async () => ({
++        found: true as const,
++        status: 'LINKED' as const,
++        placeId,
++        idEventoSuite,
++        idEvento: 1,
++        mapId: 1,
++        mappedAt: new Date(),
++        mappedBy: null,
++    }));
++}
++
++/** Fixture multi-su├¡te #168 (IDs Hospedin por linha de ReservaSuite). */
++const MULTI_SUITE = {
++    parentId: 168,
++    origem: 'ATENDENTE',
++    lines: [
++        {
++            reservationId: '30665539',
++            suiteLineId: 170,
++            idEventoSuite: 5,
++            placeId: 501,
++        },
++        {
++            reservationId: '30665540',
++            suiteLineId: 171,
++            idEventoSuite: 6,
++            placeId: 502,
++        },
++        {
++            reservationId: '30665541',
++            suiteLineId: 172,
++            idEventoSuite: 7,
++            placeId: 503,
++        },
++    ],
++} as const;
++
++function setupMultiSuiteLine(
++    line: (typeof MULTI_SUITE.lines)[number]
++) {
++    stubFindAll([]);
++    stubSuiteFindAll([
++        {
++            id: line.suiteLineId,
++            idReservaHospedagem: MULTI_SUITE.parentId,
++            idEventoSuite: line.idEventoSuite,
++            hospedinReservationId: line.reservationId,
++        },
++    ]);
++    stubHospedagemFindByPk(
++        {
++            id: MULTI_SUITE.parentId,
++            origemReserva: MULTI_SUITE.origem,
++        },
++        true
++    );
++    stubPlaceResolver(line.idEventoSuite, line.placeId);
++}
++
+ describe('findReservaHospedagemByHospedinIdentifiers', () => {
+     afterEach(() => {
+         mock.restoreAll();
+@@ -143,6 +246,142 @@ describe('reservaMatchesHospedinExternalIds', () => {
+     });
+ });
+ 
++describe('resolveHospedinReservaHospedagemMatch ΓÇö multi-su├¡te ReservaSuite', () => {
++    afterEach(() => {
++        mock.restoreAll();
++    });
++
++    for (const line of MULTI_SUITE.lines) {
++        it(`Teste ${line.reservationId}: LINKED_EXISTING via ReservaSuite ${line.suiteLineId} ΓåÆ pai ${MULTI_SUITE.parentId}`, async () => {
++            setupMultiSuiteLine(line);
++
++            const outcome = await resolveHospedinReservaHospedagemMatch({
++                reservationId: line.reservationId,
++                placeId: line.placeId,
++            });
++
++            assert.equal(outcome.status, 'matched');
++            if (outcome.status !== 'matched') return;
++            assert.equal(outcome.match.idReservaHospedagem, MULTI_SUITE.parentId);
++            assert.equal(outcome.match.matchedBy, 'hospedin_reservation_id');
++            assert.equal(outcome.match.origemReserva, 'ATENDENTE');
++        });
++    }
++
++    it('Teste 4: ID inexistente no cabe├ºalho e ReservaSuite ΓåÆ not_found', async () => {
++        stubFindAll([]);
++        stubSuiteFindAll([]);
++
++        const outcome = await resolveHospedinReservaHospedagemMatch({
++            reservationId: 99988877,
++            placeId: 501,
++        });
++
++        assert.equal(outcome.status, 'not_found');
++    });
++
++    it('Teste 5: place_id incompat├¡vel com su├¡te da linha ΓåÆ place_mismatch', async () => {
++        setupMultiSuiteLine(MULTI_SUITE.lines[0]);
++        mock.restoreAll();
++        stubFindAll([]);
++        stubSuiteFindAll([
++            {
++                id: 170,
++                idReservaHospedagem: 168,
++                idEventoSuite: 5,
++                hospedinReservationId: '30665539',
++            },
++        ]);
++        stubHospedagemFindByPk({ id: 168, origemReserva: 'ATENDENTE' }, true);
++        mock.method(placeSuiteResolver, 'resolveInternalSuite', async () => ({
++            found: true as const,
++            status: 'LINKED' as const,
++            placeId: 999,
++            idEventoSuite: 99,
++            idEvento: 1,
++            mapId: 1,
++            mappedAt: new Date(),
++            mappedBy: null,
++        }));
++
++        const outcome = await resolveHospedinReservaHospedagemMatch({
++            reservationId: '30665539',
++            placeId: 999,
++        });
++
++        assert.equal(outcome.status, 'place_mismatch');
++    });
++
++    it('Teste 6: hospedin_reservation_id duplicado em duas ReservaSuite ΓåÆ ambiguous_suite_id', async () => {
++        stubFindAll([]);
++        stubSuiteFindAll([
++            {
++                id: 170,
++                idReservaHospedagem: 168,
++                idEventoSuite: 5,
++                hospedinReservationId: '30665539',
++            },
++            {
++                id: 180,
++                idReservaHospedagem: 168,
++                idEventoSuite: 6,
++                hospedinReservationId: '30665539',
++            },
++        ]);
++
++        const outcome = await resolveHospedinReservaHospedagemMatch({
++            reservationId: '30665539',
++            placeId: 501,
++        });
++
++        assert.equal(outcome.status, 'ambiguous_suite_id');
++    });
++
++    it('Teste 7: ReservaSuite sem pai v├ílido ΓåÆ orphan_suite', async () => {
++        stubFindAll([]);
++        stubSuiteFindAll([
++            {
++                id: 170,
++                idReservaHospedagem: 168,
++                idEventoSuite: 5,
++                hospedinReservationId: '30665539',
++            },
++        ]);
++        stubHospedagemFindByPk(null, true);
++
++        const outcome = await resolveHospedinReservaHospedagemMatch({
++            reservationId: '30665539',
++            placeId: 501,
++        });
++
++        assert.equal(outcome.status, 'orphan_suite');
++    });
++
++    it('Teste 8: match 1:1 no cabe├ºalho preservado (prioridade sobre ReservaSuite)', async () => {
++        stubFindAll([
++            {
++                id: 168,
++                origemReserva: 'ATENDENTE',
++                idExterno: '30665538',
++                codigoExterno: 'HO:001414',
++            },
++        ]);
++        const suiteFind = stubSuiteFindAll([]);
++
++        const outcome = await resolveHospedinReservaHospedagemMatch({
++            reservationId: '30665538',
++            searchableCode: 'HO:001414',
++            placeId: 500,
++        });
++
++        assert.equal(outcome.status, 'matched');
++        if (outcome.status !== 'matched') return;
++        assert.equal(outcome.match.matchedBy, 'id_externo');
++        assert.equal(outcome.match.idReservaHospedagem, 168);
++        assert.equal(suiteFind.mock.callCount(), 0);
++    });
++});
++
+ describe('resolveExistingReservationLink', () => {
+     afterEach(() => {
+         mock.restoreAll();
+@@ -179,6 +418,7 @@ describe('resolveExistingReservationLink', () => {
+             idExterno: 'OTHER',
+             codigoExterno: 'HO:OTHER',
+         }));
++        stubSuiteFindAll([]);
+ 
+         const result = await resolveExistingReservationLink({
+             reservationId: 30319439,
+@@ -246,4 +486,47 @@ describe('resolveExistingReservationLink', () => {
+         assert.equal(result?.linkOnly, true);
+         assert.equal(result?.idReservaHospedagem, 50);
+     });
++
++    it('Teste 9: origem ATENDENTE multi-su├¡te via ReservaSuite ΓåÆ linkOnly true', async () => {
++        setupMultiSuiteLine(MULTI_SUITE.lines[0]);
++
++        const result = await resolveExistingReservationLink({
++            reservationId: 30665539,
++            payload: {
++                place_id: MULTI_SUITE.lines[0].placeId,
++                searchable_code: 'HO:001414',
++            },
++        });
++
++        assert.ok(result);
++        assert.equal(result?.linkOnly, true);
++        assert.equal(result?.idReservaHospedagem, 168);
++        assert.equal(result?.matchedBy, 'hospedin_reservation_id');
++    });
++
++    it('Teste 10: paridade resolveHospedinReservaHospedagemMatch e resolveExistingReservationLink', async () => {
++        for (const line of MULTI_SUITE.lines) {
++            mock.restoreAll();
++            setupMultiSuiteLine(line);
++
++            const outcome = await resolveHospedinReservaHospedagemMatch({
++                reservationId: line.reservationId,
++                placeId: line.placeId,
++            });
++            const link = await resolveExistingReservationLink({
++                reservationId: Number(line.reservationId),
++                payload: { place_id: line.placeId },
++            });
++
++            assert.equal(outcome.status, 'matched');
++            assert.ok(link);
++            if (outcome.status !== 'matched' || !link) continue;
++            assert.equal(
++                link.idReservaHospedagem,
++                outcome.match.idReservaHospedagem
++            );
++            assert.equal(link.matchedBy, outcome.match.matchedBy);
++            assert.equal(link.linkOnly, true);
++        }
++    });
+ });
+diff --git a/src/integrations/hospedin/services/HospedinReservationLinkService.ts b/src/integrations/hospedin/services/HospedinReservationLinkService.ts
+index c9588f1..5d7278b 100644
+--- a/src/integrations/hospedin/services/HospedinReservationLinkService.ts
++++ b/src/integrations/hospedin/services/HospedinReservationLinkService.ts
+@@ -1,8 +1,9 @@
+ import type { HospedinReservation } from '../../../models/HospedinReservation';
+ import {
++    extractHospedinPlaceId,
+     extractHospedinSearchableCode,
+-    findReservaHospedagemByHospedinIdentifiers,
+     reservaMatchesHospedinExternalIds,
++    resolveHospedinReservaHospedagemMatch,
+     type ExternalReservationMatch,
+ } from './ReservationExternalMatchService';
+ 
+@@ -44,6 +45,7 @@ export async function resolveExistingReservationLink(input: {
+         input.payload ??
+         (input.staging ? readPayload(input.staging) : null);
+     const searchableCode = extractHospedinSearchableCode(payload);
++    const placeId = extractHospedinPlaceId(payload);
+ 
+     if (linkedId != null) {
+         const { ReservaHospedagem } = await import(
+@@ -74,19 +76,37 @@ export async function resolveExistingReservationLink(input: {
+                     linkOnly: false,
+                 };
+             }
++
++            const suiteOutcome = await resolveHospedinReservaHospedagemMatch({
++                reservationId: input.reservationId,
++                searchableCode,
++                placeId,
++            });
++            if (
++                suiteOutcome.status === 'matched' &&
++                suiteOutcome.match.idReservaHospedagem === linkedId
++            ) {
++                const linkOnly = origem !== 'HOSPEDIN';
++                return {
++                    ...suiteOutcome.match,
++                    linkOnly,
++                };
++            }
+         }
+         return null;
+     }
+ 
+-    const match = await findReservaHospedagemByHospedinIdentifiers({
++    const outcome = await resolveHospedinReservaHospedagemMatch({
+         reservationId: input.reservationId,
+         searchableCode,
++        placeId,
+     });
+ 
+-    if (!match) {
++    if (outcome.status !== 'matched') {
+         return null;
+     }
+ 
++    const match = outcome.match;
+     const origem = String(match.origemReserva || '').toUpperCase();
+     return {
+         ...match,
+diff --git a/src/integrations/hospedin/services/HospedinReservationValidationService.ts b/src/integrations/hospedin/services/HospedinReservationValidationService.ts
+index 2bc7e61..576a8be 100644
+--- a/src/integrations/hospedin/services/HospedinReservationValidationService.ts
++++ b/src/integrations/hospedin/services/HospedinReservationValidationService.ts
+@@ -38,9 +38,11 @@ import {
+ } from '../../core/syncErrorClassification';
+ import { recordEntitySyncEvent } from '../../core/EntitySyncEventService';
+ import {
++    extractHospedinPlaceId,
+     extractHospedinSearchableCode,
+-    findReservaHospedagemByHospedinIdentifiers,
+     reservaMatchesHospedinExternalIds,
++    resolveHospedinReservaHospedagemMatch,
++    type HospedinReservaHospedagemMatchOutcome,
+ } from './ReservationExternalMatchService';
+ 
+ type ValidationContext = {
+@@ -463,6 +465,61 @@ export class HospedinReservationValidationService {
+         };
+     }
+ 
++    private validationStepFromHospedinMatchOutcome(
++        outcome: HospedinReservaHospedagemMatchOutcome,
++        started: number
++    ): ValidationStep | null {
++        if (outcome.status === 'not_found') {
++            return null;
++        }
++        if (outcome.status === 'matched') {
++            const match = outcome.match;
++            const origem = String(match.origemReserva || '').toUpperCase();
++            if (origem === 'HOSPEDIN') {
++                return {
++                    rule: 'validateExistingReservation',
++                    success: true,
++                    message: `Reserva Jango #${match.idReservaHospedagem} encontrada por ${match.matchedBy} ΓÇö candidato a UPDATE.`,
++                    durationMs: Date.now() - started,
++                    implemented: true,
++                    code: 'ALREADY_IMPORTED',
++                    internalEntityId: match.idReservaHospedagem,
++                };
++            }
++            return {
++                rule: 'validateExistingReservation',
++                success: true,
++                message: `Reserva Jango #${match.idReservaHospedagem} encontrada por ${match.matchedBy} (origem=${match.origemReserva}) ΓÇö vincular sem CREATE.`,
++                durationMs: Date.now() - started,
++                implemented: true,
++                code: 'LINKED_EXISTING',
++                internalEntityId: match.idReservaHospedagem,
++            };
++        }
++
++        const codeByStatus: Record<
++            Exclude<
++                HospedinReservaHospedagemMatchOutcome['status'],
++                'matched' | 'not_found'
++            >,
++            string
++        > = {
++            ambiguous_suite_id: 'DUPLICATE_HOSPEDIN_SUITE_ID',
++            orphan_suite: 'ORPHAN_RESERVA_SUITE',
++            place_mismatch: 'HOSPEDIN_SUITE_PLACE_MISMATCH',
++        };
++
++        const status = outcome.status as keyof typeof codeByStatus;
++        return {
++            rule: 'validateExistingReservation',
++            success: false,
++            message: outcome.message,
++            durationMs: Date.now() - started,
++            implemented: true,
++            code: codeByStatus[status],
++        };
++    }
++
+     async validateExistingReservation(
+         ctx: ValidationContext
+     ): Promise<ValidationStep> {
+@@ -519,6 +576,38 @@ export class HospedinReservationValidationService {
+                     };
+                 }
+ 
++                const searchableCodeLinked =
++                    extractHospedinSearchableCode(ctx.payload);
++                const placeIdLinked = extractHospedinPlaceId(ctx.payload);
++                const suiteOutcomeLinked =
++                    await resolveHospedinReservaHospedagemMatch({
++                        reservationId: ctx.reservationId,
++                        searchableCode: searchableCodeLinked,
++                        placeId: placeIdLinked,
++                    });
++                if (
++                    suiteOutcomeLinked.status === 'matched' &&
++                    suiteOutcomeLinked.match.idReservaHospedagem ===
++                        internalId
++                ) {
++                    return {
++                        rule: 'validateExistingReservation',
++                        success: true,
++                        message: `Reserva Jango #${internalId} (${origem}) vinculada por ${suiteOutcomeLinked.match.matchedBy} ΓÇö sem CREATE/UPDATE.`,
++                        durationMs: Date.now() - started,
++                        implemented: true,
++                        code: 'LINKED_EXISTING',
++                        internalEntityId: internalId,
++                    };
++                }
++                const failedLinked = this.validationStepFromHospedinMatchOutcome(
++                    suiteOutcomeLinked,
++                    started
++                );
++                if (failedLinked && !failedLinked.success) {
++                    return failedLinked;
++                }
++
+                 return {
+                     rule: 'validateExistingReservation',
+                     success: false,
+@@ -541,34 +630,19 @@ export class HospedinReservationValidationService {
+         }
+ 
+         const searchableCode = extractHospedinSearchableCode(ctx.payload);
+-        const externalMatch = await findReservaHospedagemByHospedinIdentifiers({
++        const placeId = extractHospedinPlaceId(ctx.payload);
++        const matchOutcome = await resolveHospedinReservaHospedagemMatch({
+             reservationId: ctx.reservationId,
+             searchableCode,
++            placeId,
+         });
+ 
+-        if (externalMatch) {
+-            const origem = String(externalMatch.origemReserva || '').toUpperCase();
+-            if (origem === 'HOSPEDIN') {
+-                return {
+-                    rule: 'validateExistingReservation',
+-                    success: true,
+-                    message: `Reserva Jango #${externalMatch.idReservaHospedagem} encontrada por ${externalMatch.matchedBy} ΓÇö candidato a UPDATE.`,
+-                    durationMs: Date.now() - started,
+-                    implemented: true,
+-                    code: 'ALREADY_IMPORTED',
+-                    internalEntityId: externalMatch.idReservaHospedagem,
+-                };
+-            }
+-
+-            return {
+-                rule: 'validateExistingReservation',
+-                success: true,
+-                message: `Reserva Jango #${externalMatch.idReservaHospedagem} encontrada por ${externalMatch.matchedBy} (origem=${externalMatch.origemReserva}) ΓÇö vincular sem CREATE.`,
+-                durationMs: Date.now() - started,
+-                implemented: true,
+-                code: 'LINKED_EXISTING',
+-                internalEntityId: externalMatch.idReservaHospedagem,
+-            };
++        const matchedStep = this.validationStepFromHospedinMatchOutcome(
++            matchOutcome,
++            started
++        );
++        if (matchedStep) {
++            return matchedStep;
+         }
+ 
+         return {
+diff --git a/src/integrations/hospedin/services/ReservationExternalMatchService.ts b/src/integrations/hospedin/services/ReservationExternalMatchService.ts
+index 8f7a82c..6d0e9f8 100644
+--- a/src/integrations/hospedin/services/ReservationExternalMatchService.ts
++++ b/src/integrations/hospedin/services/ReservationExternalMatchService.ts
+@@ -1,5 +1,6 @@
+ import { Op } from 'sequelize';
+ import { ReservaHospedagem } from '../../../models/ReservaHospedagem';
++import { placeSuiteResolver } from './PlaceSuiteResolver';
+ 
+ export type HospedinExternalIdentifiers = {
+     reservationId: string | number;
+@@ -9,18 +10,38 @@ export type HospedinExternalIdentifiers = {
+ export type ExternalReservationMatch = {
+     idReservaHospedagem: number;
+     origemReserva: string;
+-    matchedBy: 'id_externo' | 'codigo_externo';
++    matchedBy: 'id_externo' | 'codigo_externo' | 'hospedin_reservation_id';
+ };
+ 
++export type HospedinReservaHospedagemMatchInput = HospedinExternalIdentifiers & {
++    /** Hospedin staging place_id ΓÇö obrigat├│rio para validar fallback por ReservaSuite. */
++    placeId?: number | null;
++};
++
++export type HospedinReservaHospedagemMatchOutcome =
++    | { status: 'matched'; match: ExternalReservationMatch }
++    | { status: 'not_found' }
++    | {
++          status: 'ambiguous_suite_id';
++          message: string;
++      }
++    | {
++          status: 'orphan_suite';
++          message: string;
++      }
++    | {
++          status: 'place_mismatch';
++          message: string;
++      };
++
+ function normalizeExternalValue(value: unknown): string {
+     return String(value ?? '').trim();
+ }
+ 
+ /**
+- * Localiza ReservaHospedagem j├í existente pelos identificadores Hospedin.
+- * Prioridade: id_externo (reservation_id) > codigo_externo (searchable_code).
++ * Match apenas no cabe├ºalho ReservaHospedagem (id_externo / codigo_externo).
+  */
+-export async function findReservaHospedagemByHospedinIdentifiers(
++export async function findReservaHospedagemHeaderByHospedinIdentifiers(
+     input: HospedinExternalIdentifiers
+ ): Promise<ExternalReservationMatch | null> {
+     const reservationId = normalizeExternalValue(input.reservationId);
+@@ -79,6 +100,115 @@ export async function findReservaHospedagemByHospedinIdentifiers(
+     return null;
+ }
+ 
++/**
++ * Localiza ReservaHospedagem j├í existente pelos identificadores Hospedin (cabe├ºalho).
++ * Prioridade: id_externo (reservation_id) > codigo_externo (searchable_code).
++ * N├úo consulta ReservaSuite ΓÇö use {@link resolveHospedinReservaHospedagemMatch} no pipeline.
++ */
++export async function findReservaHospedagemByHospedinIdentifiers(
++    input: HospedinExternalIdentifiers
++): Promise<ExternalReservationMatch | null> {
++    return findReservaHospedagemHeaderByHospedinIdentifiers(input);
++}
++
++async function findReservaHospedagemByHospedinSuiteReservationId(
++    reservationId: string,
++    placeId: number | null | undefined
++): Promise<HospedinReservaHospedagemMatchOutcome> {
++    if (!reservationId) {
++        return { status: 'not_found' };
++    }
++
++    const { ReservaSuite } = await import('../../../models/ReservaSuite');
++    const lines = await ReservaSuite.findAll({
++        where: { hospedinReservationId: reservationId },
++        attributes: ['id', 'idEventoSuite', 'idReservaHospedagem'],
++        limit: 2,
++    });
++
++    if (lines.length === 0) {
++        return { status: 'not_found' };
++    }
++
++    if (lines.length > 1) {
++        return {
++            status: 'ambiguous_suite_id',
++            message: `hospedin_reservation_id=${reservationId} aparece em ${lines.length} ReservaSuite ΓÇö v├¡nculo amb├¡guo.`,
++        };
++    }
++
++    const line = lines[0];
++    const parentId = Number(line.idReservaHospedagem);
++    if (!Number.isFinite(parentId) || parentId <= 0) {
++        return {
++            status: 'orphan_suite',
++            message: `ReservaSuite id=${line.id} sem ReservaHospedagem pai v├ílida.`,
++        };
++    }
++
++    const hospedagem = await ReservaHospedagem.findByPk(parentId, {
++        attributes: ['id', 'origemReserva'],
++    });
++    if (!hospedagem) {
++        return {
++            status: 'orphan_suite',
++            message: `ReservaSuite id=${line.id} referencia ReservaHospedagem id=${parentId} inexistente.`,
++        };
++    }
++
++    const placeNum = placeId != null ? Number(placeId) : Number.NaN;
++    if (Number.isFinite(placeNum) && placeNum > 0) {
++        const resolved = await placeSuiteResolver.resolveInternalSuite(placeNum);
++        if (!resolved.found) {
++            return {
++                status: 'place_mismatch',
++                message: `place_id=${placeNum} n├úo mapeado para su├¡te interna ΓÇö n├úo vincular por ReservaSuite.`,
++            };
++        }
++        if (
++            Number(line.idEventoSuite) !== Number(resolved.idEventoSuite)
++        ) {
++            return {
++                status: 'place_mismatch',
++                message: `hospedin_reservation_id=${reservationId} pertence ├á EventoSuite.id=${line.idEventoSuite}, incompat├¡vel com place_id=${placeNum} ΓåÆ EventoSuite.id=${resolved.idEventoSuite}.`,
++            };
++        }
++    }
++
++    return {
++        status: 'matched',
++        match: {
++            idReservaHospedagem: parentId,
++            origemReserva: String(hospedagem.origemReserva || ''),
++            matchedBy: 'hospedin_reservation_id',
++        },
++    };
++}
++
++/**
++ * Identifica├º├úo centralizada: cabe├ºalho ReservaHospedagem primeiro; fallback ReservaSuite.hospedin_reservation_id.
++ */
++export async function resolveHospedinReservaHospedagemMatch(
++    input: HospedinReservaHospedagemMatchInput
++): Promise<HospedinReservaHospedagemMatchOutcome> {
++    const header = await findReservaHospedagemHeaderByHospedinIdentifiers(
++        input
++    );
++    if (header) {
++        return { status: 'matched', match: header };
++    }
++
++    const reservationId = normalizeExternalValue(input.reservationId);
++    if (!reservationId) {
++        return { status: 'not_found' };
++    }
++
++    return findReservaHospedagemByHospedinSuiteReservationId(
++        reservationId,
++        input.placeId
++    );
++}
++
+ export function extractHospedinSearchableCode(
+     payload: Record<string, unknown> | null | undefined
+ ): string | null {
+@@ -87,6 +217,14 @@ export function extractHospedinSearchableCode(
+     return code || null;
+ }
+ 
++export function extractHospedinPlaceId(
++    payload: Record<string, unknown> | null | undefined
++): number | null {
++    if (!payload) return null;
++    const id = Number(payload.place_id);
++    return Number.isFinite(id) && id > 0 ? id : null;
++}
++
+ /**
+  * Verifica se a ReservaHospedagem corresponde aos identificadores Hospedin informados.
+  */
