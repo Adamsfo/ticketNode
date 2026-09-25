@@ -91,6 +91,7 @@ export function avaliarOutboundReativacao(input: {
         outbound_status: string;
         desired_action: string;
         last_error: string | null;
+        error_code?: string | null;
         hospedin_reservation_id?: string | null;
     } | null;
     suites: Array<{ hospedinReservationId?: string | null }>;
@@ -128,11 +129,16 @@ export function avaliarOutboundReativacao(input: {
     if (
         input.outboundState?.outbound_status === HospedinOutboundStatus.ABORTED
     ) {
-        return {
-            ok: false,
-            message:
-                'A sincronização outbound desta reserva está abortada. Revise o Hospedin antes de reativar.',
-        };
+        const abortCode = String(
+            input.outboundState.error_code || ''
+        ).trim();
+        if (abortCode !== 'STATUS_TERMINAL') {
+            return {
+                ok: false,
+                message:
+                    'A sincronização outbound desta reserva está abortada. Revise o Hospedin antes de reativar.',
+            };
+        }
     }
 
     if (

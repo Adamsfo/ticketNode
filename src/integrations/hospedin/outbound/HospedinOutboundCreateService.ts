@@ -162,6 +162,20 @@ export class HospedinOutboundCreateService {
             };
         }
 
+        if (status === StatusReservaHospedagem.Expirada) {
+            const message = `Status ${status} não elegível para CREATE outbound.`;
+            await hospedinOutboundStateService.markAborted(stateId, {
+                errorMessage: message,
+                errorCode: 'STATUS_TERMINAL',
+            });
+            return {
+                outcome: 'aborted',
+                idReservaHospedagem: idReserva,
+                errorCode: 'STATUS_TERMINAL',
+                message,
+            };
+        }
+
         if (OUTBOUND_CREATE_TERMINAL_STATUSES.has(status)) {
             return this.failPermanent(stateId, idReserva, {
                 errorCode: 'STATUS_TERMINAL',

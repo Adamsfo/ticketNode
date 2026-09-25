@@ -10,6 +10,7 @@ import { hospedinOutboundCancelService } from './HospedinOutboundCancelService';
 import { hospedinOutboundCreateService } from './HospedinOutboundCreateService';
 import {
     enrichOutboundFailedReservations,
+    isOutboundExpiredTerminalBusinessSkip,
     isOutboundFailureOutcome,
     type OutboundFailureDraft,
     type OutboundFailedReservationDetail,
@@ -81,6 +82,9 @@ export class HospedinOutboundRunner {
                 message?: string | null;
             }
         ) => {
+            if (isOutboundExpiredTerminalBusinessSkip(result)) {
+                return;
+            }
             if (!isOutboundFailureOutcome(result.outcome)) {
                 return;
             }
@@ -183,6 +187,8 @@ export class HospedinOutboundRunner {
                     ) {
                         created += 1;
                     } else if (result.outcome === 'deferred') {
+                        skipped += 1;
+                    } else if (isOutboundExpiredTerminalBusinessSkip(result)) {
                         skipped += 1;
                     } else if (result.outcome === 'retry') {
                         failed += 1;

@@ -41,6 +41,16 @@ export function isOutboundFailureOutcome(outcome: string): boolean {
     );
 }
 
+/** Expirada no CREATE outbound — ABORTED + STATUS_TERMINAL (negócio, não falha técnica). */
+export function isOutboundExpiredTerminalBusinessSkip(input: {
+    outcome?: string | null;
+    errorCode?: string | null;
+}): boolean {
+    const normalized = String(input.outcome || '').trim().toLowerCase();
+    const errorCode = String(input.errorCode || '').trim();
+    return normalized === 'aborted' && errorCode === 'STATUS_TERMINAL';
+}
+
 export function parseHttpStatusFromErrorCode(
     errorCode: string | null | undefined
 ): number | null {

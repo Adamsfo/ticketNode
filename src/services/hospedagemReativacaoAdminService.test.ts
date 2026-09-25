@@ -230,7 +230,7 @@ describe('R-REACT-08 — multi-suíte (mensagens)', () => {
 });
 
 describe('R-REACT-09 — rollback (validações antes da transação)', () => {
-    it('bloqueia outbound abortado antes de qualquer alteração', () => {
+    it('bloqueia outbound abortado (CREATE_ABORTED) antes de qualquer alteração', () => {
         const resultado = avaliarOutboundReativacao({
             origemReserva: 'CLIENTE',
             eventoTipo: 'Pousada',
@@ -239,11 +239,30 @@ describe('R-REACT-09 — rollback (validações antes da transação)', () => {
                 outbound_status: HospedinOutboundStatus.ABORTED,
                 desired_action: 'CREATE',
                 last_error: 'abort',
+                error_code: 'CREATE_ABORTED',
                 hospedin_reservation_id: null,
             },
         });
 
         assert.equal(resultado.ok, false);
+    });
+
+    it('permite reativação com ABORTED + STATUS_TERMINAL (expirada outbound)', () => {
+        const resultado = avaliarOutboundReativacao({
+            origemReserva: 'CLIENTE',
+            eventoTipo: 'Pousada',
+            suites: [{ hospedinReservationId: null }],
+            outboundState: {
+                outbound_status: HospedinOutboundStatus.ABORTED,
+                desired_action: 'CREATE',
+                last_error:
+                    'Status Expirada não elegível para CREATE outbound.',
+                error_code: 'STATUS_TERMINAL',
+                hospedin_reservation_id: null,
+            },
+        });
+
+        assert.deepEqual(resultado, { ok: true, deveMarkDirty: true });
     });
 
     it('bloqueia transação inválida antes de alterar status', () => {

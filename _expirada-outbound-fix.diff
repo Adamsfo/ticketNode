@@ -1,0 +1,199 @@
+﻿diff --git a/src/integrations/hospedin/outbound/HospedinOutboundCancel.test.ts b/src/integrations/hospedin/outbound/HospedinOutboundCancel.test.ts
+index c8fe5c5..40a0716 100644
+--- a/src/integrations/hospedin/outbound/HospedinOutboundCancel.test.ts
++++ b/src/integrations/hospedin/outbound/HospedinOutboundCancel.test.ts
+@@ -139,13 +139,14 @@ describe('outboundEnqueueTestHelpers', () => {
+         );
+     });
+ 
+-    it('shouldSkipMarkDirty quando ABORTED', () => {
++    it('shouldSkipMarkDirty quando ABORTED (CREATE_ABORTED)', () => {
+         const hospedagem = {
+             status: StatusReservaHospedagem.Confirmada,
+         } as any;
+         const existing = {
+             outbound_status: HospedinOutboundStatus.ABORTED,
+             desired_action: HospedinOutboundDesiredAction.CANCEL,
++            error_code: 'CREATE_ABORTED',
+         } as any;
+         assert.equal(
+             outboundEnqueueTestHelpers.shouldSkipMarkDirty(hospedagem, existing),
+diff --git a/src/integrations/hospedin/outbound/HospedinOutboundCreateService.ts b/src/integrations/hospedin/outbound/HospedinOutboundCreateService.ts
+index 9a6379c..b248861 100644
+--- a/src/integrations/hospedin/outbound/HospedinOutboundCreateService.ts
++++ b/src/integrations/hospedin/outbound/HospedinOutboundCreateService.ts
+@@ -162,6 +162,20 @@ export class HospedinOutboundCreateService {
+             };
+         }
+ 
++        if (status === StatusReservaHospedagem.Expirada) {
++            const message = `Status ${status} n├úo eleg├¡vel para CREATE outbound.`;
++            await hospedinOutboundStateService.markAborted(stateId, {
++                errorMessage: message,
++                errorCode: 'STATUS_TERMINAL',
++            });
++            return {
++                outcome: 'aborted',
++                idReservaHospedagem: idReserva,
++                errorCode: 'STATUS_TERMINAL',
++                message,
++            };
++        }
++
+         if (OUTBOUND_CREATE_TERMINAL_STATUSES.has(status)) {
+             return this.failPermanent(stateId, idReserva, {
+                 errorCode: 'STATUS_TERMINAL',
+diff --git a/src/integrations/hospedin/outbound/HospedinOutboundEnqueueService.ts b/src/integrations/hospedin/outbound/HospedinOutboundEnqueueService.ts
+index 85c0705..a049329 100644
+--- a/src/integrations/hospedin/outbound/HospedinOutboundEnqueueService.ts
++++ b/src/integrations/hospedin/outbound/HospedinOutboundEnqueueService.ts
+@@ -197,6 +197,17 @@ function shouldSkipMarkDirty(
+         return false;
+     }
+     if (existing.outbound_status === HospedinOutboundStatus.ABORTED) {
++        const errorCode = String(existing.error_code || '').trim();
++        if (errorCode === 'STATUS_TERMINAL') {
++            const reservaStatus = String(hospedagem.status || '');
++            if (
++                reservaStatus === StatusReservaHospedagem.Expirada ||
++                reservaStatus === StatusReservaHospedagem.Cancelada
++            ) {
++                return true;
++            }
++            return false;
++        }
+         return true;
+     }
+     const action = String(existing.desired_action || '').toUpperCase();
+diff --git a/src/integrations/hospedin/outbound/HospedinOutboundRunner.ts b/src/integrations/hospedin/outbound/HospedinOutboundRunner.ts
+index 60beccc..ce2a22e 100644
+--- a/src/integrations/hospedin/outbound/HospedinOutboundRunner.ts
++++ b/src/integrations/hospedin/outbound/HospedinOutboundRunner.ts
+@@ -10,6 +10,7 @@ import { hospedinOutboundCancelService } from './HospedinOutboundCancelService';
+ import { hospedinOutboundCreateService } from './HospedinOutboundCreateService';
+ import {
+     enrichOutboundFailedReservations,
++    isOutboundExpiredTerminalBusinessSkip,
+     isOutboundFailureOutcome,
+     type OutboundFailureDraft,
+     type OutboundFailedReservationDetail,
+@@ -81,6 +82,9 @@ export class HospedinOutboundRunner {
+                 message?: string | null;
+             }
+         ) => {
++            if (isOutboundExpiredTerminalBusinessSkip(result)) {
++                return;
++            }
+             if (!isOutboundFailureOutcome(result.outcome)) {
+                 return;
+             }
+@@ -184,6 +188,8 @@ export class HospedinOutboundRunner {
+                         created += 1;
+                     } else if (result.outcome === 'deferred') {
+                         skipped += 1;
++                    } else if (isOutboundExpiredTerminalBusinessSkip(result)) {
++                        skipped += 1;
+                     } else if (result.outcome === 'retry') {
+                         failed += 1;
+                     } else {
+diff --git a/src/integrations/hospedin/outbound/hospedinOutboundExecutionFailureDetails.ts b/src/integrations/hospedin/outbound/hospedinOutboundExecutionFailureDetails.ts
+index 4336f18..edc5c0a 100644
+--- a/src/integrations/hospedin/outbound/hospedinOutboundExecutionFailureDetails.ts
++++ b/src/integrations/hospedin/outbound/hospedinOutboundExecutionFailureDetails.ts
+@@ -41,6 +41,16 @@ export function isOutboundFailureOutcome(outcome: string): boolean {
+     );
+ }
+ 
++/** Expirada no CREATE outbound ΓÇö ABORTED + STATUS_TERMINAL (neg├│cio, n├úo falha t├⌐cnica). */
++export function isOutboundExpiredTerminalBusinessSkip(input: {
++    outcome?: string | null;
++    errorCode?: string | null;
++}): boolean {
++    const normalized = String(input.outcome || '').trim().toLowerCase();
++    const errorCode = String(input.errorCode || '').trim();
++    return normalized === 'aborted' && errorCode === 'STATUS_TERMINAL';
++}
++
+ export function parseHttpStatusFromErrorCode(
+     errorCode: string | null | undefined
+ ): number | null {
+diff --git a/src/services/hospedagemReativacaoAdminPolicy.ts b/src/services/hospedagemReativacaoAdminPolicy.ts
+index c01cf70..019da5d 100644
+--- a/src/services/hospedagemReativacaoAdminPolicy.ts
++++ b/src/services/hospedagemReativacaoAdminPolicy.ts
+@@ -91,6 +91,7 @@ export function avaliarOutboundReativacao(input: {
+         outbound_status: string;
+         desired_action: string;
+         last_error: string | null;
++        error_code?: string | null;
+         hospedin_reservation_id?: string | null;
+     } | null;
+     suites: Array<{ hospedinReservationId?: string | null }>;
+@@ -128,11 +129,16 @@ export function avaliarOutboundReativacao(input: {
+     if (
+         input.outboundState?.outbound_status === HospedinOutboundStatus.ABORTED
+     ) {
+-        return {
+-            ok: false,
+-            message:
+-                'A sincroniza├º├úo outbound desta reserva est├í abortada. Revise o Hospedin antes de reativar.',
+-        };
++        const abortCode = String(
++            input.outboundState.error_code || ''
++        ).trim();
++        if (abortCode !== 'STATUS_TERMINAL') {
++            return {
++                ok: false,
++                message:
++                    'A sincroniza├º├úo outbound desta reserva est├í abortada. Revise o Hospedin antes de reativar.',
++            };
++        }
+     }
+ 
+     if (
+diff --git a/src/services/hospedagemReativacaoAdminService.test.ts b/src/services/hospedagemReativacaoAdminService.test.ts
+index 6b890c2..24b6861 100644
+--- a/src/services/hospedagemReativacaoAdminService.test.ts
++++ b/src/services/hospedagemReativacaoAdminService.test.ts
+@@ -230,7 +230,7 @@ describe('R-REACT-08 ΓÇö multi-su├¡te (mensagens)', () => {
+ });
+ 
+ describe('R-REACT-09 ΓÇö rollback (valida├º├╡es antes da transa├º├úo)', () => {
+-    it('bloqueia outbound abortado antes de qualquer altera├º├úo', () => {
++    it('bloqueia outbound abortado (CREATE_ABORTED) antes de qualquer altera├º├úo', () => {
+         const resultado = avaliarOutboundReativacao({
+             origemReserva: 'CLIENTE',
+             eventoTipo: 'Pousada',
+@@ -239,6 +239,7 @@ describe('R-REACT-09 ΓÇö rollback (valida├º├╡es antes da transa├º├úo)', () => {
+                 outbound_status: HospedinOutboundStatus.ABORTED,
+                 desired_action: 'CREATE',
+                 last_error: 'abort',
++                error_code: 'CREATE_ABORTED',
+                 hospedin_reservation_id: null,
+             },
+         });
+@@ -246,6 +247,24 @@ describe('R-REACT-09 ΓÇö rollback (valida├º├╡es antes da transa├º├úo)', () => {
+         assert.equal(resultado.ok, false);
+     });
+ 
++    it('permite reativa├º├úo com ABORTED + STATUS_TERMINAL (expirada outbound)', () => {
++        const resultado = avaliarOutboundReativacao({
++            origemReserva: 'CLIENTE',
++            eventoTipo: 'Pousada',
++            suites: [{ hospedinReservationId: null }],
++            outboundState: {
++                outbound_status: HospedinOutboundStatus.ABORTED,
++                desired_action: 'CREATE',
++                last_error:
++                    'Status Expirada n├úo eleg├¡vel para CREATE outbound.',
++                error_code: 'STATUS_TERMINAL',
++                hospedin_reservation_id: null,
++            },
++        });
++
++        assert.deepEqual(resultado, { ok: true, deveMarkDirty: true });
++    });
++
+     it('bloqueia transa├º├úo inv├ílida antes de alterar status', () => {
+         const resultado = avaliarTransacaoReativacao({ status: 'Cancelado' });
+         assert.equal(resultado.ok, false);

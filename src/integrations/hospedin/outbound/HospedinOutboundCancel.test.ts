@@ -139,13 +139,14 @@ describe('outboundEnqueueTestHelpers', () => {
         );
     });
 
-    it('shouldSkipMarkDirty quando ABORTED', () => {
+    it('shouldSkipMarkDirty quando ABORTED (CREATE_ABORTED)', () => {
         const hospedagem = {
             status: StatusReservaHospedagem.Confirmada,
         } as any;
         const existing = {
             outbound_status: HospedinOutboundStatus.ABORTED,
             desired_action: HospedinOutboundDesiredAction.CANCEL,
+            error_code: 'CREATE_ABORTED',
         } as any;
         assert.equal(
             outboundEnqueueTestHelpers.shouldSkipMarkDirty(hospedagem, existing),

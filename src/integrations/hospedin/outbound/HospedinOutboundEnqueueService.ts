@@ -197,6 +197,17 @@ function shouldSkipMarkDirty(
         return false;
     }
     if (existing.outbound_status === HospedinOutboundStatus.ABORTED) {
+        const errorCode = String(existing.error_code || '').trim();
+        if (errorCode === 'STATUS_TERMINAL') {
+            const reservaStatus = String(hospedagem.status || '');
+            if (
+                reservaStatus === StatusReservaHospedagem.Expirada ||
+                reservaStatus === StatusReservaHospedagem.Cancelada
+            ) {
+                return true;
+            }
+            return false;
+        }
         return true;
     }
     const action = String(existing.desired_action || '').toUpperCase();
