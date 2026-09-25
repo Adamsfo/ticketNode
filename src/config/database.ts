@@ -11,6 +11,12 @@ module.exports = {
   timezone: process.env.DB_TIMEZONE || "+00:00",
   /** Padrão: silencioso. Ative com LOG_SQL=true */
   logging: isSqlLogEnabled() ? sequelizeLogging : false,
+  pool: {
+    max: 10,
+    min: 0,
+    acquire: 60000,
+    idle: 10000,
+  },
   define: {
     timestamps: true,
     underscored: true,

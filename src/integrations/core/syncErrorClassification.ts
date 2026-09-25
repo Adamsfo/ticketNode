@@ -121,6 +121,36 @@ export function isTransientErrorCode(code?: string | null): boolean {
     return TRANSIENT_CODES.has(String(code).toUpperCase());
 }
 
+/**
+ * Falha ao obter conexão do pool Sequelize — não é timeout de rede/provider.
+ * Mensagem típica do SequelizeConnectionAcquireTimeoutError: "Operation timeout".
+ */
+export function isSequelizeConnectionPoolAcquireFailure(
+    raw?: string | null,
+    message?: string | null
+): boolean {
+    const code = String(raw || '').toUpperCase();
+    const msg = String(message || '').toLowerCase().trim();
+
+    if (code.includes('SEQUELIZECONNECTIONACQUIRETIMEOUT')) {
+        return true;
+    }
+    if (msg.includes('sequelizeconnectionacquiretimeouterror')) {
+        return true;
+    }
+    if (msg.includes('sequelizeconnectionacquiretimeout')) {
+        return true;
+    }
+    if (msg.includes('connection acquire') && msg.includes('timeout')) {
+        return true;
+    }
+    // SequelizeConnectionAcquireTimeoutError.message (não confundir com "timeout of Nms" HTTP).
+    if (msg === 'operation timeout') {
+        return true;
+    }
+    return false;
+}
+
 export function computeSmartRetryAt(
     retryCount: number,
     from = Date.now()
@@ -169,6 +199,9 @@ export function normalizeSyncErrorCode(
     }
     if (code === 'NETWORK_ERROR' || msg.includes('econnrefused') || msg.includes('network')) {
         return SyncErrorCode.NETWORK_ERROR;
+    }
+    if (isSequelizeConnectionPoolAcquireFailure(raw, message)) {
+        return SyncErrorCode.UNKNOWN_ERROR;
     }
     if (code === 'TIMEOUT' || msg.includes('timeout') || msg.includes('etimedout')) {
         return SyncErrorCode.TIMEOUT;

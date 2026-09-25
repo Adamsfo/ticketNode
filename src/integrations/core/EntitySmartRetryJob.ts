@@ -6,7 +6,10 @@ import {
     IntegrationSyncStatus,
 } from '../../models/IntegrationSyncState';
 import { runEntitySync } from './EntityRunService';
-import { isTransientErrorCode } from './syncErrorClassification';
+import {
+    isSequelizeConnectionPoolAcquireFailure,
+    isTransientErrorCode,
+} from './syncErrorClassification';
 
 let timer: ReturnType<typeof setInterval> | null = null;
 let running = false;
@@ -55,12 +58,19 @@ async function tickSmartRetries(): Promise<void> {
 
         for (const state of due) {
             const code = String((state as any).error_code || '');
+            const lastError = String(state.last_error || '');
+
+            if (isSequelizeConnectionPoolAcquireFailure(code, lastError)) {
+                await state.update({ next_retry_at: null } as any);
+                continue;
+            }
+
             if (code && !isTransientErrorCode(code)) {
                 await state.update({ next_retry_at: null } as any);
                 continue;
             }
             if (!code && state.sync_status === IntegrationSyncStatus.FAILED) {
-                const msg = String(state.last_error || '').toLowerCase();
+                const msg = lastError.toLowerCase();
                 if (
                     !msg.includes('timeout') &&
                     !msg.includes('network') &&
