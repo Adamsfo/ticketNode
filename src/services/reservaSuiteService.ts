@@ -167,6 +167,20 @@ async function marcarReservaComoExpirada(
             );
         }
     }
+
+    try {
+        const { hospedinOutboundStateService } = await import(
+            '../integrations/hospedin/outbound/HospedinOutboundStateService'
+        );
+        await hospedinOutboundStateService.abortOutboundForExpiredReserva(
+            idReserva
+        );
+    } catch (error) {
+        console.error(
+            `Erro ao abortar outbound da reserva expirada ${idReserva}:`,
+            error
+        );
+    }
 }
 
 /** Gera token opaco para link /reserva/TOKEN. */

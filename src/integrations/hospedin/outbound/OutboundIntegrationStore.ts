@@ -61,6 +61,7 @@ type ReservaFixture = {
     idExterno: string | null;
     checkin: Date;
     checkout: Date;
+    expiraEm?: Date | null;
     Evento?: { tipo: string };
     ReservaSuite?: Array<{
         idEventoSuite: number;
@@ -82,6 +83,30 @@ type SavedModelMocks = {
 function isDue(row: QueueRow, now = new Date()): boolean {
     if (!row.next_retry_at) return true;
     return new Date(row.next_retry_at).getTime() <= now.getTime();
+}
+
+/** Espelha retryDueWhere do HospedinOutboundStateService (Op.or na raiz do where). */
+function matchesRetryDueWhere(
+    row: QueueRow,
+    where: Record<string, unknown>,
+    now: Date
+): boolean {
+    const orClause = where[Op.or as unknown as string] as
+        | Array<Record<string, unknown>>
+        | undefined;
+    if (!orClause?.length) {
+        return true;
+    }
+    return orClause.some((clause) => {
+        if (clause.next_retry_at === null && !row.next_retry_at) {
+            return true;
+        }
+        const lte = (clause.next_retry_at as { [Op.lte]?: Date })?.[Op.lte];
+        if (lte && row.next_retry_at) {
+            return new Date(row.next_retry_at).getTime() <= new Date(lte).getTime();
+        }
+        return false;
+    });
 }
 
 function isClaimable(row: QueueRow, now = new Date()): boolean {
@@ -228,6 +253,7 @@ export class OutboundIntegrationStore implements OutboundQueueProbeTestBackend {
             idExterno: input.idExterno ?? null,
             checkin,
             checkout,
+            expiraEm: input.expiraEm ?? null,
             Evento: input.Evento ?? { tipo: 'Pousada' },
             ReservaSuite: input.ReservaSuite ?? [
                 {
@@ -408,7 +434,9 @@ export class OutboundIntegrationStore implements OutboundQueueProbeTestBackend {
                 const allowed = where.outbound_status[Op.in] as string[];
                 rows = rows.filter((r) => allowed.includes(r.outbound_status));
             }
-            if (where.next_retry_at) {
+            if (where[Op.or as unknown as string]) {
+                rows = rows.filter((r) => matchesRetryDueWhere(r, where, now));
+            } else if (where.next_retry_at) {
                 rows = rows.filter((r) => isDue(r, now));
             }
             rows.sort(

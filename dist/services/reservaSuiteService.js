@@ -126,6 +126,13 @@ async function marcarReservaComoExpirada(hospedagem, descricaoHistorico) {
             console.error(`Erro ao enviar e-mail de expiração da reserva ${idReserva}:`, error);
         }
     }
+    try {
+        const { hospedinOutboundStateService } = await Promise.resolve().then(() => __importStar(require('../integrations/hospedin/outbound/HospedinOutboundStateService')));
+        await hospedinOutboundStateService.abortOutboundForExpiredReserva(idReserva);
+    }
+    catch (error) {
+        console.error(`Erro ao abortar outbound da reserva expirada ${idReserva}:`, error);
+    }
 }
 /** Gera token opaco para link /reserva/TOKEN. */
 function gerarTokenPagamentoReserva() {

@@ -409,6 +409,7 @@ export async function markDirty(idReservaHospedagem: number): Promise<void> {
                 idExterno ?? existing.hospedin_reservation_id,
             dirty_at: now,
             updated_at: now,
+            next_retry_at: null,
             last_error: clearErrors ? null : nextState.last_error,
             error_code: clearErrors ? null : nextState.error_code,
         });

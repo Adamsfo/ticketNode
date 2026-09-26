@@ -47,6 +47,26 @@ function retryDueWhere(now: Date) {
     };
 }
 
+const AWAITING_PAYMENT_RETRY_FALLBACK_MS = 5 * 60 * 1000;
+
+/**
+ * Próxima tentativa outbound enquanto a reserva aguarda pagamento.
+ * Preferência: expiraEm; senão backoff fixo curto (sem notify — pagamento acorda via markDirty).
+ */
+export function resolveAwaitingPaymentNextRetryAt(
+    expiraEm: Date | string | null | undefined,
+    now: Date = new Date()
+): Date {
+    if (expiraEm != null && expiraEm !== '') {
+        const d =
+            expiraEm instanceof Date ? expiraEm : new Date(String(expiraEm));
+        if (!Number.isNaN(d.getTime()) && d.getTime() > now.getTime()) {
+            return d;
+        }
+    }
+    return new Date(now.getTime() + AWAITING_PAYMENT_RETRY_FALLBACK_MS);
+}
+
 /**
  * Estado da fila outbound — isolado de integration_sync_state (inbound).
  */
@@ -217,6 +237,71 @@ export class HospedinOutboundStateService {
             updated_at: now,
         });
         await notifyOutboundPendingIfClaimable(outbound_status);
+    }
+
+    /**
+     * Aguardando pagamento: mantém PENDING_* na fila, adia claim via next_retry_at, sem acordar dispatcher.
+     */
+    async releaseAwaitingPayment(
+        id: number,
+        options?: {
+            desiredAction?: string;
+            expiraEm?: Date | string | null;
+            now?: Date;
+        }
+    ): Promise<void> {
+        const rowId = Number(id);
+        if (!Number.isFinite(rowId) || rowId <= 0) return;
+
+        const row = await HospedinOutboundSyncState.findByPk(rowId);
+        if (!row) return;
+
+        const now = options?.now ?? new Date();
+        const outbound_status = pendingStatusFromDesiredAction(
+            options?.desiredAction ?? row.desired_action
+        );
+
+        await row.update({
+            outbound_status,
+            desired_action:
+                options?.desiredAction ?? row.desired_action,
+            processing_started_at: null,
+            processing_correlation_id: null,
+            next_retry_at: resolveAwaitingPaymentNextRetryAt(
+                options?.expiraEm ?? null,
+                now
+            ),
+            error_code: 'AWAITING_PAYMENT',
+            last_error: 'Aguardando pagamento — sincronização adiada.',
+            updated_at: now,
+        });
+    }
+
+    /** Reserva expirada sem pagamento — estado terminal outbound (sem CREATE). */
+    async abortOutboundForExpiredReserva(
+        idReservaHospedagem: number
+    ): Promise<void> {
+        const id = Number(idReservaHospedagem);
+        if (!Number.isFinite(id) || id <= 0) return;
+
+        const row = await HospedinOutboundSyncState.findOne({
+            where: { id_reserva_hospedagem: id },
+        });
+        if (!row) return;
+
+        const status = String(row.outbound_status || '').toUpperCase();
+        if (
+            status === HospedinOutboundStatus.ABORTED ||
+            status === HospedinOutboundStatus.SYNCED
+        ) {
+            return;
+        }
+
+        await this.markAborted(row.id, {
+            errorMessage:
+                'Status Expirada não elegível para CREATE outbound.',
+            errorCode: 'STATUS_TERMINAL',
+        });
     }
 
     async markSynced(

@@ -184,8 +184,9 @@ export class HospedinOutboundCreateService {
         }
 
         if (status === OUTBOUND_CREATE_DEFERRED_STATUS) {
-            await hospedinOutboundStateService.releaseToPending(stateId, {
+            await hospedinOutboundStateService.releaseAwaitingPayment(stateId, {
                 desiredAction: state.desired_action,
+                expiraEm: hospedagem.expiraEm,
             });
             return {
                 outcome: 'deferred',
