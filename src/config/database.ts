@@ -12,7 +12,7 @@ module.exports = {
   /** Padrão: silencioso. Ative com LOG_SQL=true */
   logging: isSqlLogEnabled() ? sequelizeLogging : false,
   pool: {
-    max: 10,
+    max: 20,
     min: 0,
     acquire: 60000,
     idle: 10000,
