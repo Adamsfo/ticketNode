@@ -45,6 +45,7 @@ const IntegrationProviderState_1 = require("../models/IntegrationProviderState")
 const IntegrationSyncExecution_1 = require("../models/IntegrationSyncExecution");
 const IntegrationEntitySyncEvent_1 = require("../models/IntegrationEntitySyncEvent");
 const HospedagemRefreshState_1 = require("../models/HospedagemRefreshState");
+const sequelizePoolMonitor_1 = require("./sequelizePoolMonitor");
 const ConfigIniciais = require('./ConfigIniciais');
 const FuncaoSistema = require('./FuncaoSistema');
 const connection = new Sequelize(dbConfig);
@@ -59,6 +60,7 @@ exports.databaseReady = new Promise((resolve, reject) => {
     try {
         // Autenticação da conexão
         await connection.authenticate();
+        (0, sequelizePoolMonitor_1.startSequelizePoolMonitor)(connection);
         logger_1.logger.info('Conectado no banco de dados');
         // ContaAPagarInit(connection)
         // ContaAReceberInit(connection)
