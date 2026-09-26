@@ -2,32 +2,37 @@
  * Instrumentação temporária do pool Sequelize (sequelize-pool v6).
  *
  * Ativar: SEQUELIZE_POOL_MONITOR=true
- * Opcional: SEQUELIZE_POOL_MONITOR_LONG_HOLD_MS=5000 (destaque [LONG] no relatório saturado)
+ * Opcional: SEQUELIZE_POOL_MONITOR_LONG_HOLD_MS=5000
  *
- * Métricas: getters oficiais size, using, available, waiting, maxSize.
- * Em saturação: top 10 conexões mais tempo em uso (stack capturado no acquire do pool).
- *
- * Monkey patch único em pool.acquire / pool.release / pool.destroy (sem queries extras).
+ * Contexto de aquisição: stack capturado em connectionManager.getConnection()
+ * (antes do pool.acquire), associado ao resource no pool.acquire via fila FIFO.
  */
 import type { Sequelize } from 'sequelize';
 
 const INTERVAL_MS = 5000;
 const DEFAULT_LONG_HOLD_MS = 5000;
 const TOP_HOLDERS = 10;
-const PATCHED = Symbol.for('jango.sequelizePoolMonitor.patched');
+const POOL_PATCHED = Symbol.for('jango.sequelizePoolMonitor.patched');
+const CM_PATCHED = Symbol.for('jango.sequelizePoolMonitor.cmPatched');
 
 let started = false;
-let patchApplied = false;
+let poolPatchApplied = false;
+let cmPatchApplied = false;
 let intervalHandle: ReturnType<typeof setInterval> | null = null;
 
-type HeldConnection = {
-    acquiredAt: number;
+type AcquireContext = {
     stack: string;
     routine: string;
 };
 
-/** Recursos atualmente em uso (chave = objeto connection do mysql2). Máx. ~pool.max. */
+type HeldConnection = AcquireContext & {
+    acquiredAt: number;
+};
+
 const heldByResource = new Map<unknown, HeldConnection>();
+
+/** Contextos empilhados em getConnection; consumidos no pool.acquire (FIFO). */
+const pendingGetConnectionContexts: AcquireContext[] = [];
 
 type PoolLike = {
     size?: number;
@@ -40,6 +45,11 @@ type PoolLike = {
     destroy?: (resource: unknown) => Promise<void> | void;
     read?: PoolLike;
     write?: PoolLike;
+};
+
+type ConnectionManagerLike = {
+    getConnection: (options?: unknown) => Promise<unknown>;
+    pool?: PoolLike | null;
 };
 
 export function isSequelizePoolMonitorEnabled(): boolean {
@@ -85,82 +95,123 @@ function resolveMax(pool: PoolLike, sequelize: Sequelize): number {
 }
 
 const SKIP_STACK_PATTERNS = [
-    'sequelizePoolMonitor',
+    'sequelizepoolmonitor',
     'node_modules\\sequelize',
     'node_modules/sequelize',
     'node_modules\\sequelize-pool',
     'node_modules/sequelize-pool',
     'node:internal',
     'node:async_hooks',
+    'node:internal/process/task_queues',
 ];
 
-function isAppStackLine(line: string): boolean {
+function isMonitorFrame(line: string): boolean {
+    return line.toLowerCase().includes('sequelizepoolmonitor');
+}
+
+/** Código da aplicação (src ou dist em produção). Exclui node_modules. */
+export function isAppStackLine(line: string): boolean {
     if (!line.includes('at ')) return false;
     const lower = line.toLowerCase();
     for (const skip of SKIP_STACK_PATTERNS) {
-        if (lower.includes(skip.toLowerCase())) return false;
+        if (lower.includes(skip)) return false;
     }
-    return (
-        lower.includes('ticket-node') ||
-        lower.includes('jangoingressos') ||
-        lower.includes('\\src\\') ||
-        lower.includes('/src/')
-    );
+    if (lower.includes('node_modules')) return false;
+    if (lower.includes('/dist/') || lower.includes('\\dist\\')) {
+        return true;
+    }
+    if (lower.includes('/src/') || lower.includes('\\src\\')) {
+        return true;
+    }
+    if (lower.includes('ticket-node') || lower.includes('jangoingressos')) {
+        return true;
+    }
+    return false;
 }
 
-/** Extrai identificador legível do primeiro frame da aplicação no stack do acquire. */
+function routineFromLine(line: string): string | null {
+    const fnMatch = line.match(/at (?:async )?([\w$.]+)/);
+    if (fnMatch?.[1]) {
+        const name = fnMatch[1];
+        if (
+            name !== 'Object.<anonymous>' &&
+            name !== 'Module._compile' &&
+            name !== 'processTicksAndRejections'
+        ) {
+            return name;
+        }
+    }
+
+    const distPath = line.match(/[/\\]dist[/\\]([^):]+)/i);
+    if (distPath?.[1]) {
+        return distPath[1].replace(/\\/g, '/');
+    }
+
+    const srcPath = line.match(/[/\\]src[/\\]([^):]+)/i);
+    if (srcPath?.[1]) {
+        return srcPath[1].replace(/\\/g, '/');
+    }
+
+    return null;
+}
+
+/** Primeiro frame útil da aplicação no stack de getConnection. */
 export function inferRoutineFromStack(stack: string): string {
     const lines = stack.split('\n');
     for (const line of lines) {
         if (!isAppStackLine(line)) continue;
-
-        const fnMatch = line.match(/at (?:async )?([^\s(]+)/);
-        if (fnMatch?.[1]) {
-            const name = fnMatch[1];
-            if (name !== 'Object.<anonymous>' && name !== 'Module._compile') {
-                return name;
-            }
-        }
-
-        const pathMatch = line.match(/(?:ticket-node[/\\]src[/\\][^:)]+)/i);
-        if (pathMatch?.[0]) {
-            return pathMatch[0].replace(/\\/g, '/');
-        }
+        const routine = routineFromLine(line);
+        if (routine) return routine;
     }
     return '(sequelize-internal)';
 }
 
-function summarizeStack(stack: string): string {
+export function summarizeStack(stack: string): string {
     const lines = stack.split('\n').slice(1);
     const picked: string[] = [];
     for (const line of lines) {
         if (picked.length >= 8) break;
-        if (isAppStackLine(line) || picked.length === 0) {
+        if (isMonitorFrame(line)) continue;
+        if (isAppStackLine(line)) {
             picked.push(line.trim());
         }
     }
     if (picked.length === 0) {
-        return lines.slice(0, 4).map((l) => l.trim()).join(' | ');
+        for (const line of lines) {
+            if (picked.length >= 6) break;
+            if (isMonitorFrame(line)) continue;
+            const lower = line.toLowerCase();
+            if (
+                lower.includes('node_modules/sequelize') ||
+                lower.includes('node_modules\\sequelize')
+            ) {
+                continue;
+            }
+            if (line.trim()) picked.push(line.trim());
+        }
     }
     const joined = picked.join(' | ');
     return joined.length > 2000 ? joined.slice(0, 2000) + '…' : joined;
 }
 
-function captureAcquireContext(): Omit<HeldConnection, 'acquiredAt'> & {
-    stackFull: string;
-} {
+/** Stack da cadeia que chamou getConnection (não do pool.acquire interno). */
+export function captureGetConnectionContext(): AcquireContext {
     const stackFull = new Error().stack ?? '';
     return {
         stack: summarizeStack(stackFull),
         routine: inferRoutineFromStack(stackFull),
-        stackFull,
     };
 }
 
-function registerHeld(
-    resource: unknown,
-    ctx: ReturnType<typeof captureAcquireContext>
-): void {
+function takeAcquireContext(): AcquireContext {
+    const pending = pendingGetConnectionContexts.shift();
+    if (pending) {
+        return pending;
+    }
+    return captureGetConnectionContext();
+}
+
+function registerHeld(resource: unknown, ctx: AcquireContext): void {
     heldByResource.set(resource, {
         acquiredAt: Date.now(),
         stack: ctx.stack,
@@ -172,13 +223,39 @@ function unregisterHeld(resource: unknown): void {
     heldByResource.delete(resource);
 }
 
-/**
- * Envolve acquire/release/destroy do sequelize-pool (API real v6).
- * Marcador PATCHED evita wrapper em cadeia.
- */
+function instrumentConnectionManager(sequelize: Sequelize): void {
+    const cm = sequelize.connectionManager as unknown as ConnectionManagerLike &
+        Record<symbol, boolean>;
+    if (cm[CM_PATCHED]) {
+        return;
+    }
+    if (typeof cm.getConnection !== 'function') {
+        return;
+    }
+
+    const originalGetConnection = cm.getConnection.bind(cm);
+
+    cm.getConnection = async function getConnectionMonitored(
+        options?: unknown
+    ) {
+        pendingGetConnectionContexts.push(captureGetConnectionContext());
+        try {
+            return await originalGetConnection(options);
+        } catch (err) {
+            if (pendingGetConnectionContexts.length > 0) {
+                pendingGetConnectionContexts.pop();
+            }
+            throw err;
+        }
+    };
+
+    cm[CM_PATCHED] = true;
+    cmPatchApplied = true;
+}
+
 function instrumentSequelizePool(pool: PoolLike): void {
     const poolAny = pool as Record<symbol, boolean>;
-    if (poolAny[PATCHED]) {
+    if (poolAny[POOL_PATCHED]) {
         return;
     }
     if (
@@ -196,7 +273,7 @@ function instrumentSequelizePool(pool: PoolLike): void {
             : null;
 
     pool.acquire = (...args: unknown[]) => {
-        const ctx = captureAcquireContext();
+        const ctx = takeAcquireContext();
         return originalAcquire(...args).then((resource: unknown) => {
             if (resource != null) {
                 registerHeld(resource, ctx);
@@ -217,11 +294,13 @@ function instrumentSequelizePool(pool: PoolLike): void {
         };
     }
 
-    poolAny[PATCHED] = true;
+    poolAny[POOL_PATCHED] = true;
 }
 
-function tryInstrumentPools(sequelize: Sequelize): void {
-    if (patchApplied) {
+function tryInstrumentSequelize(sequelize: Sequelize): void {
+    instrumentConnectionManager(sequelize);
+
+    if (poolPatchApplied) {
         return;
     }
     const cm = sequelize.connectionManager as { pool?: PoolLike | null };
@@ -230,17 +309,16 @@ function tryInstrumentPools(sequelize: Sequelize): void {
         return;
     }
 
-    // Replicação: dois pools sequelize-pool (read/write).
     if (pool.read && pool.write) {
         instrumentSequelizePool(pool.read);
         instrumentSequelizePool(pool.write);
-        patchApplied = true;
+        poolPatchApplied = true;
         return;
     }
 
     if (typeof pool.acquire === 'function') {
         instrumentSequelizePool(pool);
-        patchApplied = true;
+        poolPatchApplied = true;
     }
 }
 
@@ -258,7 +336,7 @@ function logHeldConnectionsReport(): void {
 
     if (ranked.length === 0) {
         process.stdout.write(
-            'LONGEST HELD CONNECTIONS: (tracking vazio — acquire ainda não instrumentado ou todas liberadas)\n'
+            'LONGEST HELD CONNECTIONS: (tracking vazio — nenhuma conexão em uso rastreada)\n'
         );
         return;
     }
@@ -276,7 +354,7 @@ function logHeldConnectionsReport(): void {
 }
 
 function logPoolLine(sequelize: Sequelize): void {
-    tryInstrumentPools(sequelize);
+    tryInstrumentSequelize(sequelize);
 
     const pool = resolveSequelizePool(sequelize);
     if (!pool) {
@@ -313,8 +391,7 @@ export function startSequelizePoolMonitor(sequelize: Sequelize): void {
     }
     started = true;
 
-    // Patch imediato (pool já existe após authenticate) — não esperar o primeiro tick.
-    tryInstrumentPools(sequelize);
+    tryInstrumentSequelize(sequelize);
 
     const tick = () => {
         try {
@@ -337,6 +414,8 @@ export function stopSequelizePoolMonitor(): void {
         intervalHandle = null;
     }
     heldByResource.clear();
+    pendingGetConnectionContexts.length = 0;
     started = false;
-    patchApplied = false;
+    poolPatchApplied = false;
+    cmPatchApplied = false;
 }
