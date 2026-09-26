@@ -4,35 +4,46 @@
  * Ativar: SEQUELIZE_POOL_MONITOR=true
  * Opcional: SEQUELIZE_POOL_MONITOR_LONG_HOLD_MS=5000
  *
- * Contexto de aquisição: stack capturado em connectionManager.getConnection()
- * (antes do pool.acquire), associado ao resource no pool.acquire via fila FIFO.
+ * Contexto: capturado de forma síncrona em sequelize.query / sequelize.transaction
+ * e propagado via AsyncLocalStorage até pool.acquire (snapshot no momento da chamada).
  */
+import { AsyncLocalStorage } from 'node:async_hooks';
 import type { Sequelize } from 'sequelize';
 
 const INTERVAL_MS = 5000;
 const DEFAULT_LONG_HOLD_MS = 5000;
 const TOP_HOLDERS = 10;
 const POOL_PATCHED = Symbol.for('jango.sequelizePoolMonitor.patched');
-const CM_PATCHED = Symbol.for('jango.sequelizePoolMonitor.cmPatched');
+const API_PATCHED = Symbol.for('jango.sequelizePoolMonitor.apiPatched');
 
 let started = false;
 let poolPatchApplied = false;
-let cmPatchApplied = false;
 let intervalHandle: ReturnType<typeof setInterval> | null = null;
 
-type AcquireContext = {
+export type OperationKind =
+    | 'query'
+    | 'query-in-transaction'
+    | 'transaction'
+    | 'unknown';
+
+export type PoolOperationContext = {
     stack: string;
     routine: string;
+    inTransaction: boolean;
+    kind: OperationKind;
 };
+
+export type AcquireContext = PoolOperationContext;
 
 type HeldConnection = AcquireContext & {
     acquiredAt: number;
 };
 
-const heldByResource = new Map<unknown, HeldConnection>();
+/** Propaga rotina/stack da operação Sequelize até a aquisição no pool. */
+export const poolOperationContextAls =
+    new AsyncLocalStorage<PoolOperationContext>();
 
-/** Contextos empilhados em getConnection; consumidos no pool.acquire (FIFO). */
-const pendingGetConnectionContexts: AcquireContext[] = [];
+const heldByResource = new Map<unknown, HeldConnection>();
 
 type PoolLike = {
     size?: number;
@@ -48,7 +59,6 @@ type PoolLike = {
 };
 
 type ConnectionManagerLike = {
-    getConnection: (options?: unknown) => Promise<unknown>;
     pool?: PoolLike | null;
 };
 
@@ -100,13 +110,20 @@ const SKIP_STACK_PATTERNS = [
     'node_modules/sequelize',
     'node_modules\\sequelize-pool',
     'node_modules/sequelize-pool',
+    'node_modules/retry-as-promised',
+    'node_modules\\retry-as-promised',
     'node:internal',
     'node:async_hooks',
     'node:internal/process/task_queues',
 ];
 
 function isMonitorFrame(line: string): boolean {
-    return line.toLowerCase().includes('sequelizepoolmonitor');
+    const lower = line.toLowerCase();
+    if (lower.includes('sequelizepoolmonitor')) return true;
+    if (lower.includes('querymonitored')) return true;
+    if (lower.includes('transactionmonitored')) return true;
+    if (lower.includes('buildoperationcontext')) return true;
+    return false;
 }
 
 /** Código da aplicação (src ou dist em produção). Exclui node_modules. */
@@ -155,7 +172,7 @@ function routineFromLine(line: string): string | null {
     return null;
 }
 
-/** Primeiro frame útil da aplicação no stack de getConnection. */
+/** Primeiro frame útil da aplicação no stack. */
 export function inferRoutineFromStack(stack: string): string {
     const lines = stack.split('\n');
     for (const line of lines) {
@@ -183,7 +200,8 @@ export function summarizeStack(stack: string): string {
             const lower = line.toLowerCase();
             if (
                 lower.includes('node_modules/sequelize') ||
-                lower.includes('node_modules\\sequelize')
+                lower.includes('node_modules\\sequelize') ||
+                lower.includes('retry-as-promised')
             ) {
                 continue;
             }
@@ -194,8 +212,25 @@ export function summarizeStack(stack: string): string {
     return joined.length > 2000 ? joined.slice(0, 2000) + '…' : joined;
 }
 
-/** Stack da cadeia que chamou getConnection (não do pool.acquire interno). */
-export function captureGetConnectionContext(): AcquireContext {
+/** Stack capturado na entrada de query/transaction (antes de retry/getConnection). */
+export function buildOperationContext(opts: {
+    kind: OperationKind;
+    inTransaction: boolean;
+}): PoolOperationContext {
+    const stackFull = new Error().stack ?? '';
+    return {
+        stack: summarizeStack(stackFull),
+        routine: inferRoutineFromStack(stackFull),
+        inTransaction: opts.inTransaction,
+        kind: opts.kind,
+    };
+}
+
+/** Fallback quando a aquisição não passou por query/transaction instrumentados. */
+export function captureFallbackAcquireContext(): Pick<
+    PoolOperationContext,
+    'stack' | 'routine'
+> {
     const stackFull = new Error().stack ?? '';
     return {
         stack: summarizeStack(stackFull),
@@ -203,12 +238,21 @@ export function captureGetConnectionContext(): AcquireContext {
     };
 }
 
-function takeAcquireContext(): AcquireContext {
-    const pending = pendingGetConnectionContexts.shift();
-    if (pending) {
-        return pending;
+/**
+ * Contexto associado a uma conexão no pool.acquire (snapshot síncrono).
+ * Usado pelos testes de concorrência.
+ */
+export function snapshotContextForPoolAcquire(): AcquireContext {
+    const store = poolOperationContextAls.getStore();
+    if (store) {
+        return store;
     }
-    return captureGetConnectionContext();
+    const fb = captureFallbackAcquireContext();
+    return {
+        ...fb,
+        inTransaction: false,
+        kind: 'unknown',
+    };
 }
 
 function registerHeld(resource: unknown, ctx: AcquireContext): void {
@@ -216,6 +260,8 @@ function registerHeld(resource: unknown, ctx: AcquireContext): void {
         acquiredAt: Date.now(),
         stack: ctx.stack,
         routine: ctx.routine,
+        inTransaction: ctx.inTransaction,
+        kind: ctx.kind,
     });
 }
 
@@ -223,34 +269,53 @@ function unregisterHeld(resource: unknown): void {
     heldByResource.delete(resource);
 }
 
-function instrumentConnectionManager(sequelize: Sequelize): void {
-    const cm = sequelize.connectionManager as unknown as ConnectionManagerLike &
-        Record<symbol, boolean>;
-    if (cm[CM_PATCHED]) {
-        return;
-    }
-    if (typeof cm.getConnection !== 'function') {
+function contextLabel(kind: OperationKind, inTransaction: boolean): string {
+    if (kind === 'transaction') return 'transaction';
+    if (inTransaction || kind === 'query-in-transaction') return 'transaction';
+    if (kind === 'query') return 'query';
+    return 'unknown';
+}
+
+function instrumentSequelizeApi(sequelize: Sequelize): void {
+    const s = sequelize as Sequelize & Record<symbol, boolean>;
+    if (s[API_PATCHED]) {
         return;
     }
 
-    const originalGetConnection = cm.getConnection.bind(cm);
+    type SequelizeQuery = Sequelize['query'];
+    type SequelizeTransaction = Sequelize['transaction'];
 
-    cm.getConnection = async function getConnectionMonitored(
-        options?: unknown
-    ) {
-        pendingGetConnectionContexts.push(captureGetConnectionContext());
-        try {
-            return await originalGetConnection(options);
-        } catch (err) {
-            if (pendingGetConnectionContexts.length > 0) {
-                pendingGetConnectionContexts.pop();
-            }
-            throw err;
-        }
+    const originalQuery = sequelize.query.bind(sequelize) as SequelizeQuery;
+    const queryMonitored = function (
+        sql: Parameters<SequelizeQuery>[0],
+        options?: Parameters<SequelizeQuery>[1]
+    ): ReturnType<SequelizeQuery> {
+        const opts = (options ?? {}) as { transaction?: unknown };
+        const inTx = Boolean(opts.transaction);
+        const ctx = buildOperationContext({
+            kind: inTx ? 'query-in-transaction' : 'query',
+            inTransaction: inTx,
+        });
+        return poolOperationContextAls.run(ctx, () =>
+            originalQuery(sql, options)
+        );
     };
+    sequelize.query = queryMonitored as SequelizeQuery;
 
-    cm[CM_PATCHED] = true;
-    cmPatchApplied = true;
+    const originalTransaction = sequelize.transaction.bind(sequelize);
+    sequelize.transaction = function transactionMonitored(
+        ...args: unknown[]
+    ) {
+        const ctx = buildOperationContext({
+            kind: 'transaction',
+            inTransaction: true,
+        });
+        return poolOperationContextAls.run(ctx, () =>
+            (originalTransaction as (...a: unknown[]) => unknown)(...args)
+        );
+    } as SequelizeTransaction;
+
+    s[API_PATCHED] = true;
 }
 
 function instrumentSequelizePool(pool: PoolLike): void {
@@ -273,7 +338,7 @@ function instrumentSequelizePool(pool: PoolLike): void {
             : null;
 
     pool.acquire = (...args: unknown[]) => {
-        const ctx = takeAcquireContext();
+        const ctx = snapshotContextForPoolAcquire();
         return originalAcquire(...args).then((resource: unknown) => {
             if (resource != null) {
                 registerHeld(resource, ctx);
@@ -298,12 +363,12 @@ function instrumentSequelizePool(pool: PoolLike): void {
 }
 
 function tryInstrumentSequelize(sequelize: Sequelize): void {
-    instrumentConnectionManager(sequelize);
+    instrumentSequelizeApi(sequelize);
 
     if (poolPatchApplied) {
         return;
     }
-    const cm = sequelize.connectionManager as { pool?: PoolLike | null };
+    const cm = sequelize.connectionManager as ConnectionManagerLike;
     const pool = cm?.pool;
     if (!pool) {
         return;
@@ -330,6 +395,8 @@ function logHeldConnectionsReport(): void {
             durationMs: now - info.acquiredAt,
             routine: info.routine,
             stack: info.stack,
+            inTransaction: info.inTransaction,
+            context: contextLabel(info.kind, info.inTransaction),
         }))
         .sort((a, b) => b.durationMs - a.durationMs)
         .slice(0, TOP_HOLDERS);
@@ -349,6 +416,10 @@ function logHeldConnectionsReport(): void {
             `#${index + 1} duration=${sec}s${longTag}\n`
         );
         process.stdout.write(`routine=${row.routine}\n`);
+        process.stdout.write(
+            `transaction=${row.inTransaction ? 'true' : 'false'}\n`
+        );
+        process.stdout.write(`context=${row.context}\n`);
         process.stdout.write(`stack=${row.stack}\n`);
     });
 }
@@ -414,8 +485,6 @@ export function stopSequelizePoolMonitor(): void {
         intervalHandle = null;
     }
     heldByResource.clear();
-    pendingGetConnectionContexts.length = 0;
     started = false;
     poolPatchApplied = false;
-    cmPatchApplied = false;
 }
