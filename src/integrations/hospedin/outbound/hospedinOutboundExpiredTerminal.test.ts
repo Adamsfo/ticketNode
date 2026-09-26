@@ -150,6 +150,21 @@ describe('avaliarOutboundReativacao — ABORTED diferenciado', () => {
         assert.deepEqual(resultado, { ok: true, deveMarkDirty: true });
     });
 
+    it('ABORTED + OUTBOUND_OPERATIONAL_WINDOW → permite reativação', () => {
+        const resultado = avaliarOutboundReativacao({
+            origemReserva: 'CLIENTE',
+            eventoTipo: 'Pousada',
+            suites: [{ hospedinReservationId: null }],
+            outboundState: {
+                outbound_status: HospedinOutboundStatus.ABORTED,
+                desired_action: 'CREATE',
+                last_error: 'janela',
+                error_code: 'OUTBOUND_OPERATIONAL_WINDOW',
+            },
+        });
+        assert.deepEqual(resultado, { ok: true, deveMarkDirty: true });
+    });
+
     it('ABORTED + CREATE_ABORTED → continua bloqueando', () => {
         const resultado = avaliarOutboundReativacao({
             origemReserva: 'CLIENTE',

@@ -229,6 +229,73 @@ describe('R-REACT-08 — multi-suíte (mensagens)', () => {
     });
 });
 
+describe('avaliarOutboundReativacao — ABORTED por error_code (Expirada)', () => {
+    const baseInput = {
+        origemReserva: 'CLIENTE',
+        eventoTipo: 'Pousada',
+        suites: [{ hospedinReservationId: null }],
+    };
+
+    it('A — ABORTED / STATUS_TERMINAL → ok, deveMarkDirty', () => {
+        const resultado = avaliarOutboundReativacao({
+            ...baseInput,
+            outboundState: {
+                outbound_status: HospedinOutboundStatus.ABORTED,
+                desired_action: 'CREATE',
+                last_error: 'Status Expirada não elegível para CREATE outbound.',
+                error_code: 'STATUS_TERMINAL',
+                hospedin_reservation_id: null,
+            },
+        });
+        assert.deepEqual(resultado, { ok: true, deveMarkDirty: true });
+    });
+
+    it('B — ABORTED / OUTBOUND_OPERATIONAL_WINDOW → ok, deveMarkDirty', () => {
+        const resultado = avaliarOutboundReativacao({
+            ...baseInput,
+            outboundState: {
+                outbound_status: HospedinOutboundStatus.ABORTED,
+                desired_action: 'CREATE',
+                last_error: 'fora da janela operacional',
+                error_code: 'OUTBOUND_OPERATIONAL_WINDOW',
+                hospedin_reservation_id: null,
+            },
+        });
+        assert.deepEqual(resultado, { ok: true, deveMarkDirty: true });
+    });
+
+    it('C — ABORTED / CREATE_ABORTED → ok false', () => {
+        const resultado = avaliarOutboundReativacao({
+            ...baseInput,
+            outboundState: {
+                outbound_status: HospedinOutboundStatus.ABORTED,
+                desired_action: 'CANCEL',
+                last_error: 'abort',
+                error_code: 'CREATE_ABORTED',
+                hospedin_reservation_id: null,
+            },
+        });
+        assert.equal(resultado.ok, false);
+    });
+
+    it('D — ABORTED / outro error_code → mantém bloqueio genérico', () => {
+        const resultado = avaliarOutboundReativacao({
+            ...baseInput,
+            outboundState: {
+                outbound_status: HospedinOutboundStatus.ABORTED,
+                desired_action: 'CREATE',
+                last_error: 'falha permanente',
+                error_code: 'MAPPING_BLOCKED',
+                hospedin_reservation_id: null,
+            },
+        });
+        assert.equal(resultado.ok, false);
+        if (!resultado.ok) {
+            assert.match(resultado.message, /abortada/);
+        }
+    });
+});
+
 describe('R-REACT-09 — rollback (validações antes da transação)', () => {
     it('bloqueia outbound abortado (CREATE_ABORTED) antes de qualquer alteração', () => {
         const resultado = avaliarOutboundReativacao({

@@ -132,7 +132,10 @@ export function avaliarOutboundReativacao(input: {
         const abortCode = String(
             input.outboundState.error_code || ''
         ).trim();
-        if (abortCode !== 'STATUS_TERMINAL') {
+        const permiteReativacaoComAbort =
+            abortCode === 'STATUS_TERMINAL' ||
+            abortCode === 'OUTBOUND_OPERATIONAL_WINDOW';
+        if (!permiteReativacaoComAbort) {
             return {
                 ok: false,
                 message:

@@ -4,6 +4,7 @@
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { StatusReservaHospedagem } from '../../../models/ReservaHospedagem';
+import { avaliarOutboundReativacao } from '../../../services/hospedagemReativacaoAdminPolicy';
 import {
     HospedinOutboundDesiredAction,
     HospedinOutboundStatus,
@@ -199,6 +200,44 @@ describe('markDirty após abandon operacional (store)', () => {
         const row = store.getRowByReserva(id)!;
         assert.equal(row.outbound_status, HospedinOutboundStatus.ABORTED);
         assert.equal(row.error_code, 'OUTBOUND_OPERATIONAL_WINDOW');
+    });
+
+    it('E — política permite reativação + AguardandoPagamento → markDirty elegível', async () => {
+        const policy = avaliarOutboundReativacao({
+            origemReserva: 'CLIENTE',
+            eventoTipo: 'Pousada',
+            suites: [{ hospedinReservationId: null }],
+            outboundState: {
+                outbound_status: HospedinOutboundStatus.ABORTED,
+                desired_action: HospedinOutboundDesiredAction.CREATE,
+                last_error: 'janela',
+                error_code: 'OUTBOUND_OPERATIONAL_WINDOW',
+                hospedin_reservation_id: null,
+            },
+        });
+        assert.deepEqual(policy, { ok: true, deveMarkDirty: true });
+
+        const id = 17005;
+        store.seedReserva({
+            id,
+            status: StatusReservaHospedagem.AguardandoPagamento,
+            checkin: pastCheckin,
+            checkout: pastCheckout,
+            idExterno: null,
+        });
+        store.seedQueueRow({
+            id_reserva_hospedagem: id,
+            outbound_status: HospedinOutboundStatus.ABORTED,
+            desired_action: HospedinOutboundDesiredAction.CREATE,
+            error_code: 'OUTBOUND_OPERATIONAL_WINDOW',
+        });
+        const reserva = store.reservas.get(id)!;
+        reserva.checkin = futureCheckin;
+        reserva.checkout = futureCheckout;
+
+        await markDirty(id);
+        const row = store.getRowByReserva(id)!;
+        assert.equal(row.outbound_status, HospedinOutboundStatus.PENDING_CREATE);
     });
 
     it('5 — PENDING_CANCEL não é abandonado por janela', () => {
