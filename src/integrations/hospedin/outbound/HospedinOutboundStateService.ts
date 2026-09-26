@@ -13,6 +13,7 @@ import {
 } from './hospedinOutboundCreateFinalize';
 import { OUTBOUND_CLAIMABLE_STATUSES } from './hospedinOutboundClaimable';
 import { notifyOutboundPendingIfClaimable } from './hospedinOutboundDispatchTrigger';
+import { isOutboundOperationEligible } from './hospedinOutboundOperationalEligibility';
 import { shouldRequeueAfterAppliedSync } from './hospedinOutboundSyncFinalize';
 
 const CLAIMABLE_STATUSES = OUTBOUND_CLAIMABLE_STATUSES;
@@ -56,14 +57,110 @@ export class HospedinOutboundStateService {
     async listDue(limit: number): Promise<HospedinOutboundSyncState[]> {
         const safeLimit = Math.max(1, Math.floor(limit || 1));
         const now = new Date();
-
-        return HospedinOutboundSyncState.findAll({
+        const scanBatch = Math.max(safeLimit * 5, 25);
+        const candidates = await HospedinOutboundSyncState.findAll({
             where: {
                 outbound_status: { [Op.in]: [...CLAIMABLE_STATUSES] },
                 ...retryDueWhere(now),
             },
             order: [['dirty_at', 'ASC']],
-            limit: safeLimit,
+            limit: scanBatch,
+        });
+
+        const eligible: HospedinOutboundSyncState[] = [];
+        for (const row of candidates) {
+            if (eligible.length >= safeLimit) break;
+            if (await this.isOutboundRowOperationallyEligible(row, now)) {
+                eligible.push(row);
+            }
+        }
+        return eligible;
+    }
+
+    /** Conta itens claimable+due (sem filtro temporal). */
+    async countRawClaimableDue(): Promise<number> {
+        const now = new Date();
+        return HospedinOutboundSyncState.count({
+            where: {
+                outbound_status: { [Op.in]: [...CLAIMABLE_STATUSES] },
+                ...retryDueWhere(now),
+            },
+        });
+    }
+
+    /**
+     * PENDING inelegíveis (janela operacional) → ABORTED para evitar órfãos com has_pending=0.
+     * CANCEL não é abandonado aqui (sempre elegível).
+     */
+    async abandonOperationallyIneligibleDue(
+        maxScan = 500
+    ): Promise<number> {
+        const now = new Date();
+        const candidates = await HospedinOutboundSyncState.findAll({
+            where: {
+                outbound_status: { [Op.in]: [...CLAIMABLE_STATUSES] },
+                ...retryDueWhere(now),
+            },
+            order: [['dirty_at', 'ASC']],
+            limit: Math.max(1, maxScan),
+        });
+
+        let abandoned = 0;
+        for (const row of candidates) {
+            const action = String(row.desired_action || '').toUpperCase();
+            if (action === HospedinOutboundDesiredAction.CANCEL) {
+                continue;
+            }
+            if (await this.isOutboundRowOperationallyEligible(row, now)) {
+                continue;
+            }
+            await this.markAborted(row.id, {
+                errorCode: 'OUTBOUND_OPERATIONAL_WINDOW',
+                errorMessage:
+                    'Outbound abandonado: fora da janela operacional (check-in/checkout).',
+            });
+            abandoned += 1;
+        }
+        return abandoned;
+    }
+
+    /** Conta itens claimable+due elegíveis (filtro temporal outbound). */
+    async countEligibleDue(maxScan = 500): Promise<number> {
+        const now = new Date();
+        const candidates = await HospedinOutboundSyncState.findAll({
+            where: {
+                outbound_status: { [Op.in]: [...CLAIMABLE_STATUSES] },
+                ...retryDueWhere(now),
+            },
+            order: [['dirty_at', 'ASC']],
+            limit: Math.max(1, maxScan),
+        });
+        let count = 0;
+        for (const row of candidates) {
+            if (await this.isOutboundRowOperationallyEligible(row, now)) {
+                count += 1;
+            }
+        }
+        return count;
+    }
+
+    /** Filtro temporal outbound (CREATE/UPDATE/CANCEL) — ver hospedinOutboundOperationalEligibility. */
+    async isOutboundRowOperationallyEligible(
+        row: HospedinOutboundSyncState,
+        now: Date = new Date()
+    ): Promise<boolean> {
+        const reserva = await ReservaHospedagem.findByPk(row.id_reserva_hospedagem, {
+            attributes: ['checkin', 'checkout'],
+        });
+        if (!reserva) {
+            return false;
+        }
+        return isOutboundOperationEligible({
+            desiredAction: row.desired_action,
+            outboundStatus: row.outbound_status,
+            checkin: reserva.checkin,
+            checkout: reserva.checkout,
+            now,
         });
     }
 
@@ -287,17 +384,21 @@ export class HospedinOutboundStateService {
         if (!row) return;
 
         const now = new Date();
-        await row.update({
+        const errorCode = input?.errorCode ?? 'CREATE_ABORTED';
+        const patch: Record<string, unknown> = {
             outbound_status: HospedinOutboundStatus.ABORTED,
-            desired_action: HospedinOutboundDesiredAction.CANCEL,
             last_error: input?.errorMessage ?? null,
-            error_code: input?.errorCode ?? 'CREATE_ABORTED',
+            error_code: errorCode,
             processing_started_at: null,
             processing_correlation_id: null,
             next_retry_at: null,
             retry_count: 0,
             updated_at: now,
-        });
+        };
+        if (errorCode !== 'OUTBOUND_OPERATIONAL_WINDOW') {
+            patch.desired_action = HospedinOutboundDesiredAction.CANCEL;
+        }
+        await row.update(patch);
     }
 
     /**

@@ -24,6 +24,7 @@ import {
     HOSPEDIN_OUTBOUND_PROVIDER_ID,
 } from './hospedinOutboundQueueProbe';
 import { hospedinOutboundStateService } from './HospedinOutboundStateService';
+import { isOutboundOperationEligible } from './hospedinOutboundOperationalEligibility';
 
 export type QueueRow = {
     id: number;
@@ -49,11 +50,17 @@ export type QueueRow = {
     updated_at: Date;
 };
 
+function defaultFutureCheckin(): Date {
+    return new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+}
+
 type ReservaFixture = {
     id: number;
     status: string;
     origemReserva: string;
     idExterno: string | null;
+    checkin: Date;
+    checkout: Date;
     Evento?: { tipo: string };
     ReservaSuite?: Array<{
         idEventoSuite: number;
@@ -121,7 +128,21 @@ export class OutboundIntegrationStore implements OutboundQueueProbeTestBackend {
         const now = new Date();
         let count = 0;
         for (const row of this.queueById.values()) {
-            if (isClaimable(row, now)) count += 1;
+            if (!isClaimable(row, now)) continue;
+            const reserva = this.reservas.get(row.id_reserva_hospedagem);
+            if (
+                !reserva ||
+                !isOutboundOperationEligible({
+                    desiredAction: row.desired_action,
+                    outboundStatus: row.outbound_status,
+                    checkin: reserva.checkin,
+                    checkout: reserva.checkout,
+                    now,
+                })
+            ) {
+                continue;
+            }
+            count += 1;
         }
         return count;
     }
@@ -134,14 +155,61 @@ export class OutboundIntegrationStore implements OutboundQueueProbeTestBackend {
         return this.hasPending;
     }
 
+    countRawClaimableInStore(): number {
+        const now = new Date();
+        let count = 0;
+        for (const row of this.queueById.values()) {
+            if (isClaimable(row, now)) count += 1;
+        }
+        return count;
+    }
+
+    abandonIneligibleInStore(): number {
+        const now = new Date();
+        let abandoned = 0;
+        for (const row of this.queueById.values()) {
+            if (!isClaimable(row, now)) continue;
+            if (
+                String(row.desired_action || '').toUpperCase() ===
+                HospedinOutboundDesiredAction.CANCEL
+            ) {
+                continue;
+            }
+            const reserva = this.reservas.get(row.id_reserva_hospedagem);
+            if (
+                !reserva ||
+                !isOutboundOperationEligible({
+                    desiredAction: row.desired_action,
+                    outboundStatus: row.outbound_status,
+                    checkin: reserva.checkin,
+                    checkout: reserva.checkout,
+                    now,
+                })
+            ) {
+                row.outbound_status = HospedinOutboundStatus.ABORTED;
+                row.error_code = 'OUTBOUND_OPERATIONAL_WINDOW';
+                abandoned += 1;
+            }
+        }
+        return abandoned;
+    }
+
     async tryClearOutboundPendingIfIdle(): Promise<boolean> {
         if (this.injectClaimableOnClear) {
             const hook = this.injectClaimableOnClear;
             this.injectClaimableOnClear = null;
             hook();
         }
-        const claimable = await this.countClaimableOutbound();
-        if (claimable > 0 || !this.hasPending) {
+        let eligible = await this.countClaimableOutbound();
+        if (eligible > 0 || !this.hasPending) {
+            return false;
+        }
+        this.abandonIneligibleInStore();
+        eligible = await this.countClaimableOutbound();
+        if (eligible > 0) {
+            return false;
+        }
+        if (this.countRawClaimableInStore() > 0) {
             return false;
         }
         this.hasPending = false;
@@ -149,11 +217,17 @@ export class OutboundIntegrationStore implements OutboundQueueProbeTestBackend {
     }
 
     seedReserva(input: Partial<ReservaFixture> & { id: number }): void {
+        const checkin = input.checkin ?? defaultFutureCheckin();
+        const checkout =
+            input.checkout ??
+            new Date(checkin.getTime() + 2 * 24 * 60 * 60 * 1000);
         this.reservas.set(input.id, {
             id: input.id,
             status: input.status ?? 'Confirmada',
             origemReserva: input.origemReserva ?? 'ATENDENTE',
             idExterno: input.idExterno ?? null,
+            checkin,
+            checkout,
             Evento: input.Evento ?? { tipo: 'Pousada' },
             ReservaSuite: input.ReservaSuite ?? [
                 {

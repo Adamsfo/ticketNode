@@ -159,6 +159,7 @@ describe('HospedinOutbound — integração dispatcher', () => {
     });
 
     it('7 — restart: pendência persistida recuperada pelo watchdog', async () => {
+        store.seedReserva({ id: 9401 });
         store.seedQueueRow({
             id_reserva_hospedagem: 9401,
             outbound_status: HospedinOutboundStatus.PENDING_UPDATE,

@@ -1,6 +1,8 @@
+import { IntegrationSyncTrigger } from '../../../models/IntegrationSyncExecution';
 import type {
     IntegrationSyncProvider,
     ProviderScheduleConfig,
+    ShouldStartCycleResult,
     SyncRunContext,
     SyncRunSummary,
 } from '../../core/types';
@@ -57,6 +59,31 @@ export class HospedinOutboundSyncProvider implements IntegrationSyncProvider {
             webhookEnabled: false,
             displayName: 'Hospedin Outbound',
         };
+    }
+
+    async shouldStartCycle(
+        ctx: SyncRunContext,
+        _config: ProviderScheduleConfig
+    ): Promise<ShouldStartCycleResult> {
+        const trigger = String(ctx.trigger || '').toUpperCase();
+        if (
+            trigger === IntegrationSyncTrigger.MANUAL ||
+            trigger === IntegrationSyncTrigger.API ||
+            trigger === IntegrationSyncTrigger.WEBHOOK
+        ) {
+            return { start: true };
+        }
+        const { hospedinOutboundStateService } = await import(
+            './HospedinOutboundStateService'
+        );
+        const eligible = await hospedinOutboundStateService.countEligibleDue(1);
+        if (eligible === 0) {
+            return {
+                start: false,
+                reason: 'Fila outbound sem itens elegíveis (due + janela temporal).',
+            };
+        }
+        return { start: true };
     }
 
     async runCycle(ctx: SyncRunContext): Promise<SyncRunSummary> {

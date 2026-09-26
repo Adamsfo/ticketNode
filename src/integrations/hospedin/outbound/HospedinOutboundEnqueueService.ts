@@ -16,6 +16,7 @@ import {
 } from './HospedinOutboundSnapshot';
 import { hospedinOutboundStateService } from './HospedinOutboundStateService';
 import { notifyOutboundPendingIfClaimable } from './hospedinOutboundDispatchTrigger';
+import { isOutboundOperationEligible } from './hospedinOutboundOperationalEligibility';
 import {
     collectDistinctHospedinReservationIds,
     sortOutboundSuites,
@@ -208,6 +209,9 @@ function shouldSkipMarkDirty(
             }
             return false;
         }
+        if (errorCode === 'OUTBOUND_OPERATIONAL_WINDOW') {
+            return false;
+        }
         return true;
     }
     const action = String(existing.desired_action || '').toUpperCase();
@@ -335,6 +339,23 @@ export async function markDirty(idReservaHospedagem: number): Promise<void> {
     const preconditions = await evaluateOutboundPreconditions(hospedagem);
 
     const neverSent = resolveNeverSent(hospedagem, existing);
+    const pendingAction = neverSent
+        ? HospedinOutboundDesiredAction.CREATE
+        : existing?.desired_action ||
+          HospedinOutboundDesiredAction.UPDATE;
+
+    if (
+        !isOutboundOperationEligible({
+            desiredAction: pendingAction,
+            outboundStatus: existing?.outbound_status,
+            checkin: hospedagem.checkin,
+            checkout: hospedagem.checkout,
+            now,
+        })
+    ) {
+        return;
+    }
+
     const nextState = resolveNextQueueState({
         neverSent,
         existing,

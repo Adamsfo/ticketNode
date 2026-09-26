@@ -14,6 +14,19 @@ export type SyncRunContext = {
     syncLimit?: number;
     /** Payload opcional de webhook (providers futuros). */
     webhookPayload?: unknown;
+    /** Import Hospedin já executado em preflightCycle (evita GET duplicado). */
+    hospedinPreflightImport?: {
+        fetched?: number;
+        upserted?: number;
+        remaining?: number;
+        discarded?: number;
+        importCreated?: number;
+        importUpdated?: number;
+        importUnchanged?: number;
+        importWorkFound?: boolean;
+        mode?: string;
+        sucesso?: boolean;
+    };
 };
 
 export type SyncRunSummary = {
@@ -51,6 +64,11 @@ export type ProviderScheduleConfig = {
  * Contrato mínimo de um provider de sincronização.
  * Scheduler e webhook disparam o mesmo runCycle.
  */
+export type ShouldStartCycleResult = {
+    start: boolean;
+    reason?: string;
+};
+
 export interface IntegrationSyncProvider {
     readonly id: string;
     readonly displayName: string;
@@ -59,6 +77,22 @@ export interface IntegrationSyncProvider {
         enabled: boolean;
         intervalMinutes: number;
     };
+    /**
+     * Opcional: evita INSERT em integration_sync_execution quando não há trabalho.
+     * MANUAL/WEBHOOK/API devem retornar start=true.
+     */
+    shouldStartCycle?(
+        ctx: SyncRunContext,
+        config: ProviderScheduleConfig
+    ): Promise<ShouldStartCycleResult>;
+    /**
+     * Opcional: roda antes de startRun (ex.: import API completo).
+     * continue=false omite integration_sync_execution sem impedir o próximo ciclo.
+     */
+    preflightCycle?(
+        ctx: SyncRunContext,
+        config: ProviderScheduleConfig
+    ): Promise<ShouldStartCycleResult>;
     runCycle(ctx: SyncRunContext): Promise<SyncRunSummary>;
 }
 

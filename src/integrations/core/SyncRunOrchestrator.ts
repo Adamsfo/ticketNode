@@ -11,10 +11,7 @@ import {
 } from '../../utils/logger';
 import { IntegrationSyncTrigger } from '../../models/IntegrationSyncExecution';
 import type { IntegrationSyncTriggerValue } from '../../models/IntegrationSyncExecution';
-import {
-    createSkippedExecution,
-    resolveExecutionStatus,
-} from './ExecutionHistoryService';
+import { resolveExecutionStatus } from './ExecutionHistoryService';
 import {
     getProviderScheduleConfig,
     newCorrelationId,
@@ -105,25 +102,56 @@ export async function runProviderCycle(
         };
     }
 
+    const ctx: SyncRunContext = {
+        trigger,
+        correlationId,
+        mode: options?.mode || config.mode || 'incremental',
+        syncLimit: options?.syncLimit ?? config.syncLimit,
+        webhookPayload: options?.webhookPayload,
+    };
+
     // Antes de tentar lock: recupera RUNNING morto deste provider (heartbeat).
     await recoverDeadRuns();
+
+    if (typeof provider.shouldStartCycle === 'function') {
+        const gate = await provider.shouldStartCycle(ctx, config);
+        if (!gate.start) {
+            log.debug(`${id}: ciclo omitido — sem trabalho processável`, {
+                reason: gate.reason,
+                trigger,
+            });
+            return {
+                skipped: true,
+                reason: gate.reason || 'Sem trabalho processável.',
+                correlationId,
+            };
+        }
+    }
 
     if (providerRunLock.isLocked(id)) {
         log.warn(
             `${id}: sincronização ignorada — execução anterior em andamento`
         );
-        const skipped = await createSkippedExecution({
-            provider: id,
-            trigger,
-            correlationId,
-            reason: 'Execução anterior ainda em andamento.',
-        });
         return {
             skipped: true,
             reason: 'Execução anterior ainda em andamento.',
-            executionId: skipped.id,
             correlationId,
         };
+    }
+
+    if (typeof provider.preflightCycle === 'function') {
+        const pre = await provider.preflightCycle(ctx, config);
+        if (!pre.start) {
+            log.debug(`${id}: ciclo omitido após preflight`, {
+                reason: pre.reason,
+                trigger,
+            });
+            return {
+                skipped: true,
+                reason: pre.reason || 'Preflight: sem trabalho após import.',
+                correlationId,
+            };
+        }
     }
 
     let handle: ActiveRunHandle | null = null;
@@ -131,8 +159,8 @@ export async function runProviderCycle(
     let cycleError: string | null = null;
 
     try {
-        const mode = options?.mode || config.mode || 'incremental';
-        const syncLimit = options?.syncLimit ?? config.syncLimit;
+        const mode = ctx.mode || 'incremental';
+        const syncLimit = ctx.syncLimit ?? config.syncLimit;
 
         handle = await startRun({
             provider: id,
@@ -147,14 +175,6 @@ export async function runProviderCycle(
             mode,
             syncLimit,
         });
-
-        const ctx: SyncRunContext = {
-            trigger,
-            correlationId,
-            mode,
-            syncLimit,
-            webhookPayload: options?.webhookPayload,
-        };
 
         summary = await provider.runCycle(ctx);
 

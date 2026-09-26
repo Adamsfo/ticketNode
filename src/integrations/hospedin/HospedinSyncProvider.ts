@@ -1,11 +1,14 @@
 import type {
     IntegrationSyncProvider,
     ProviderScheduleConfig,
+    ShouldStartCycleResult,
     SyncRunContext,
     SyncRunSummary,
 } from '../core/types';
 import { providerEnvHelpers } from '../core/ProviderConfigService';
 import { importHospedinReservations } from './services/HospedinImportReservationService';
+import { shouldOmitInboundExecutionAfterPreflight } from './services/hospedinInboundPostImportPolicy';
+import { hasPendingFutureInboundSync } from './services/hospedinInboundWorkProbe';
 import { hospedinReservationValidationService } from './services/HospedinReservationValidationService';
 import { reservationSyncRunner } from './sync/ReservationSyncRunner';
 import { HospedinLogger } from './logger/HospedinLogger';
@@ -48,6 +51,57 @@ export class HospedinSyncProvider implements IntegrationSyncProvider {
         };
     }
 
+    /**
+     * Sempre consulta a API (arquivo completo). Filtro check-in futuro em memória no import.
+     * Omit execution só quando, após o download, não há futuras no arquivo nem sync pendente.
+     */
+    async preflightCycle(
+        ctx: SyncRunContext,
+        _config: ProviderScheduleConfig
+    ): Promise<ShouldStartCycleResult> {
+        const mode = ctx.mode || 'incremental';
+        const importResult = await importHospedinReservations({
+            fetchDetails: false,
+            mode,
+        });
+        ctx.hospedinPreflightImport = importResult;
+
+        if (importResult.sucesso === false) {
+            return { start: true };
+        }
+
+        const pending = await hasPendingFutureInboundSync();
+        const importWorkFound = Boolean(importResult.importWorkFound);
+        const omit = shouldOmitInboundExecutionAfterPreflight({
+            trigger: String(ctx.trigger || ''),
+            mode,
+            importWorkFound,
+            hasPendingFutureSync: pending,
+        });
+
+        if (omit) {
+            HospedinLogger.info('pipeline:preflight:omit_execution', {
+                correlationId: ctx.correlationId,
+                trigger: ctx.trigger,
+                fetched: importResult.fetched,
+                discarded: importResult.discarded,
+                remaining: importResult.remaining,
+                importCreated: importResult.importCreated,
+                importUpdated: importResult.importUpdated,
+                importUnchanged: importResult.importUnchanged,
+                importWorkFound,
+                pendingFutureSync: pending,
+            });
+            return {
+                start: false,
+                reason:
+                    'Após import: sem reserva nova/alterada e sem sync pendente futuro — execution omitida.',
+            };
+        }
+
+        return { start: true };
+    }
+
     async runCycle(ctx: SyncRunContext): Promise<SyncRunSummary> {
         const mode = ctx.mode || 'incremental';
         const syncLimit = ctx.syncLimit ?? 50;
@@ -59,11 +113,33 @@ export class HospedinSyncProvider implements IntegrationSyncProvider {
             syncLimit,
         });
 
-        // 1) Import
-        const importResult = await importHospedinReservations({
-            fetchDetails: false,
-            mode,
-        });
+        // 1) Import (ou reutiliza preflight)
+        const importResult =
+            ctx.hospedinPreflightImport &&
+            ctx.hospedinPreflightImport.sucesso !== false
+                ? {
+                      operacao: 'import_reservations',
+                      fetched: ctx.hospedinPreflightImport.fetched ?? 0,
+                      upserted: ctx.hospedinPreflightImport.upserted ?? 0,
+                      remaining: ctx.hospedinPreflightImport.remaining ?? 0,
+                      discarded: ctx.hospedinPreflightImport.discarded ?? 0,
+                      importCreated:
+                          ctx.hospedinPreflightImport.importCreated ?? 0,
+                      importUpdated:
+                          ctx.hospedinPreflightImport.importUpdated ?? 0,
+                      importUnchanged:
+                          ctx.hospedinPreflightImport.importUnchanged ?? 0,
+                      importWorkFound:
+                          ctx.hospedinPreflightImport.importWorkFound ?? false,
+                      mode: ctx.hospedinPreflightImport.mode ?? mode,
+                      sucesso: true as const,
+                      durationMs: 0,
+                      accountId: null,
+                  }
+                : await importHospedinReservations({
+                      fetchDetails: false,
+                      mode,
+                  });
         HospedinLogger.info('pipeline:runCycle:import', {
             correlationId: ctx.correlationId,
             fetched: importResult.fetched,

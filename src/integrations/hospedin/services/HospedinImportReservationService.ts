@@ -3,8 +3,7 @@ import type { HospedinImportResult } from '../dto';
 import { HospedinLogger } from '../logger/HospedinLogger';
 import { HospedinReservationMapper } from '../mapper/HospedinReservationMapper';
 import {
-    getOperationalSyncWindow,
-    isWithinOperationalSyncWindow,
+    isCheckinAfterNow,
     parseHospedinSyncMode,
     type HospedinSyncMode,
 } from '../utils/operationalSyncWindow';
@@ -15,6 +14,10 @@ import {
 } from './HospedinGuestService';
 import { hospedinReservationService } from './HospedinReservationService';
 import { hospedinSyncLogService } from './HospedinSyncLogService';
+import {
+    classifyStagingImportChange,
+    hasInboundImportWork,
+} from './hospedinStagingImportDiff';
 
 export type ImportReservationsOptions = {
     /** Se true, enriquece cada item com GET /reservations/{id}. */
@@ -31,8 +34,7 @@ export type ImportReservationsOptions = {
  * Não cria/altera ReservaHospedagem nem chama services do Jango.
  *
  * Incremental (padrão): após listar todas as páginas, descarta reservas com
- * check-in anterior a (hoje - 7 dias) antes de fetchDetails /
- * guest enrich / upsert / validate / sync.
+ * check-in que não é futuro (minuto, fuso hospedagem) antes de upsert.
  *
  * Full: ignora o filtro e processa absolutamente todas.
  */
@@ -43,7 +45,7 @@ export async function importHospedinReservations(
     const operacao = 'import_reservations';
     const fetchDetails = options.fetchDetails === true;
     const mode = parseHospedinSyncMode(options.mode, 'incremental');
-    const window = getOperationalSyncWindow();
+    const importNow = new Date();
     let accountId: string | null = null;
 
     try {
@@ -53,8 +55,7 @@ export async function importHospedinReservations(
             accountId,
             fetchDetails,
             mode,
-            todayStart: window.todayStart.toISOString(),
-            filter: 'check_in >= today-7d',
+            filter: 'check_in > now (minute, TZ hospedagem)',
         });
 
         let dtos = await hospedinReservationService.listAllReservations(
@@ -79,13 +80,7 @@ export async function importHospedinReservations(
         if (mode === 'incremental') {
             const kept = [];
             for (const dto of dtos) {
-                if (
-                    isWithinOperationalSyncWindow(
-                        dto.checkin,
-                        dto.checkout,
-                        window
-                    )
-                ) {
+                if (isCheckinAfterNow(dto.checkin, importNow)) {
                     kept.push(dto);
                 } else {
                     discarded += 1;
@@ -97,7 +92,7 @@ export async function importHospedinReservations(
                 fetchedFromApi,
                 discarded,
                 remaining: dtos.length,
-                reason: 'check_in < today-7d',
+                reason: 'check_in_not_future',
             });
         }
 
@@ -159,6 +154,9 @@ export async function importHospedinReservations(
 
         const now = new Date();
         let upserted = 0;
+        let importCreated = 0;
+        let importUpdated = 0;
+        let importUnchanged = 0;
 
         for (const dto of dtos) {
             const existing = await HospedinReservation.findOne({
@@ -169,9 +167,34 @@ export async function importHospedinReservations(
                 now,
                 existing?.imported_at
             );
+            const change = classifyStagingImportChange(
+                existing
+                    ? {
+                          status: existing.status,
+                          checkin: existing.checkin,
+                          checkout: existing.checkout,
+                          payload_json: existing.payload_json,
+                      }
+                    : null,
+                internal
+            );
+            if (change === 'unchanged') {
+                importUnchanged += 1;
+                continue;
+            }
             await HospedinReservation.upsert(internal);
             upserted += 1;
+            if (change === 'created') {
+                importCreated += 1;
+            } else {
+                importUpdated += 1;
+            }
         }
+
+        const importWorkFound = hasInboundImportWork({
+            created: importCreated,
+            updated: importUpdated,
+        });
 
         const durationMs = Date.now() - started;
         const result: HospedinImportResult = {
@@ -185,7 +208,11 @@ export async function importHospedinReservations(
             discarded,
             remaining: dtos.length,
             discardedReason:
-                mode === 'incremental' ? 'check_in_past' : undefined,
+                mode === 'incremental' ? 'check_in_not_future' : undefined,
+            importCreated,
+            importUpdated,
+            importUnchanged,
+            importWorkFound,
         };
 
         await hospedinSyncLogService.write({
@@ -196,13 +223,20 @@ export async function importHospedinReservations(
                 accountId,
                 fetchDetails,
                 mode,
-                filter: mode === 'incremental' ? 'check_in >= today-7d' : null,
+                filter:
+                    mode === 'incremental'
+                        ? 'check_in > now (minute)'
+                        : null,
             },
             response: {
                 fetched: fetchedFromApi,
                 discarded,
                 remaining: dtos.length,
                 upserted,
+                importCreated,
+                importUpdated,
+                importUnchanged,
+                importWorkFound,
                 guestsEnriched,
                 guestCacheSize: guestCache.size,
                 mode,

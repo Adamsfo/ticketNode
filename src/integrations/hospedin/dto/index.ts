@@ -77,4 +77,12 @@ export type HospedinImportResult = {
     remaining?: number;
     /** Motivo do descarte no incremental (ex.: check_in_past). */
     discardedReason?: string;
+    /** Novas reservas futuras gravadas na staging. */
+    importCreated?: number;
+    /** Reservas futuras com conteúdo alterado vs staging. */
+    importUpdated?: number;
+    /** Futuras no arquivo sem mudança — upsert omitido. */
+    importUnchanged?: number;
+    /** Há trabalho de pipeline após import (nova ou alterada). */
+    importWorkFound?: boolean;
 };

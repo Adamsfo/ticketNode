@@ -1,3 +1,4 @@
+import { Op } from 'sequelize';
 import {
     IntegrationEntityType,
     IntegrationProvider,
@@ -12,8 +13,7 @@ import { asRecord } from '../mapper/mapperHelpers';
 import { reservationSyncOrchestrator } from '../sync/ReservationSyncOrchestrator';
 import { linkedExistingSuiteSyncService } from './LinkedExistingSuiteSyncService';
 import {
-    getOperationalSyncWindow,
-    isWithinOperationalSyncWindow,
+    getCheckinSqlExclusiveThreshold,
     parseHospedinSyncMode,
 } from '../utils/operationalSyncWindow';
 import {
@@ -217,9 +217,8 @@ export class HospedinReservationValidationService {
     }
 
     /**
-     * Valida staging. No modo incremental (padrão), aplica a mesma janela
-     * operacional do Import (check_in >= hoje - 7 dias).
-     * mode=full valida absolutamente todas as linhas do staging.
+     * Valida staging. Incremental: somente check-in futuro (minuto, TZ hospedagem).
+     * mode=full valida todas as linhas do staging.
      */
     async validateAll(options?: {
         mode?: string;
@@ -231,24 +230,30 @@ export class HospedinReservationValidationService {
         results: ValidationResult[];
     }> {
         const mode = parseHospedinSyncMode(options?.mode, 'incremental');
-        const window = getOperationalSyncWindow();
+        const validateNow = new Date();
 
-        const rows = await HospedinReservation.findAll({
-            attributes: ['reservation_id', 'checkin', 'checkout'],
-            order: [['reservation_id', 'ASC']],
-        });
+        let rows: Array<Pick<HospedinReservation, 'reservation_id' | 'checkin' | 'checkout'>>;
+        let discarded = 0;
 
-        const selected =
-            mode === 'full'
-                ? rows
-                : rows.filter((row) =>
-                      isWithinOperationalSyncWindow(
-                          row.checkin,
-                          row.checkout,
-                          window
-                      )
-                  );
-        const discarded = rows.length - selected.length;
+        if (mode === 'full') {
+            rows = await HospedinReservation.findAll({
+                attributes: ['reservation_id', 'checkin', 'checkout'],
+                order: [['reservation_id', 'ASC']],
+            });
+        } else {
+            const threshold = getCheckinSqlExclusiveThreshold(validateNow);
+            rows = await HospedinReservation.findAll({
+                attributes: ['reservation_id', 'checkin', 'checkout'],
+                where: {
+                    checkin: { [Op.gt]: threshold },
+                },
+                order: [['reservation_id', 'ASC']],
+            });
+            const totalStaging = await HospedinReservation.count();
+            discarded = Math.max(0, totalStaging - rows.length);
+        }
+
+        const selected = rows;
 
         const results: ValidationResult[] = [];
         for (const row of selected) {

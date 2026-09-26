@@ -105,6 +105,20 @@ describe('shouldSkipMarkDirty — ABORTED diferenciado', () => {
         assert.equal(next.desired_action, HospedinOutboundDesiredAction.CREATE);
     });
 
+    it('ABORTED + OUTBOUND_OPERATIONAL_WINDOW → não skip', () => {
+        assert.equal(
+            outboundEnqueueTestHelpers.shouldSkipMarkDirty(
+                { status: StatusReservaHospedagem.Confirmada } as any,
+                {
+                    outbound_status: HospedinOutboundStatus.ABORTED,
+                    error_code: 'OUTBOUND_OPERATIONAL_WINDOW',
+                    desired_action: HospedinOutboundDesiredAction.CREATE,
+                } as any
+            ),
+            false
+        );
+    });
+
     it('ABORTED + CREATE_ABORTED + Confirmada → skip (cancelamento)', () => {
         assert.equal(
             outboundEnqueueTestHelpers.shouldSkipMarkDirty(

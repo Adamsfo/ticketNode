@@ -39,14 +39,10 @@ export async function countClaimableOutbound(): Promise<number> {
     if (queueProbeTestBackend) {
         return queueProbeTestBackend.countClaimableOutbound();
     }
-    const rows = (await connection.query(
-        `SELECT COUNT(*) AS cnt
-         FROM hospedin_outbound_sync_state o
-         WHERE o.outbound_status IN (${CLAIMABLE_IN})
-           AND (o.next_retry_at IS NULL OR o.next_retry_at <= UTC_TIMESTAMP())`,
-        { type: QueryTypes.SELECT }
-    )) as Array<{ cnt: number }>;
-    return Number(rows[0]?.cnt ?? 0);
+    const { hospedinOutboundStateService } = await import(
+        './HospedinOutboundStateService'
+    );
+    return hospedinOutboundStateService.countEligibleDue();
 }
 
 /**
@@ -77,12 +73,32 @@ export async function tryClearOutboundPendingIfIdle(): Promise<boolean> {
     if (queueProbeTestBackend) {
         return queueProbeTestBackend.tryClearOutboundPendingIfIdle();
     }
+    const { hospedinOutboundStateService } = await import(
+        './HospedinOutboundStateService'
+    );
+
+    let eligible = await hospedinOutboundStateService.countEligibleDue();
+    if (eligible > 0) {
+        return false;
+    }
+
+    await hospedinOutboundStateService.abandonOperationallyIneligibleDue();
+
+    eligible = await hospedinOutboundStateService.countEligibleDue();
+    if (eligible > 0) {
+        return false;
+    }
+
+    const rawDue = await hospedinOutboundStateService.countRawClaimableDue();
+    if (rawDue > 0) {
+        return false;
+    }
+
     const [, metadata] = await connection.query(
         `UPDATE integration_provider_state ips
          SET ips.has_pending = 0, ips.updated_at = UTC_TIMESTAMP()
          WHERE ips.provider = :provider
-           AND ips.has_pending = 1
-           AND NOT EXISTS (${CLAIMABLE_EXISTS_SQL})`,
+           AND ips.has_pending = 1`,
         {
             replacements: { provider: HOSPEDIN_OUTBOUND_PROVIDER_ID },
             type: QueryTypes.UPDATE,

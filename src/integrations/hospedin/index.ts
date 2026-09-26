@@ -14,6 +14,9 @@ export type { HospedinAccountSource } from './utils/resolveAccountId';
 
 export {
     getOperationalSyncWindow,
+    getCheckinSqlExclusiveThreshold,
+    isCheckinAfterNow,
+    isCheckoutAfterNow,
     isWithinOperationalSyncWindow,
     parseHospedinSyncMode,
 } from './utils/operationalSyncWindow';

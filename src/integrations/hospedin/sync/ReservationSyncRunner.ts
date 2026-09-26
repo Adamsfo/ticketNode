@@ -1,3 +1,4 @@
+import { Op } from 'sequelize';
 import {
     IntegrationEntityType,
     IntegrationProvider,
@@ -8,8 +9,7 @@ import { HospedinReservation } from '../../../models/HospedinReservation';
 import { integrationSyncStateService } from '../services/IntegrationSyncStateService';
 import { hospedinSyncLogService } from '../services/HospedinSyncLogService';
 import {
-    getOperationalSyncWindow,
-    isWithinOperationalSyncWindow,
+    getCheckinSqlExclusiveThreshold,
     parseHospedinSyncMode,
     type HospedinSyncMode,
 } from '../utils/operationalSyncWindow';
@@ -37,12 +37,9 @@ export class ReservationSyncRunner {
     }> {
         const limit = options?.limit ?? 50;
         const mode = parseHospedinSyncMode(options?.mode, 'incremental');
-        const window = getOperationalSyncWindow();
+        const syncNow = new Date();
 
-        // Busca um lote amplo: no incremental, READY antigos fora da janela
-        // permanecem READY e seriam "reencontrados" com offset — filtramos em memória.
-        const scanLimit =
-            mode === 'full' ? limit : Math.max(limit * 20, 500);
+        const scanLimit = mode === 'full' ? limit : Math.max(limit * 5, 100);
         const states = await integrationSyncStateService.list({
             provider: IntegrationProvider.HOSPEDIN,
             entityType: IntegrationEntityType.RESERVATION,
@@ -60,7 +57,7 @@ export class ReservationSyncRunner {
             if (mode === 'incremental') {
                 const inWindow = await this.isReservationInWindow(
                     state.external_id,
-                    window
+                    syncNow
                 );
                 if (!inWindow) {
                     discarded += 1;
@@ -98,18 +95,16 @@ export class ReservationSyncRunner {
 
     private async isReservationInWindow(
         externalId: string | number,
-        window: ReturnType<typeof getOperationalSyncWindow>
+        now: Date
     ): Promise<boolean> {
         const row = await HospedinReservation.findOne({
-            where: { reservation_id: Number(externalId) },
-            attributes: ['checkin', 'checkout'],
+            where: {
+                reservation_id: Number(externalId),
+                checkin: { [Op.gt]: getCheckinSqlExclusiveThreshold(now) },
+            },
+            attributes: ['checkin'],
         });
-        if (!row) return false;
-        return isWithinOperationalSyncWindow(
-            row.checkin,
-            row.checkout,
-            window
-        );
+        return Boolean(row);
     }
 
     async processOne(
