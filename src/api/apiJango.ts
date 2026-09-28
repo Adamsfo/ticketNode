@@ -396,9 +396,10 @@ const PdvApiJango = {
     /** Quando informado (hospedagem), substitui o padrão "Ingressos …". */
     descricaoCustom?: string | null
   ): Promise<number> => {
-    if (id_forma_pagamento !== 38) {
+    const formasPermitidasPdv = new Set([38, 32]);
+    if (!formasPermitidasPdv.has(id_forma_pagamento)) {
       console.warn(
-        `inseriCaixaItem ignorado: apenas ID_FORMA_PAGAMENTO=38 (dinheiro) é permitido (recebido ${id_forma_pagamento}).`
+        `inseriCaixaItem ignorado: apenas ID_FORMA_PAGAMENTO 38 (dinheiro) ou 32 (antecipado) são permitidos (recebido ${id_forma_pagamento}).`
       );
       return 0;
     }

@@ -300,8 +300,9 @@ const PdvApiJango = {
     inseriCaixaItem: async (id_caixa, valor, id_forma_pagamento, identificadorUnico, 
     /** Quando informado (hospedagem), substitui o padrão "Ingressos …". */
     descricaoCustom) => {
-        if (id_forma_pagamento !== 38) {
-            console.warn(`inseriCaixaItem ignorado: apenas ID_FORMA_PAGAMENTO=38 (dinheiro) é permitido (recebido ${id_forma_pagamento}).`);
+        const formasPermitidasPdv = new Set([38, 32]);
+        if (!formasPermitidasPdv.has(id_forma_pagamento)) {
+            console.warn(`inseriCaixaItem ignorado: apenas ID_FORMA_PAGAMENTO 38 (dinheiro) ou 32 (antecipado) são permitidos (recebido ${id_forma_pagamento}).`);
             return 0;
         }
         const descricao = (descricaoCustom && String(descricaoCustom).trim()

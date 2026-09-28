@@ -48,14 +48,24 @@ import {
 import { obterReservaAdminDetalhe } from './hospedagemAdminService';
 import apiJango from '../api/apiJango';
 
-/** id_forma_pagamento no legado Firebird — somente dinheiro é replicado no PDV. */
+/** id_forma_pagamento no legado Firebird — hospedagem replicada no PDV. */
 const ID_FORMA_PAGAMENTO_CAIXA_DINHEIRO = 38;
+const ID_FORMA_PAGAMENTO_CAIXA_ANTECIPADO = 32;
+
+const FORMAS_PAGAMENTO_HOSPEDAGEM_ENVIA_PDV: ReadonlySet<FormaPagamentoRecepcao> =
+    new Set([
+        FormaPagamentoRecepcaoValor.Dinheiro,
+        FormaPagamentoRecepcaoValor.Antecipado,
+    ]);
 
 function idFormaPagamentoCaixaJango(
     forma: FormaPagamentoRecepcao
 ): number | null {
     if (forma === FormaPagamentoRecepcaoValor.Dinheiro) {
         return ID_FORMA_PAGAMENTO_CAIXA_DINHEIRO;
+    }
+    if (forma === FormaPagamentoRecepcaoValor.Antecipado) {
+        return ID_FORMA_PAGAMENTO_CAIXA_ANTECIPADO;
     }
     return null;
 }
@@ -192,7 +202,9 @@ export async function persistirCaixaPagamentoHospedagem(
         return pagamento.idCaixaItem;
     }
 
-    if (pagamento.formaPagamento !== FormaPagamentoRecepcaoValor.Dinheiro) {
+    if (
+        !FORMAS_PAGAMENTO_HOSPEDAGEM_ENVIA_PDV.has(pagamento.formaPagamento)
+    ) {
         return null;
     }
 
