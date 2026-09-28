@@ -1,0 +1,153 @@
+﻿[DEBUG][SQL] Executing (default): SELECT 1+1 AS result ([object Object]ms)
+[INFO] Conectado no banco de dados
+[DEBUG][SQL] Executing (default): SELECT
+      t.id,
+      t.id_usuario AS idUsuario,
+      t.data_transacao AS dataTransacao,
+      t.data_pagamento AS dataPagamento,
+      t.preco,
+      t.taxa_servico AS taxaServico,
+      t.valor_total AS valorTotal,
+      t.valor_recebido AS valorRecebido,
+      t.valor_taxa_processamento AS valorTaxaProcessamento,
+      t.status,
+      t.gateway_pagamento AS gatewayPagamento,
+      t.origem_transacao AS origemTransacao,
+      t.tipo_pagamento AS tipoPagamento
+    FROM Transacao t
+    WHERE t.status = 'Pago'
+      AND t.gateway_pagamento = 'TEF Stone'
+      AND t.origem_transacao = 'INGRESSOS'
+      AND t.data_pagamento >= '2026-09-27T03:00:00.000Z'
+      AND t.data_pagamento < '2026-09-28T03:00:00.000Z'
+    ORDER BY t.id ([object Object]ms)
+[DEBUG][SQL] Executing (default): SELECT id, id_transacao AS idTransacao, pagamento_codigo AS PagamentoCodigo,
+           gateway_pagamento AS gatewayPagamento, valor, status_pagamento AS statusPagamento,
+           id_caixa_item AS idCaixaItem, created_at AS createdAt
+    FROM TransacaoPagamento
+    WHERE id_transacao IN (12163, 12165, 12166, 12168, 12169, 12170, 12171, 12172, 12173, 12174, 12176, 12177, 12178, 12179, 12180, 12181, 12182, 12183, 12184, 12185, 12186, 12187, 12188, 12189, 12190, 12191, 12194, 12196, 12197, 12198, 12199, 12201, 12202, 12203, 12204, 12205)
+    ORDER BY id_transacao, id ([object Object]ms)
+[DEBUG][SQL] Executing (default): SELECT id_transacao AS idTransacao, data, descricao, id_usuario AS idUsuario
+    FROM HistoricoTransacao
+    WHERE id_transacao IN (12163, 12165, 12166, 12168, 12169, 12170, 12171, 12172, 12173, 12174, 12176, 12177, 12178, 12179, 12180, 12181, 12182, 12183, 12184, 12185, 12186, 12187, 12188, 12189, 12190, 12191, 12194, 12196, 12197, 12198, 12199, 12201, 12202, 12203, 12204, 12205)
+    ORDER BY id_transacao, data, id ([object Object]ms)
+[DEBUG][SQL] Executing (default): SELECT it.id_transacao AS idTransacao, i.id AS idIngresso, i.status AS statusIngresso
+    FROM IngressoTransacao it
+    INNER JOIN Ingresso i ON i.id = it.id_ingresso
+    WHERE it.id_transacao IN (12163, 12165, 12166, 12168, 12169, 12170, 12171, 12172, 12173, 12174, 12176, 12177, 12178, 12179, 12180, 12181, 12182, 12183, 12184, 12185, 12186, 12187, 12188, 12189, 12190, 12191, 12194, 12196, 12197, 12198, 12199, 12201, 12202, 12203, 12204, 12205) ([object Object]ms)
+=== 1ΓÇô2. TRANSACOES TEF CAIXA (MySQL) ===
+Periodo UTC: 2026-09-27T03:00:00.000Z -> 2026-09-28T03:00:00.000Z
+Quantidade: 36
+SUM(valor_total): 6025.00
+SUM(valor_recebido): 6025.00
+
+=== LISTA TRANSACOES ===
+{"id":12163,"idUsuario":2441,"dataTransacao":"2026-09-27T12:08:38.000Z","dataPagamento":"2026-09-27T12:09:14.000Z","preco":70,"taxaServico":5,"valorTotal":75,"valorRecebido":75,"valorTaxaProcessamento":0,"status":"Pago","gateway":"TEF Stone","origem":"INGRESSOS","tipoPagamento":"Cr├⌐dito","pagamentos":[{"id":10027,"idTransacao":12163,"PagamentoCodigo":"3060641","gatewayPagamento":"TEF Stone","valor":"75.00","statusPagamento":"Pago","idCaixaItem":97694,"createdAt":"2026-09-27T12:08:49.000Z"}]}
+{"id":12165,"idUsuario":7252,"dataTransacao":"2026-09-27T12:31:36.000Z","dataPagamento":"2026-09-27T12:32:08.000Z","preco":111,"taxaServico":9,"valorTotal":120,"valorRecebido":120,"valorTaxaProcessamento":0,"status":"Pago","gateway":"TEF Stone","origem":"INGRESSOS","tipoPagamento":"D├⌐bito","pagamentos":[{"id":10029,"idTransacao":12165,"PagamentoCodigo":"3061023","gatewayPagamento":"TEF Stone","valor":"120.00","statusPagamento":"Pago","idCaixaItem":97696,"createdAt":"2026-09-27T12:31:55.000Z"}]}
+{"id":12166,"idUsuario":2844,"dataTransacao":"2026-09-27T12:33:21.000Z","dataPagamento":"2026-09-27T12:33:59.000Z","preco":107,"taxaServico":8,"valorTotal":115,"valorRecebido":115,"valorTaxaProcessamento":0,"status":"Pago","gateway":"TEF Stone","origem":"INGRESSOS","tipoPagamento":"Cr├⌐dito","pagamentos":[{"id":10030,"idTransacao":12166,"PagamentoCodigo":"3061064","gatewayPagamento":"TEF Stone","valor":"115.00","statusPagamento":"Pago","idCaixaItem":97697,"createdAt":"2026-09-27T12:33:41.000Z"}]}
+{"id":12168,"idUsuario":7253,"dataTransacao":"2026-09-27T12:53:49.000Z","dataPagamento":"2026-09-27T12:54:17.000Z","preco":107,"taxaServico":8,"valorTotal":115,"valorRecebido":115,"valorTaxaProcessamento":0,"status":"Pago","gateway":"TEF Stone","origem":"INGRESSOS","tipoPagamento":"Cr├⌐dito","pagamentos":[{"id":10031,"idTransacao":12168,"PagamentoCodigo":"3061440","gatewayPagamento":"TEF Stone","valor":"115.00","statusPagamento":"Pago","idCaixaItem":97698,"createdAt":"2026-09-27T12:53:59.000Z"}]}
+{"id":12169,"idUsuario":7254,"dataTransacao":"2026-09-27T12:56:22.000Z","dataPagamento":"2026-09-27T12:56:50.000Z","preco":74,"taxaServico":6,"valorTotal":80,"valorRecebido":80,"valorTaxaProcessamento":0,"status":"Pago","gateway":"TEF Stone","origem":"INGRESSOS","tipoPagamento":"Cr├⌐dito","pagamentos":[{"id":10032,"idTransacao":12169,"PagamentoCodigo":"3061499","gatewayPagamento":"TEF Stone","valor":"80.00","statusPagamento":"Pago","idCaixaItem":97699,"createdAt":"2026-09-27T12:56:36.000Z"}]}
+{"id":12170,"idUsuario":1529,"dataTransacao":"2026-09-27T12:57:40.000Z","dataPagamento":"2026-09-27T12:58:03.000Z","preco":107,"taxaServico":8,"valorTotal":115,"valorRecebido":115,"valorTaxaProcessamento":0,"status":"Pago","gateway":"TEF Stone","origem":"INGRESSOS","tipoPagamento":"Cr├⌐dito","pagamentos":[{"id":10033,"idTransacao":12170,"PagamentoCodigo":"3061519","gatewayPagamento":"TEF Stone","valor":"115.00","statusPagamento":"Pago","idCaixaItem":97700,"createdAt":"2026-09-27T12:57:48.000Z"}]}
+{"id":12171,"idUsuario":7255,"dataTransacao":"2026-09-27T13:00:06.000Z","dataPagamento":"2026-09-27T13:00:59.000Z","preco":140,"taxaServico":10,"valorTotal":150,"valorRecebido":150,"valorTaxaProcessamento":0,"status":"Pago","gateway":"TEF Stone","origem":"INGRESSOS","tipoPagamento":"Cr├⌐dito","pagamentos":[{"id":10034,"idTransacao":12171,"PagamentoCodigo":"3061575","gatewayPagamento":"TEF Stone","valor":"150.00","statusPagamento":"Pago","idCaixaItem":97701,"createdAt":"2026-09-27T13:00:12.000Z"}]}
+{"id":12172,"idUsuario":7256,"dataTransacao":"2026-09-27T13:03:24.000Z","dataPagamento":"2026-09-27T13:04:11.000Z","preco":247,"taxaServico":18,"valorTotal":265,"valorRecebido":265,"valorTaxaProcessamento":0,"status":"Pago","gateway":"TEF Stone","origem":"INGRESSOS","tipoPagamento":"Cr├⌐dito","pagamentos":[{"id":10035,"idTransacao":12172,"PagamentoCodigo":"3061668","gatewayPagamento":"TEF Stone","valor":"265.00","statusPagamento":"Pago","idCaixaItem":97702,"createdAt":"2026-09-27T13:03:54.000Z"}]}
+{"id":12173,"idUsuario":7257,"dataTransacao":"2026-09-27T13:17:53.000Z","dataPagamento":"2026-09-27T13:18:24.000Z","preco":214,"taxaServico":16,"valorTotal":230,"valorRecebido":230,"valorTaxaProcessamento":0,"status":"Pago","gateway":"TEF Stone","origem":"INGRESSOS","tipoPagamento":"Cr├⌐dito","pagamentos":[{"id":10036,"idTransacao":12173,"PagamentoCodigo":"3062016","gatewayPagamento":"TEF Stone","valor":"230.00","statusPagamento":"Pago","idCaixaItem":97703,"createdAt":"2026-09-27T13:18:09.000Z"}]}
+{"id":12174,"idUsuario":1693,"dataTransacao":"2026-09-27T13:21:47.000Z","dataPagamento":"2026-09-27T13:22:45.000Z","preco":37,"taxaServico":3,"valorTotal":40,"valorRecebido":40,"valorTaxaProcessamento":0,"status":"Pago","gateway":"TEF Stone","origem":"INGRESSOS","tipoPagamento":"Cr├⌐dito","pagamentos":[{"id":10037,"idTransacao":12174,"PagamentoCodigo":"3062115","gatewayPagamento":"TEF Stone","valor":"40.00","statusPagamento":"Pago","idCaixaItem":97704,"createdAt":"2026-09-27T13:21:56.000Z"}]}
+{"id":12176,"idUsuario":7259,"dataTransacao":"2026-09-27T13:34:58.000Z","dataPagamento":"2026-09-27T13:35:39.000Z","preco":177,"taxaServico":13,"valorTotal":190,"valorRecebido":190,"valorTaxaProcessamento":0,"status":"Pago","gateway":"TEF Stone","origem":"INGRESSOS","tipoPagamento":"Cr├⌐dito","pagamentos":[{"id":10039,"idTransacao":12176,"PagamentoCodigo":"3062456","gatewayPagamento":"TEF Stone","valor":"190.00","statusPagamento":"Pago","idCaixaItem":97707,"createdAt":"2026-09-27T13:35:05.000Z"}]}
+{"id":12177,"idUsuario":7260,"dataTransacao":"2026-09-27T13:39:17.000Z","dataPagamento":"2026-09-27T13:40:00.000Z","preco":350,"taxaServico":25,"valorTotal":375,"valorRecebido":375,"valorTaxaProcessamento":0,"status":"Pago","gateway":"TEF Stone","origem":"INGRESSOS","tipoPagamento":"Cr├⌐dito","pagamentos":[{"id":10040,"idTransacao":12177,"PagamentoCodigo":"3062570","gatewayPagamento":"TEF Stone","valor":"375.00","statusPagamento":"Aguardando pagamento","idCaixaItem":null,"createdAt":"2026-09-27T13:39:23.000Z"},{"id":10041,"idTransacao":12177,"PagamentoCodigo":"3062573","gatewayPagamento":"TEF Stone","valor":"375.00","statusPagamento":"Pago","idCaixaItem":97708,"createdAt":"2026-09-27T13:39:37.000Z"}]}
+{"id":12178,"idUsuario":7261,"dataTransacao":"2026-09-27T13:44:56.000Z","dataPagamento":"2026-09-27T13:45:20.000Z","preco":70,"taxaServico":5,"valorTotal":75,"valorRecebido":75,"valorTaxaProcessamento":0,"status":"Pago","gateway":"TEF Stone","origem":"INGRESSOS","tipoPagamento":"D├⌐bito","pagamentos":[{"id":10042,"idTransacao":12178,"PagamentoCodigo":"3062700","gatewayPagamento":"TEF Stone","valor":"75.00","statusPagamento":"Pago","idCaixaItem":97709,"createdAt":"2026-09-27T13:45:02.000Z"}]}
+{"id":12179,"idUsuario":40,"dataTransacao":"2026-09-27T13:49:09.000Z","dataPagamento":"2026-09-27T13:49:31.000Z","preco":70,"taxaServico":5,"valorTotal":75,"valorRecebido":75,"valorTaxaProcessamento":0,"status":"Pago","gateway":"TEF Stone","origem":"INGRESSOS","tipoPagamento":"D├⌐bito","pagamentos":[{"id":10043,"idTransacao":12179,"PagamentoCodigo":"3062809","gatewayPagamento":"TEF Stone","valor":"75.00","statusPagamento":"Pago","idCaixaItem":97710,"createdAt":"2026-09-27T13:49:14.000Z"}]}
+{"id":12180,"idUsuario":7262,"dataTransacao":"2026-09-27T13:51:29.000Z","dataPagamento":"2026-09-27T13:51:49.000Z","preco":140,"taxaServico":10,"valorTotal":150,"valorRecebido":150,"valorTaxaProcessamento":0,"status":"Pago","gateway":"TEF Stone","origem":"INGRESSOS","tipoPagamento":"D├⌐bito","pagamentos":[{"id":10044,"idTransacao":12180,"PagamentoCodigo":"3062871","gatewayPagamento":"TEF Stone","valor":"150.00","statusPagamento":"Pago","idCaixaItem":97711,"createdAt":"2026-09-27T13:51:35.000Z"}]}
+{"id":12181,"idUsuario":7263,"dataTransacao":"2026-09-27T13:58:50.000Z","dataPagamento":"2026-09-27T13:59:28.000Z","preco":177,"taxaServico":13,"valorTotal":190,"valorRecebido":190,"valorTaxaProcessamento":0,"status":"Pago","gateway":"TEF Stone","origem":"INGRESSOS","tipoPagamento":"Cr├⌐dito","pagamentos":[{"id":10045,"idTransacao":12181,"PagamentoCodigo":"3063066","gatewayPagamento":"TEF Stone","valor":"190.00","statusPagamento":"Pago","idCaixaItem":97712,"createdAt":"2026-09-27T13:59:11.000Z"}]}
+{"id":12182,"idUsuario":7264,"dataTransacao":"2026-09-27T14:05:14.000Z","dataPagamento":"2026-09-27T14:05:54.000Z","preco":214,"taxaServico":16,"valorTotal":230,"valorRecebido":230,"valorTaxaProcessamento":0,"status":"Pago","gateway":"TEF Stone","origem":"INGRESSOS","tipoPagamento":"Cr├⌐dito","pagamentos":[{"id":10046,"idTransacao":12182,"PagamentoCodigo":"3063246","gatewayPagamento":"TEF Stone","valor":"230.00","statusPagamento":"Pago","idCaixaItem":97713,"createdAt":"2026-09-27T14:05:24.000Z"}]}
+{"id":12183,"idUsuario":7265,"dataTransacao":"2026-09-27T14:10:29.000Z","dataPagamento":"2026-09-27T14:11:19.000Z","preco":210,"taxaServico":15,"valorTotal":225,"valorRecebido":225,"valorTaxaProcessamento":0,"status":"Pago","gateway":"TEF Stone","origem":"INGRESSOS","tipoPagamento":"Cr├⌐dito","pagamentos":[{"id":10047,"idTransacao":12183,"PagamentoCodigo":"3063377","gatewayPagamento":"TEF Stone","valor":"225.00","statusPagamento":"Pago","idCaixaItem":97714,"createdAt":"2026-09-27T14:10:35.000Z"}]}
+{"id":12184,"idUsuario":7266,"dataTransacao":"2026-09-27T14:20:30.000Z","dataPagamento":"2026-09-27T14:21:37.000Z","preco":140,"taxaServico":10,"valorTotal":150,"valorRecebido":150,"valorTaxaProcessamento":0,"status":"Pago","gateway":"TEF Stone","origem":"INGRESSOS","tipoPagamento":"D├⌐bito","pagamentos":[{"id":10048,"idTransacao":12184,"PagamentoCodigo":"3063716","gatewayPagamento":"TEF Stone","valor":"150.00","statusPagamento":"Pago","idCaixaItem":97715,"createdAt":"2026-09-27T14:21:17.000Z"}]}
+{"id":12185,"idUsuario":7267,"dataTransacao":"2026-09-27T14:29:54.000Z","dataPagamento":"2026-09-27T14:31:27.000Z","preco":210,"taxaServico":15,"valorTotal":225,"valorRecebido":225,"valorTaxaProcessamento":0,"status":"Pago","gateway":"TEF Stone","origem":"INGRESSOS","tipoPagamento":"Cr├⌐dito","pagamentos":[{"id":10049,"idTransacao":12185,"PagamentoCodigo":"3064025","gatewayPagamento":"TEF Stone","valor":"100.00","statusPagamento":"Pago","idCaixaItem":97716,"createdAt":"2026-09-27T14:30:49.000Z"},{"id":10050,"idTransacao":12185,"PagamentoCodigo":"3064037","gatewayPagamento":"TEF Stone","valor":"125.00","statusPagamento":"Pago","idCaixaItem":97717,"createdAt":"2026-09-27T14:31:10.000Z"}]}
+{"id":12186,"idUsuario":7268,"dataTransacao":"2026-09-27T14:33:27.000Z","dataPagamento":"2026-09-27T14:33:55.000Z","preco":140,"taxaServico":10,"valorTotal":150,"valorRecebido":150,"valorTaxaProcessamento":0,"status":"Pago","gateway":"TEF Stone","origem":"INGRESSOS","tipoPagamento":"Cr├⌐dito","pagamentos":[{"id":10051,"idTransacao":12186,"PagamentoCodigo":"3064109","gatewayPagamento":"TEF Stone","valor":"150.00","statusPagamento":"Pago","idCaixaItem":97718,"createdAt":"2026-09-27T14:33:38.000Z"}]}
+{"id":12187,"idUsuario":1242,"dataTransacao":"2026-09-27T14:37:58.000Z","dataPagamento":"2026-09-27T14:38:46.000Z","preco":214,"taxaServico":16,"valorTotal":230,"valorRecebido":230,"valorTaxaProcessamento":0,"status":"Pago","gateway":"TEF Stone","origem":"INGRESSOS","tipoPagamento":"D├⌐bito","pagamentos":[{"id":10052,"idTransacao":12187,"PagamentoCodigo":"3064248","gatewayPagamento":"TEF Stone","valor":"230.00","statusPagamento":"Pago","idCaixaItem":97719,"createdAt":"2026-09-27T14:38:05.000Z"}]}
+{"id":12188,"idUsuario":558,"dataTransacao":"2026-09-27T15:04:40.000Z","dataPagamento":"2026-09-27T15:05:37.000Z","preco":247,"taxaServico":18,"valorTotal":265,"valorRecebido":265,"valorTaxaProcessamento":0,"status":"Pago","gateway":"TEF Stone","origem":"INGRESSOS","tipoPagamento":"D├⌐bito","pagamentos":[{"id":10053,"idTransacao":12188,"PagamentoCodigo":"3065082","gatewayPagamento":"TEF Stone","valor":"265.00","statusPagamento":"Pago","idCaixaItem":97720,"createdAt":"2026-09-27T15:05:22.000Z"}]}
+{"id":12189,"idUsuario":6907,"dataTransacao":"2026-09-27T15:15:09.000Z","dataPagamento":"2026-09-27T15:27:01.000Z","preco":210,"taxaServico":15,"valorTotal":225,"valorRecebido":225,"valorTaxaProcessamento":0,"status":"Pago","gateway":"TEF Stone","origem":"INGRESSOS","tipoPagamento":"Pix","pagamentos":[{"id":10054,"idTransacao":12189,"PagamentoCodigo":"","gatewayPagamento":"Portaria","valor":"200.00","statusPagamento":"Pago","idCaixaItem":97721,"createdAt":"2026-09-27T15:15:34.000Z"},{"id":10055,"idTransacao":12189,"PagamentoCodigo":"3065399","gatewayPagamento":"TEF Stone","valor":"25.00","statusPagamento":"Aguardando pagamento","idCaixaItem":null,"createdAt":"2026-09-27T15:15:40.000Z"},{"id":10056,"idTransacao":12189,"PagamentoCodigo":"3065661","gatewayPagamento":"TEF Stone","valor":"25.00","statusPagamento":"Pago","idCaixaItem":97723,"createdAt":"2026-09-27T15:23:52.000Z"}]}
+{"id":12190,"idUsuario":7269,"dataTransacao":"2026-09-27T15:27:56.000Z","dataPagamento":"2026-09-27T15:28:21.000Z","preco":70,"taxaServico":5,"valorTotal":75,"valorRecebido":75,"valorTaxaProcessamento":0,"status":"Pago","gateway":"TEF Stone","origem":"INGRESSOS","tipoPagamento":"Cr├⌐dito","pagamentos":[{"id":10057,"idTransacao":12190,"PagamentoCodigo":"3065773","gatewayPagamento":"TEF Stone","valor":"75.00","statusPagamento":"Pago","idCaixaItem":97724,"createdAt":"2026-09-27T15:28:02.000Z"}]}
+{"id":12191,"idUsuario":3398,"dataTransacao":"2026-09-27T15:34:16.000Z","dataPagamento":"2026-09-27T15:34:47.000Z","preco":284,"taxaServico":21,"valorTotal":305,"valorRecebido":305,"valorTaxaProcessamento":0,"status":"Pago","gateway":"TEF Stone","origem":"INGRESSOS","tipoPagamento":"D├⌐bito","pagamentos":[{"id":10058,"idTransacao":12191,"PagamentoCodigo":"3065954","gatewayPagamento":"TEF Stone","valor":"305.00","statusPagamento":"Pago","idCaixaItem":97725,"createdAt":"2026-09-27T15:34:26.000Z"}]}
+{"id":12194,"idUsuario":580,"dataTransacao":"2026-09-27T15:51:15.000Z","dataPagamento":"2026-09-27T15:51:48.000Z","preco":177,"taxaServico":13,"valorTotal":190,"valorRecebido":190,"valorTaxaProcessamento":0,"status":"Pago","gateway":"TEF Stone","origem":"INGRESSOS","tipoPagamento":"Cr├⌐dito","pagamentos":[{"id":10061,"idTransacao":12194,"PagamentoCodigo":"3066467","gatewayPagamento":"TEF Stone","valor":"190.00","statusPagamento":"Pago","idCaixaItem":97729,"createdAt":"2026-09-27T15:51:22.000Z"}]}
+{"id":12196,"idUsuario":1510,"dataTransacao":"2026-09-27T16:00:15.000Z","dataPagamento":"2026-09-27T16:00:48.000Z","preco":177,"taxaServico":13,"valorTotal":190,"valorRecebido":190,"valorTaxaProcessamento":0,"status":"Pago","gateway":"TEF Stone","origem":"INGRESSOS","tipoPagamento":"D├⌐bito","pagamentos":[{"id":10063,"idTransacao":12196,"PagamentoCodigo":"3066721","gatewayPagamento":"TEF Stone","valor":"190.00","statusPagamento":"Pago","idCaixaItem":97731,"createdAt":"2026-09-27T16:00:26.000Z"}]}
+{"id":12197,"idUsuario":990,"dataTransacao":"2026-09-27T16:03:29.000Z","dataPagamento":"2026-09-27T16:04:01.000Z","preco":140,"taxaServico":10,"valorTotal":150,"valorRecebido":150,"valorTaxaProcessamento":0,"status":"Pago","gateway":"TEF Stone","origem":"INGRESSOS","tipoPagamento":"D├⌐bito","pagamentos":[{"id":10064,"idTransacao":12197,"PagamentoCodigo":"3066811","gatewayPagamento":"TEF Stone","valor":"150.00","statusPagamento":"Pago","idCaixaItem":97732,"createdAt":"2026-09-27T16:03:46.000Z"}]}
+{"id":12198,"idUsuario":7272,"dataTransacao":"2026-09-27T16:11:44.000Z","dataPagamento":"2026-09-27T16:12:09.000Z","preco":70,"taxaServico":5,"valorTotal":75,"valorRecebido":75,"valorTaxaProcessamento":0,"status":"Pago","gateway":"TEF Stone","origem":"INGRESSOS","tipoPagamento":"D├⌐bito","pagamentos":[{"id":10065,"idTransacao":12198,"PagamentoCodigo":"3067054","gatewayPagamento":"TEF Stone","valor":"75.00","statusPagamento":"Pago","idCaixaItem":97734,"createdAt":"2026-09-27T16:11:49.000Z"}]}
+{"id":12199,"idUsuario":7273,"dataTransacao":"2026-09-27T16:13:40.000Z","dataPagamento":"2026-09-27T16:14:22.000Z","preco":177,"taxaServico":13,"valorTotal":190,"valorRecebido":190,"valorTaxaProcessamento":0,"status":"Pago","gateway":"TEF Stone","origem":"INGRESSOS","tipoPagamento":"Pix","pagamentos":[{"id":10066,"idTransacao":12199,"PagamentoCodigo":"3067115","gatewayPagamento":"TEF Stone","valor":"190.00","statusPagamento":"Pago","idCaixaItem":97735,"createdAt":"2026-09-27T16:13:51.000Z"}]}
+{"id":12201,"idUsuario":7270,"dataTransacao":"2026-09-27T16:43:47.000Z","dataPagamento":"2026-09-27T16:47:30.000Z","preco":177,"taxaServico":13,"valorTotal":190,"valorRecebido":190,"valorTaxaProcessamento":0,"status":"Pago","gateway":"TEF Stone","origem":"INGRESSOS","tipoPagamento":"Cr├⌐dito","pagamentos":[{"id":10067,"idTransacao":12201,"PagamentoCodigo":"3067880","gatewayPagamento":"TEF Stone","valor":"190.00","statusPagamento":"Aguardando pagamento","idCaixaItem":null,"createdAt":"2026-09-27T16:44:01.000Z"},{"id":10068,"idTransacao":12201,"PagamentoCodigo":"3067890","gatewayPagamento":"TEF Stone","valor":"190.00","statusPagamento":"Aguardando pagamento","idCaixaItem":null,"createdAt":"2026-09-27T16:44:29.000Z"},{"id":10069,"idTransacao":12201,"PagamentoCodigo":"3067907","gatewayPagamento":"TEF Stone","valor":"190.00","statusPagamento":"Aguardando pagamento","idCaixaItem":null,"createdAt":"2026-09-27T16:45:02.000Z"},{"id":10070,"idTransacao":12201,"PagamentoCodigo":"3067971","gatewayPagamento":"TEF Stone","valor":"190.00","statusPagamento":"Pago","idCaixaItem":97739,"createdAt":"2026-09-27T16:47:11.000Z"}]}
+{"id":12202,"idUsuario":7275,"dataTransacao":"2026-09-27T17:19:08.000Z","dataPagamento":"2026-09-27T17:21:23.000Z","preco":140,"taxaServico":10,"valorTotal":150,"valorRecebido":150,"valorTaxaProcessamento":0,"status":"Pago","gateway":"TEF Stone","origem":"INGRESSOS","tipoPagamento":"Pix","pagamentos":[{"id":10071,"idTransacao":12202,"PagamentoCodigo":"3068788","gatewayPagamento":"TEF Stone","valor":"150.00","statusPagamento":"Pago","idCaixaItem":97742,"createdAt":"2026-09-27T17:19:18.000Z"}]}
+{"id":12203,"idUsuario":5936,"dataTransacao":"2026-09-27T18:01:52.000Z","dataPagamento":"2026-09-27T18:02:21.000Z","preco":70,"taxaServico":5,"valorTotal":75,"valorRecebido":75,"valorTaxaProcessamento":0,"status":"Pago","gateway":"TEF Stone","origem":"INGRESSOS","tipoPagamento":"D├⌐bito","pagamentos":[{"id":10072,"idTransacao":12203,"PagamentoCodigo":"3069600","gatewayPagamento":"TEF Stone","valor":"75.00","statusPagamento":"Pago","idCaixaItem":97748,"createdAt":"2026-09-27T18:01:56.000Z"}]}
+{"id":12204,"idUsuario":7276,"dataTransacao":"2026-09-27T18:03:29.000Z","dataPagamento":"2026-09-27T18:04:37.000Z","preco":210,"taxaServico":15,"valorTotal":225,"valorRecebido":225,"valorTaxaProcessamento":0,"status":"Pago","gateway":"TEF Stone","origem":"INGRESSOS","tipoPagamento":"Cr├⌐dito","pagamentos":[{"id":10073,"idTransacao":12204,"PagamentoCodigo":"3069640","gatewayPagamento":"TEF Stone","valor":"225.00","statusPagamento":"Pago","idCaixaItem":97750,"createdAt":"2026-09-27T18:04:09.000Z"}]}
+{"id":12205,"idUsuario":2137,"dataTransacao":"2026-09-27T18:39:25.000Z","dataPagamento":"2026-09-27T18:39:46.000Z","preco":140,"taxaServico":10,"valorTotal":150,"valorRecebido":150,"valorTaxaProcessamento":0,"status":"Pago","gateway":"TEF Stone","origem":"INGRESSOS","tipoPagamento":"Cr├⌐dito","pagamentos":[{"id":10074,"idTransacao":12205,"PagamentoCodigo":"3070293","gatewayPagamento":"TEF Stone","valor":"150.00","statusPagamento":"Pago","idCaixaItem":97755,"createdAt":"2026-09-27T18:39:29.000Z"}]}
+
+=== 4. TABELA CONCILIACAO (valor Caixa = valor_recebido) ===
+| Transacao | ValorTotal | ValorRecebido | Valor PDV | Status PDV | Diff Caixa-PDV | Flags |
+| 12163 | 75.00 | 75.00 | 75.00 | multiplos PDV | 0.00 | - |
+| 12165 | 120.00 | 120.00 | 120.00 | multiplos PDV | 0.00 | - |
+| 12166 | 115.00 | 115.00 | 115.00 | multiplos PDV | 0.00 | - |
+| 12168 | 115.00 | 115.00 | 115.00 | multiplos PDV | 0.00 | - |
+| 12169 | 80.00 | 80.00 | 80.00 | multiplos PDV | 0.00 | - |
+| 12170 | 115.00 | 115.00 | 115.00 | multiplos PDV | 0.00 | - |
+| 12171 | 150.00 | 150.00 | 150.00 | multiplos PDV | 0.00 | - |
+| 12172 | 265.00 | 265.00 | 265.00 | multiplos PDV | 0.00 | - |
+| 12173 | 230.00 | 230.00 | 230.00 | multiplos PDV | 0.00 | - |
+| 12174 | 40.00 | 40.00 | 40.00 | multiplos PDV | 0.00 | - |
+| 12176 | 190.00 | 190.00 | 190.00 | multiplos PDV | 0.00 | - |
+| 12177 | 375.00 | 375.00 | 375.00 | multiplos PDV | 0.00 | TP_nao_Pago; multi_TP(2) |
+| 12178 | 75.00 | 75.00 | 75.00 | multiplos PDV | 0.00 | - |
+| 12179 | 75.00 | 75.00 | 75.00 | multiplos PDV | 0.00 | - |
+| 12180 | 150.00 | 150.00 | 150.00 | multiplos PDV | 0.00 | - |
+| 12181 | 190.00 | 190.00 | 190.00 | multiplos PDV | 0.00 | - |
+| 12182 | 230.00 | 230.00 | 230.00 | multiplos PDV | 0.00 | - |
+| 12183 | 225.00 | 225.00 | 225.00 | multiplos PDV | 0.00 | - |
+| 12184 | 150.00 | 150.00 | 150.00 | multiplos PDV | 0.00 | - |
+| 12185 | 225.00 | 225.00 | 125.00 | multiplos PDV | 100.00 | multi_TP(2) |
+| 12186 | 150.00 | 150.00 | 150.00 | multiplos PDV | 0.00 | - |
+| 12187 | 230.00 | 230.00 | 230.00 | multiplos PDV | 0.00 | - |
+| 12188 | 265.00 | 265.00 | 265.00 | multiplos PDV | 0.00 | - |
+| 12189 | 225.00 | 225.00 | 200.00 | multiplos PDV | 25.00 | TP_nao_Pago; multi_TP(3) |
+| 12190 | 75.00 | 75.00 | 75.00 | multiplos PDV | 0.00 | - |
+| 12191 | 305.00 | 305.00 | 305.00 | multiplos PDV | 0.00 | - |
+| 12194 | 190.00 | 190.00 | 190.00 | multiplos PDV | 0.00 | - |
+| 12196 | 190.00 | 190.00 | 190.00 | multiplos PDV | 0.00 | - |
+| 12197 | 150.00 | 150.00 | 150.00 | multiplos PDV | 0.00 | - |
+| 12198 | 75.00 | 75.00 | 75.00 | multiplos PDV | 0.00 | - |
+| 12199 | 190.00 | 190.00 | 190.00 | multiplos PDV | 0.00 | - |
+| 12201 | 190.00 | 190.00 | 190.00 | multiplos PDV | 0.00 | TP_nao_Pago; multi_TP(4) |
+| 12202 | 150.00 | 150.00 | 150.00 | multiplos PDV | 0.00 | - |
+| 12203 | 75.00 | 75.00 | 75.00 | multiplos PDV | 0.00 | - |
+| 12204 | 225.00 | 225.00 | 225.00 | multiplos PDV | 0.00 | - |
+| 12205 | 150.00 | 150.00 | 150.00 | multiplos PDV | 0.00 | - |
+
+=== CAIXA sem PDV (por transacao) ===
+IDs: (nenhum)
+Soma valor_recebido: 0.00
+
+=== CAIXA > PDV (diff positiva) ===
+id 12185: caixa 225.00 pdv 125.00 diff 100.00 hits [{"via":"idCaixaItem_em_TP","idItem":97716,"valor":100,"desc":"Ingressos 3064025","forma":39,"tpId":10049},{"via":"descricao_PagamentoCodigo","idItem":97716,"valor":100,"desc":"Ingressos 3064025","forma":39,"cod":"3064025"},{"via":"descricao_Ingressos_cod","idItem":97716,"valor":100,"desc":"Ingressos 3064025","forma":39,"cod":"3064025"},{"via":"idCaixaItem_em_TP","idItem":97717,"valor":125,"desc":"Ingressos 3064037","forma":39,"tpId":10050},{"via":"descricao_PagamentoCodigo","idItem":97717,"valor":125,"desc":"Ingressos 3064037","forma":39,"cod":"3064037"},{"via":"descricao_Ingressos_cod","idItem":97717,"valor":125,"desc":"Ingressos 3064037","forma":39,"cod":"3064037"}]
+id 12189: caixa 225.00 pdv 200.00 diff 25.00 hits [{"via":"idCaixaItem_em_TP","idItem":97721,"valor":200,"desc":"Ingressos 10054","forma":38,"tpId":10054},{"via":"descricao_tp_id","idItem":97721,"valor":200,"desc":"Ingressos 10054","forma":38,"tpId":10054},{"via":"idCaixaItem_em_TP","idItem":97723,"valor":25,"desc":"Ingressos 3065661","forma":42,"tpId":10056},{"via":"descricao_PagamentoCodigo","idItem":97723,"valor":25,"desc":"Ingressos 3065661","forma":42,"cod":"3065661"},{"via":"descricao_Ingressos_cod","idItem":97723,"valor":25,"desc":"Ingressos 3065661","forma":42,"cod":"3065661"}]
+Soma diffs positivas: 125.00
+
+=== PDV Ingressos sem match transacao TEF ===
+{"id":97695,"valor":150,"forma":38,"desc":"Ingressos 10028"}
+{"id":97706,"valor":150,"forma":38,"desc":"Ingressos 10038"}
+{"id":97730,"valor":150,"forma":38,"desc":"Ingressos 10062"}
+
+=== 3. RESUMO PDV DIA ===
+getCaixaResumo SALDO (recebido): 21207.62
+getCaixaResumo RECEITA_BRUTA: 21248.62
+CAIXA_ITEM count dia: 105
+CAIXA_ITEM TEF (39/40/42) sum: 5825.00 count 37
+CAIXA_ITEM Dinheiro (38) sum: 650.00 count 4
+CAIXA_ITEM desc Ingressos* sum: 6475.00
+
+=== 5. BANCO ===
+Sem acesso ao extrato/detalle das 38 vendas. Total informado: R$ 5.850,00 (38 vendas).
+Quantidade transacoes TEF Caixa MySQL: 36
+
+=== 9. TOTAIS ===
+TOTAL CAIXA (SUM valor_recebido): 6025.00
+TOTAL PDV (getCaixaResumo SALDO): 21207.62
+TOTAL BANCO (informado): 5850.00
+Diff Caixa-PDV: -15182.62
+Diff Caixa-Banco: 175.00
+Diff Banco-PDV: -15357.62

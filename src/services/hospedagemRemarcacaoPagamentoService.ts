@@ -39,10 +39,7 @@ import {
     TAXA_PLATAFORMA_REMARCACAO,
     TAXA_REMARCACAO_CLIENTE,
 } from './hospedagemRemarcacaoClientePolicy';
-import {
-    garantirCaixaJangoAbertoParaHospedagem,
-    persistirCaixaPagamentoHospedagem,
-} from './hospedagemPagamentoService';
+import { persistirCaixaPagamentoHospedagem } from './hospedagemPagamentoService';
 
 const TanzAcessToken = process.env.MP_TANZ_ACCESS_TOKEN || '';
 const ClienteID = process.env.MP_CLIENT_ID || '';
@@ -657,7 +654,6 @@ async function registrarPagamentoRemarcacaoAprovado(params: {
 
     if (idPagamentoCriado && !jaExistia) {
         try {
-            await garantirCaixaJangoAbertoParaHospedagem();
             await persistirCaixaPagamentoHospedagem(idPagamentoCriado);
         } catch (error) {
             console.error('Falha ao persistir caixa remarcação:', error);

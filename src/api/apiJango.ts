@@ -1,5 +1,44 @@
 /* eslint-disable import/no-anonymous-default-export */
 import { query } from "../database/ConexaoJango";
+import { roundMoney } from "../utils/reservaSuitePricing";
+import { toNumber } from "../utils/reservaSuiteUtils";
+
+export type CaixaResumoPdv = {
+  idCaixa: number;
+  dataAbertura: Date | string | null;
+  dataFechamento: Date | string | null;
+  status: string | null;
+  totalVendido: number;
+  totalRecebido: number;
+};
+
+function assertDataIso(data: string, nome: string): string {
+  const raw = String(data ?? "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    throw new Error(`${nome} inválida. Use AAAA-MM-DD.`);
+  }
+  return raw;
+}
+
+function pickCampoFirebird(
+  row: Record<string, unknown>,
+  ...nomes: string[]
+): unknown {
+  for (const nome of nomes) {
+    if (row[nome] !== undefined && row[nome] !== null) {
+      return row[nome];
+    }
+    const upper = nome.toUpperCase();
+    if (row[upper] !== undefined && row[upper] !== null) {
+      return row[upper];
+    }
+    const lower = nome.toLowerCase();
+    if (row[lower] !== undefined && row[lower] !== null) {
+      return row[lower];
+    }
+  }
+  return undefined;
+}
 
 const BASEAPI = process.env.JANGO_API_BASE || "";
 const BASEAPIFotos = process.env.JANGO_API_FOTOS_BASE || "";
@@ -261,6 +300,94 @@ const PdvApiJango = {
     }
   },
 
+  /**
+   * Resumo consolidado do caixa no PDV (tabela CAIXA / Firebird).
+   * Mesma regra de identificação do dia que getCaixa(), porém por data informada.
+   * RECEITA_BRUTA → total vendido; SALDO → total recebido (sem somar CAIXA_ITEM).
+   */
+  getCaixaResumo: async (params: {
+    dataInicio: string;
+    dataFim?: string;
+  }): Promise<CaixaResumoPdv | null> => {
+    const dataInicio = assertDataIso(params.dataInicio, "Data inicial");
+    const dataFim = assertDataIso(params.dataFim ?? params.dataInicio, "Data final");
+
+    if (dataInicio > dataFim) {
+      throw new Error("Data inicial não pode ser posterior à data final.");
+    }
+
+    const filtroData =
+      dataInicio === dataFim
+        ? `CAST(CAIXA.DATA_ABERTURA AS DATE) = DATE '${dataInicio}'`
+        : `CAST(CAIXA.DATA_ABERTURA AS DATE) BETWEEN DATE '${dataInicio}' AND DATE '${dataFim}'`;
+
+    const qry =
+      dataInicio === dataFim
+        ? `
+      SELECT FIRST 1
+        CAIXA.ID_CAIXA,
+        CAIXA.DATA_ABERTURA,
+        CAIXA.DATA_FECHAMENTO,
+        CAIXA.STATUS,
+        CAIXA.RECEITA_BRUTA,
+        CAIXA.SALDO
+      FROM CAIXA
+      WHERE ${filtroData}
+      ORDER BY CAIXA.ID_CAIXA DESC
+    `
+        : `
+      SELECT
+        MAX(CAIXA.ID_CAIXA) AS ID_CAIXA,
+        MIN(CAIXA.DATA_ABERTURA) AS DATA_ABERTURA,
+        MAX(CAIXA.DATA_FECHAMENTO) AS DATA_FECHAMENTO,
+        MAX(CAIXA.STATUS) AS STATUS,
+        COALESCE(SUM(CAIXA.RECEITA_BRUTA), 0) AS RECEITA_BRUTA,
+        COALESCE(SUM(CAIXA.SALDO), 0) AS SALDO
+      FROM CAIXA
+      WHERE ${filtroData}
+    `;
+
+    try {
+      const rows = await query<Record<string, unknown>>(qry);
+      const row = rows?.[0];
+      if (!row) {
+        return null;
+      }
+
+      const idCaixa = Number(pickCampoFirebird(row, "ID_CAIXA", "id_caixa"));
+      if (!Number.isFinite(idCaixa) || idCaixa <= 0) {
+        throw new Error(
+          `getCaixaResumo: ID_CAIXA inválido: ${JSON.stringify(row)}`
+        );
+      }
+
+      return {
+        idCaixa,
+        dataAbertura:
+          (pickCampoFirebird(row, "DATA_ABERTURA", "data_abertura") as
+            | Date
+            | string
+            | null) ?? null,
+        dataFechamento:
+          (pickCampoFirebird(row, "DATA_FECHAMENTO", "data_fechamento") as
+            | Date
+            | string
+            | null) ?? null,
+        status: String(pickCampoFirebird(row, "STATUS", "status") ?? "").trim() ||
+          null,
+        totalVendido: roundMoney(
+          toNumber(pickCampoFirebird(row, "RECEITA_BRUTA", "receita_bruta"))
+        ),
+        totalRecebido: roundMoney(
+          toNumber(pickCampoFirebird(row, "SALDO", "saldo"))
+        ),
+      };
+    } catch (error) {
+      console.error("Erro ao buscar resumo do caixa no PDV:", error);
+      throw error;
+    }
+  },
+
   inseriCaixaItem: async (
     id_caixa: string,
     valor: number,
@@ -269,6 +396,13 @@ const PdvApiJango = {
     /** Quando informado (hospedagem), substitui o padrão "Ingressos …". */
     descricaoCustom?: string | null
   ): Promise<number> => {
+    if (id_forma_pagamento !== 38) {
+      console.warn(
+        `inseriCaixaItem ignorado: apenas ID_FORMA_PAGAMENTO=38 (dinheiro) é permitido (recebido ${id_forma_pagamento}).`
+      );
+      return 0;
+    }
+
     const descricao = (
       descricaoCustom && String(descricaoCustom).trim()
         ? String(descricaoCustom).trim()

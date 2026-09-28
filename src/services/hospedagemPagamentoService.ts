@@ -48,29 +48,16 @@ import {
 import { obterReservaAdminDetalhe } from './hospedagemAdminService';
 import apiJango from '../api/apiJango';
 
-/** id_forma_pagamento no legado Firebird para recebimentos de hospedagem. */
-const ID_FORMA_PAGAMENTO_CAIXA_PIX = 42;
-const ID_FORMA_PAGAMENTO_CAIXA_CREDITO = 39;
-const ID_FORMA_PAGAMENTO_CAIXA_DEBITO = 40;
-const ID_FORMA_PAGAMENTO_CAIXA_ANTECIPADO = 32;
+/** id_forma_pagamento no legado Firebird — somente dinheiro é replicado no PDV. */
+const ID_FORMA_PAGAMENTO_CAIXA_DINHEIRO = 38;
 
 function idFormaPagamentoCaixaJango(
     forma: FormaPagamentoRecepcao
 ): number | null {
-    switch (forma) {
-        case FormaPagamentoRecepcaoValor.PIX:
-            return ID_FORMA_PAGAMENTO_CAIXA_PIX;
-        case FormaPagamentoRecepcaoValor.Dinheiro:
-            return 38;
-        case FormaPagamentoRecepcaoValor.CartaoCredito:
-            return ID_FORMA_PAGAMENTO_CAIXA_CREDITO;
-        case FormaPagamentoRecepcaoValor.CartaoDebito:
-            return ID_FORMA_PAGAMENTO_CAIXA_DEBITO;
-        case FormaPagamentoRecepcaoValor.Antecipado:
-            return ID_FORMA_PAGAMENTO_CAIXA_ANTECIPADO;
-        default:
-            return null;
+    if (forma === FormaPagamentoRecepcaoValor.Dinheiro) {
+        return ID_FORMA_PAGAMENTO_CAIXA_DINHEIRO;
     }
+    return null;
 }
 
 function nomeClienteCaixaHospedagem(
@@ -205,10 +192,16 @@ export async function persistirCaixaPagamentoHospedagem(
         return pagamento.idCaixaItem;
     }
 
+    if (pagamento.formaPagamento !== FormaPagamentoRecepcaoValor.Dinheiro) {
+        return null;
+    }
+
     const idFormaPagamento = idFormaPagamentoCaixaJango(pagamento.formaPagamento);
     if (idFormaPagamento == null) {
         return null;
     }
+
+    await garantirCaixaJangoAbertoParaHospedagem();
 
     const caixa = await apiJango().getCaixa();
     if (!caixa?.[0]) {

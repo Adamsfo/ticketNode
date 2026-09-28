@@ -25,6 +25,7 @@ const cupomPromocionalRoutes = require('./routes/cupomPromocialRoutes');
 const jangoRoutes = require('./routes/jangoRoutes');
 const hospedinIntegrationRoutes = require('./routes/hospedinIntegrationRoutes');
 const integrationAdminRoutes = require('./routes/integrationAdminRoutes');
+const caixaRoutes = require('./routes/caixaRoutes');
 import { iniciarJobsReservaHospedagem } from './jobs/reservaHospedagemJobs';
 import { iniciarJobsIntegracaoSync } from './jobs/integrationSyncJobs';
 import { uploadStorage } from './utils/uploadStorage';
@@ -98,6 +99,7 @@ server.use(hospedagemReceberSaldoRoutes)
 server.use(hospedagemPagamentoRoutes)
 server.use(hospedinIntegrationRoutes)
 server.use(integrationAdminRoutes)
+server.use(caixaRoutes)
 
 // Tratamento de erros
 server.use(errorHandler);

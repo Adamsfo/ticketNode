@@ -586,16 +586,7 @@ async function confirmarHospedagem(idTransacao) {
     }
     if (idPagamentoConfirmacao) {
         try {
-            const { garantirCaixaJangoAbertoParaHospedagem, persistirCaixaPagamentoHospedagem, } = await Promise.resolve().then(() => __importStar(require('./hospedagemPagamentoService')));
-            const pagamentoMercadoPago = await isPagamentoMercadoPagoHospedagem(transacaoId, transacao);
-            if (pagamentoMercadoPago) {
-                try {
-                    await garantirCaixaJangoAbertoParaHospedagem();
-                }
-                catch (error) {
-                    console.error('Falha ao garantir caixa Jango para hospedagem Mercado Pago:', error);
-                }
-            }
+            const { persistirCaixaPagamentoHospedagem } = await Promise.resolve().then(() => __importStar(require('./hospedagemPagamentoService')));
             await persistirCaixaPagamentoHospedagem(idPagamentoConfirmacao);
         }
         catch (error) {
@@ -1287,10 +1278,7 @@ async function checkoutHospedagem(params) {
     });
     if (idPagamentoCheckoutCriado) {
         try {
-            const { garantirCaixaJangoAbertoParaHospedagem, persistirCaixaPagamentoHospedagem, } = await Promise.resolve().then(() => __importStar(require('./hospedagemPagamentoService')));
-            if (origem === 'recepcao' && !isLinkCliente) {
-                await garantirCaixaJangoAbertoParaHospedagem();
-            }
+            const { persistirCaixaPagamentoHospedagem } = await Promise.resolve().then(() => __importStar(require('./hospedagemPagamentoService')));
             await persistirCaixaPagamentoHospedagem(idPagamentoCheckoutCriado);
         }
         catch (error) {

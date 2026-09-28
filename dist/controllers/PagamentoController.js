@@ -1143,27 +1143,6 @@ module.exports = {
                         transacao.gatewayPagamento = 'TEF Stone';
                         await transacao.save();
                         if (transacao.status != 'Pago') {
-                            const evento = await Evento_1.Evento.findOne({
-                                where: { id: transacao.idEvento },
-                            });
-                            if (evento?.idProdutor === 1) {
-                                const caixa = await (0, apiJango_1.default)().getCaixa();
-                                if (caixa[0]) {
-                                    if (!transacaoPagamento.idCaixaItem) {
-                                        const identificadorCaixa = transacaoPagamento.PagamentoCodigo ||
-                                            payment_uniqueid ||
-                                            transacaoPagamento.id;
-                                        const idCaixaItem = await (0, apiJango_1.default)().inseriCaixaItem(caixa[0].id_caixa, transacaoPagamento.valor ?? 0, transacao.tipoPagamento === Transacao_1.TipoPagamento.Debito
-                                            ? 40
-                                            : transacao.tipoPagamento === Transacao_1.TipoPagamento.Credito
-                                                ? 39
-                                                : 42, identificadorCaixa);
-                                        await transacaoPagamento.update({
-                                            idCaixaItem,
-                                        });
-                                    }
-                                }
-                            }
                             statusTransacao = await transacaoPaga(idTransacao, 'Pagamento Realizado via POS', transacao.idUsuario, false) === true ? 'Pago' : 'Parcial';
                             // statusTransacao = 'Parcial';
                         }
@@ -1213,11 +1192,13 @@ module.exports = {
             });
             if (evento?.idProdutor === 1) {
                 const caixa = await (0, apiJango_1.default)().getCaixa();
-                if (caixa[0]) {
+                if (caixa[0] && !transacaoPagamento.idCaixaItem) {
                     const idCaixaItem = await (0, apiJango_1.default)().inseriCaixaItem(caixa[0].id_caixa, Number(valorTotal ?? 0), 38, transacaoPagamento.id);
-                    await transacaoPagamento.update({
-                        idCaixaItem,
-                    });
+                    if (idCaixaItem > 0) {
+                        await transacaoPagamento.update({
+                            idCaixaItem,
+                        });
+                    }
                 }
             }
             transacao.tipoPagamento = Transacao_1.TipoPagamento.Dinheiro;
@@ -1328,18 +1309,6 @@ module.exports = {
             transacao.valorTaxaProcessamento = 0;
             transacao.valorRecebido = transacao.valorTotal;
             transacao.gatewayPagamento = 'POS Stone';
-            const evento = await Evento_1.Evento.findOne({
-                where: { id: transacao.idEvento },
-            });
-            let idCaixaItem;
-            if (evento?.idProdutor === 1) {
-                const caixa = await (0, apiJango_1.default)().getCaixa();
-                if (caixa[0]) {
-                    idCaixaItem = await (0, apiJango_1.default)().inseriCaixaItem(caixa[0].id_caixa, transacao.valorTotal, transacao.tipoPagamento === Transacao_1.TipoPagamento.Debito ? 40 :
-                        transacao.tipoPagamento === Transacao_1.TipoPagamento.Credito ? 39 :
-                            transacao.tipoPagamento === Transacao_1.TipoPagamento.Dinheiro ? 38 : 42, idTransacao);
-                }
-            }
             const usuario = await Produtor_1.ProdutorAcesso.findOne({
                 where: { idUsuario: idUsuarioPDV, tipoAcesso: Produtor_1.TipoAcesso.PDV },
             });
@@ -1347,16 +1316,11 @@ module.exports = {
                 return res.status(404).json({ error: 'ProdutorAcesso não encontrado' });
             }
             // Salvar dados de pagamento
-            const transacaoPagamento = await Transacao_1.TransacaoPagamento.create({
+            await Transacao_1.TransacaoPagamento.create({
                 idTransacao: idTransacao,
                 PagamentoCodigo: '',
                 gatewayPagamento: 'POS Stone'
             });
-            if (idCaixaItem != null) {
-                await transacaoPagamento.update({
-                    idCaixaItem,
-                });
-            }
             await transacao.save();
             const data = new Date(); // Data atual
             await Transacao_1.HistoricoTransacao.create({ idTransacao, data, descricao: 'Pagamento Criado em Dinheiro na Portaria', idUsuario: idUsuarioPDV });

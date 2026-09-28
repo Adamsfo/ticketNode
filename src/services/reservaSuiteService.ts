@@ -869,26 +869,9 @@ export async function confirmarHospedagem(idTransacao: number): Promise<void> {
 
     if (idPagamentoConfirmacao) {
         try {
-            const {
-                garantirCaixaJangoAbertoParaHospedagem,
-                persistirCaixaPagamentoHospedagem,
-            } = await import('./hospedagemPagamentoService');
-
-            const pagamentoMercadoPago = await isPagamentoMercadoPagoHospedagem(
-                transacaoId,
-                transacao
+            const { persistirCaixaPagamentoHospedagem } = await import(
+                './hospedagemPagamentoService'
             );
-
-            if (pagamentoMercadoPago) {
-                try {
-                    await garantirCaixaJangoAbertoParaHospedagem();
-                } catch (error) {
-                    console.error(
-                        'Falha ao garantir caixa Jango para hospedagem Mercado Pago:',
-                        error
-                    );
-                }
-            }
 
             await persistirCaixaPagamentoHospedagem(idPagamentoConfirmacao);
         } catch (error) {
@@ -1945,14 +1928,9 @@ export async function checkoutHospedagem(params: {
 
     if (idPagamentoCheckoutCriado) {
         try {
-            const {
-                garantirCaixaJangoAbertoParaHospedagem,
-                persistirCaixaPagamentoHospedagem,
-            } = await import('./hospedagemPagamentoService');
-
-            if (origem === 'recepcao' && !isLinkCliente) {
-                await garantirCaixaJangoAbertoParaHospedagem();
-            }
+            const { persistirCaixaPagamentoHospedagem } = await import(
+                './hospedagemPagamentoService'
+            );
 
             await persistirCaixaPagamentoHospedagem(idPagamentoCheckoutCriado);
         } catch (error) {
