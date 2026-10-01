@@ -70,6 +70,7 @@ import {
     validarHorarioCheckoutHospedagem,
     validarCheckinNaoEmDataPassada,
     validarCheckinPosteriorAoAgoraSeHoje,
+    validarDiasFechadosEntradaSaidaHospedagem,
     type IntervaloDateTime,
 } from '../utils/reservaSuiteUtils';
 import {
@@ -1248,6 +1249,7 @@ export async function listarSuitesDisponiveis(params: {
     catalogoInterno?: boolean;
 }) {
     const { idEvento, checkin, checkout, catalogoInterno = false } = params;
+    validarDiasFechadosEntradaSaidaHospedagem(checkin, checkout);
     const noites = calcularNoitesHotelaria(checkin, checkout);
     const statusesCatalogo = statusesCatalogoDisponibilidade(catalogoInterno);
 
@@ -1380,6 +1382,8 @@ export async function checkoutHospedagem(params: {
     if (!suites?.length) {
         throw new CustomError('Informe ao menos uma suíte no checkout.', 400, '');
     }
+
+    validarDiasFechadosEntradaSaidaHospedagem(checkin, checkout);
 
     validarSuitesSemDuplicata(suites);
 

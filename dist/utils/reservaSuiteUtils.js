@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.inicioDoDia = exports.toNumber = exports.roundMoney = exports.calcularTotaisSuitePousada = exports.VALOR_ADICIONAL_CRIANCA_EXTRA = exports.VALOR_ADICIONAL_ADULTO_EXTRA = exports.TZ_HOSPEDAGEM = exports.HORA_CHECKOUT_HOSPEDAGEM = exports.HORA_CHECKIN_HOSPEDAGEM = void 0;
+exports.MSG_DIAS_FECHADOS_HOSPEDAGEM = exports.DIAS_FECHADOS_HOSPEDAGEM = exports.inicioDoDia = exports.toNumber = exports.roundMoney = exports.calcularTotaisSuitePousada = exports.VALOR_ADICIONAL_CRIANCA_EXTRA = exports.VALOR_ADICIONAL_ADULTO_EXTRA = exports.TZ_HOSPEDAGEM = exports.HORA_CHECKOUT_HOSPEDAGEM = exports.HORA_CHECKIN_HOSPEDAGEM = void 0;
 exports.dataCivilHospedagem = dataCivilHospedagem;
 exports.valorInformaHorarioHospedagem = valorInformaHorarioHospedagem;
 exports.montarDateTimeComHorarioPadraoHospedagem = montarDateTimeComHorarioPadraoHospedagem;
@@ -15,10 +15,15 @@ exports.validarHorarioCheckinHospedagem = validarHorarioCheckinHospedagem;
 exports.validarCheckinPosteriorAoAgoraSeHoje = validarCheckinPosteriorAoAgoraSeHoje;
 exports.validarCheckinNaoEmDataPassada = validarCheckinNaoEmDataPassada;
 exports.validarHorarioCheckoutHospedagem = validarHorarioCheckoutHospedagem;
+exports.diaSemanaCivilHospedagem = diaSemanaCivilHospedagem;
+exports.isDiaFechadoEntradaSaidaHospedagem = isDiaFechadoEntradaSaidaHospedagem;
+exports.periodoHospedagemIncluiDiaFechado = periodoHospedagemIncluiDiaFechado;
+exports.validarDiasFechadosEntradaSaidaHospedagem = validarDiasFechadosEntradaSaidaHospedagem;
 exports.parseDateTimeParam = parseDateTimeParam;
 exports.parsePositiveInt = parsePositiveInt;
 exports.validarCapacidadeMaximaPousada = validarCapacidadeMaximaPousada;
 exports.calcularExtrasPousada = calcularExtrasPousada;
+const date_fns_1 = require("date-fns");
 const customError_1 = require("./customError");
 const date_fns_tz_1 = require("date-fns-tz");
 const reservaSuitePricing_1 = require("./reservaSuitePricing");
@@ -224,6 +229,49 @@ function validarHorarioCheckoutHospedagem(checkout) {
     const minutos = minutosNoFuso(checkout);
     if (minutos < CHECKOUT_MIN_MINUTOS || minutos > CHECKOUT_MAX_MINUTOS) {
         throw new customError_1.CustomError('O horário de check-out deve estar entre 08:00 e 13:00.', 400, '');
+    }
+}
+/** 0 domingo … 6 sábado — terça e quarta fechadas para entrada/saída. */
+exports.DIAS_FECHADOS_HOSPEDAGEM = [2, 3];
+exports.MSG_DIAS_FECHADOS_HOSPEDAGEM = 'Não é possível realizar reservas em períodos que incluam terças ou quartas-feiras, pois a pousada não funciona nesses dias. Escolha outro período.';
+/** Dia da semana da data civil em America/Cuiabá (0=domingo … 6=sábado). */
+function diaSemanaCivilHospedagem(value) {
+    const iso = Number((0, date_fns_tz_1.formatInTimeZone)(value, exports.TZ_HOSPEDAGEM, 'i'));
+    return iso % 7;
+}
+function isDiaFechadoEntradaSaidaHospedagem(value) {
+    return exports.DIAS_FECHADOS_HOSPEDAGEM.includes(diaSemanaCivilHospedagem(value));
+}
+function isDataCivilFechadaHospedagem(dataCivil) {
+    const instante = (0, date_fns_tz_1.fromZonedTime)(`${dataCivil} 12:00:00`, exports.TZ_HOSPEDAGEM);
+    return isDiaFechadoEntradaSaidaHospedagem(instante);
+}
+function avancarDataCivilHospedagem(dataCivil) {
+    const instante = (0, date_fns_tz_1.fromZonedTime)(`${dataCivil} 12:00:00`, exports.TZ_HOSPEDAGEM);
+    return (0, date_fns_tz_1.formatInTimeZone)((0, date_fns_1.addDays)(instante, 1), exports.TZ_HOSPEDAGEM, 'yyyy-MM-dd');
+}
+/**
+ * True se o período inclui terça/quarta (Cuiabá): cada dia civil de CI até o dia
+ * anterior ao CO, mais o dia civil do check-out.
+ */
+function periodoHospedagemIncluiDiaFechado(checkin, checkout) {
+    const ci = dataCivilHospedagem(checkin);
+    const co = dataCivilHospedagem(checkout);
+    if (isDataCivilFechadaHospedagem(co)) {
+        return true;
+    }
+    let cursor = ci;
+    while (cursor < co) {
+        if (isDataCivilFechadaHospedagem(cursor)) {
+            return true;
+        }
+        cursor = avancarDataCivilHospedagem(cursor);
+    }
+    return false;
+}
+function validarDiasFechadosEntradaSaidaHospedagem(checkin, checkout) {
+    if (periodoHospedagemIncluiDiaFechado(checkin, checkout)) {
+        throw new customError_1.CustomError(exports.MSG_DIAS_FECHADOS_HOSPEDAGEM, 400, '');
     }
 }
 function parseDateTimeParam(value, fieldName) {

@@ -1,3 +1,4 @@
+import { addDays } from 'date-fns';
 import { CustomError } from './customError';
 import { formatInTimeZone, fromZonedTime } from 'date-fns-tz';
 import {
@@ -305,6 +306,67 @@ export function validarHorarioCheckoutHospedagem(checkout: Date): void {
             400,
             ''
         );
+    }
+}
+
+/** 0 domingo … 6 sábado — terça e quarta fechadas para entrada/saída. */
+export const DIAS_FECHADOS_HOSPEDAGEM = [2, 3];
+
+export const MSG_DIAS_FECHADOS_HOSPEDAGEM =
+    'Não é possível realizar reservas em períodos que incluam terças ou quartas-feiras, pois a pousada não funciona nesses dias. Escolha outro período.';
+
+/** Dia da semana da data civil em America/Cuiabá (0=domingo … 6=sábado). */
+export function diaSemanaCivilHospedagem(value: Date): number {
+    const iso = Number(formatInTimeZone(value, TZ_HOSPEDAGEM, 'i'));
+    return iso % 7;
+}
+
+export function isDiaFechadoEntradaSaidaHospedagem(value: Date): boolean {
+    return DIAS_FECHADOS_HOSPEDAGEM.includes(diaSemanaCivilHospedagem(value));
+}
+
+function isDataCivilFechadaHospedagem(dataCivil: string): boolean {
+    const instante = fromZonedTime(`${dataCivil} 12:00:00`, TZ_HOSPEDAGEM);
+    return isDiaFechadoEntradaSaidaHospedagem(instante);
+}
+
+function avancarDataCivilHospedagem(dataCivil: string): string {
+    const instante = fromZonedTime(`${dataCivil} 12:00:00`, TZ_HOSPEDAGEM);
+    return formatInTimeZone(addDays(instante, 1), TZ_HOSPEDAGEM, 'yyyy-MM-dd');
+}
+
+/**
+ * True se o período inclui terça/quarta (Cuiabá): cada dia civil de CI até o dia
+ * anterior ao CO, mais o dia civil do check-out.
+ */
+export function periodoHospedagemIncluiDiaFechado(
+    checkin: Date,
+    checkout: Date
+): boolean {
+    const ci = dataCivilHospedagem(checkin);
+    const co = dataCivilHospedagem(checkout);
+
+    if (isDataCivilFechadaHospedagem(co)) {
+        return true;
+    }
+
+    let cursor = ci;
+    while (cursor < co) {
+        if (isDataCivilFechadaHospedagem(cursor)) {
+            return true;
+        }
+        cursor = avancarDataCivilHospedagem(cursor);
+    }
+
+    return false;
+}
+
+export function validarDiasFechadosEntradaSaidaHospedagem(
+    checkin: Date,
+    checkout: Date
+): void {
+    if (periodoHospedagemIncluiDiaFechado(checkin, checkout)) {
+        throw new CustomError(MSG_DIAS_FECHADOS_HOSPEDAGEM, 400, '');
     }
 }
 
