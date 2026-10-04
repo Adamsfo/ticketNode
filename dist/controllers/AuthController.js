@@ -6,6 +6,7 @@ const customError_1 = require("../utils/customError");
 const twilioService_1 = require("../utils/twilioService");
 const resend_1 = require("../utils/resend");
 const Visitas_1 = require("../models/Visitas");
+const zApiOtpService_1 = require("../services/zApiOtpService");
 // import chatpro from '@api/chatpro'
 const codeStore = new Map();
 const codeLogin = new Map();
@@ -282,12 +283,10 @@ module.exports = {
         else if (tipo === 'sms' || tipo === 'whatsapp') {
             try {
                 if (tipo === 'whatsapp') {
-                    // await sendCodeWhatsApp(formatPhoneToE164(info), code);
-                    // await enviarCodigoAtivacaoChatPro(formatPhoneToE164(info), code)
+                    await (0, zApiOtpService_1.enviarCodigoAtivacaoWhatsApp)(info, code);
                     codeStore.set(info, code);
                     setTimeout(() => codeStore.delete(info), 15 * 60 * 1000); // Expira em 15 minutos
-                    res.json({ success: true, code });
-                    return;
+                    return res.json({ success: true });
                 }
                 if (tipo === 'sms') {
                     console.log('info', formatPhoneToE164(info));
@@ -327,12 +326,10 @@ module.exports = {
         else if (tipo === 'sms' || tipo === 'whatsapp') {
             try {
                 if (tipo === 'whatsapp') {
-                    // await sendCodeWhatsApp(formatPhoneToE164(info), code);
-                    // await enviarCodigoAtivacaoChatPro(formatPhoneToE164(info), code)
+                    await (0, zApiOtpService_1.enviarCodigoLoginWhatsApp)(info, code);
                     codeLogin.set(info, code);
                     setTimeout(() => codeLogin.delete(info), 15 * 60 * 1000); // Expira em 15 minutos
-                    res.json({ success: true, code });
-                    return;
+                    return res.json({ success: true });
                 }
                 if (tipo === 'sms') {
                     console.log('info', formatPhoneToE164(info));

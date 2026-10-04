@@ -5,6 +5,10 @@ import nodemailer from 'nodemailer'
 import { sendCodeSMS, sendCodeWhatsApp } from '../utils/twilioService'
 import { resend } from '../utils/resend'
 import { Visitas } from '../models/Visitas'
+import {
+  enviarCodigoAtivacaoWhatsApp,
+  enviarCodigoLoginWhatsApp,
+} from '../services/zApiOtpService'
 // import chatpro from '@api/chatpro'
 
 const codeStore = new Map<string, string>()
@@ -329,12 +333,10 @@ module.exports = {
     } else if (tipo === 'sms' || tipo === 'whatsapp') {
       try {
         if (tipo === 'whatsapp') {
-          // await sendCodeWhatsApp(formatPhoneToE164(info), code);
-          // await enviarCodigoAtivacaoChatPro(formatPhoneToE164(info), code)
+          await enviarCodigoAtivacaoWhatsApp(info, code);
           codeStore.set(info, code);
           setTimeout(() => codeStore.delete(info), 15 * 60 * 1000); // Expira em 15 minutos
-          res.json({ success: true, code });
-          return;
+          return res.json({ success: true });
         }
         if (tipo === 'sms') {
           console.log('info', formatPhoneToE164(info))
@@ -374,12 +376,10 @@ module.exports = {
     } else if (tipo === 'sms' || tipo === 'whatsapp') {
       try {
         if (tipo === 'whatsapp') {
-          // await sendCodeWhatsApp(formatPhoneToE164(info), code);
-          // await enviarCodigoAtivacaoChatPro(formatPhoneToE164(info), code)
+          await enviarCodigoLoginWhatsApp(info, code);
           codeLogin.set(info, code);
           setTimeout(() => codeLogin.delete(info), 15 * 60 * 1000); // Expira em 15 minutos
-          res.json({ success: true, code });
-          return;
+          return res.json({ success: true });
         }
         if (tipo === 'sms') {
           console.log('info', formatPhoneToE164(info))
