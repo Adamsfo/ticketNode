@@ -480,7 +480,7 @@ module.exports = {
             return res.status(201).json({
                 success: true,
                 message:
-                    'Reserva criada e link de pagamento enviado ao cliente.',
+                    'Reserva criada com sucesso. Abra o WhatsApp para enviar o link de pagamento ao cliente.',
                 data,
             });
         } catch (error) {
@@ -530,13 +530,21 @@ module.exports = {
                 idUsuarioOperador,
             });
 
-            const data = await obterReservaAdminDetalhe(
+            const detalhe = await obterReservaAdminDetalhe(
                 idReserva,
                 idUsuarioOperador
             );
 
+            const data = resultado.whatsappLinkPagamentoManual
+                ? {
+                      ...detalhe,
+                      whatsappLinkPagamentoManual:
+                          resultado.whatsappLinkPagamentoManual,
+                  }
+                : detalhe;
+
             const message = resultado.notificacaoEnviada
-                ? 'Reserva reativada com sucesso. A reserva está aguardando pagamento e um novo link foi enviado ao cliente.'
+                ? 'Reserva reativada com sucesso. A reserva está aguardando pagamento. Abra o WhatsApp para enviar o link ao cliente.'
                 : 'Reserva reativada com sucesso. A reserva está aguardando pagamento.';
 
             return res.status(200).json({

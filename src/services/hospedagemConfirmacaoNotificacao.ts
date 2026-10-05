@@ -476,13 +476,26 @@ export async function notificarExpiracaoHospedagem(
     }
 }
 
+export type NotificarLinkPagamentoHospedagemOptions = {
+    /** Padrão true — reenvio de link e compatibilidade. false = só e-mail + dados para WA manual. */
+    enviarWhatsAppAutomatico?: boolean;
+};
+
+export type NotificarLinkPagamentoHospedagemResult = {
+    linkPagamento: string;
+    mensagemWhatsApp: string;
+    telefone: string | null;
+};
+
 /**
  * Envia link de pagamento reutilizando Z-API e Resend já existentes.
  * Não altera o fluxo de confirmação pós-pagamento.
  */
 export async function notificarLinkPagamentoHospedagem(
-    idReservaHospedagem: number
-): Promise<{ linkPagamento: string }> {
+    idReservaHospedagem: number,
+    options?: NotificarLinkPagamentoHospedagemOptions
+): Promise<NotificarLinkPagamentoHospedagemResult> {
+    const enviarWhatsAppAutomatico = options?.enviarWhatsAppAutomatico !== false;
     const hospedagem = await ReservaHospedagem.findByPk(idReservaHospedagem);
     if (!hospedagem?.tokenPagamento || !hospedagem.idTransacao) {
         throw new Error('Reserva sem token/transação para envio do link.');
@@ -502,6 +515,9 @@ export async function notificarLinkPagamentoHospedagem(
         linkPagamento,
     };
 
+    const mensagemWhatsApp =
+        montarMensagemWhatsAppLinkPagamentoHospedagem(conteudo);
+
     try {
         if (conteudo.email) {
             await enviarEmailCliente(
@@ -515,11 +531,8 @@ export async function notificarLinkPagamentoHospedagem(
     }
 
     try {
-        if (conteudo.telefone) {
-            await enviarMensagemTextoZApi(
-                conteudo.telefone,
-                montarMensagemWhatsAppLinkPagamentoHospedagem(conteudo)
-            );
+        if (enviarWhatsAppAutomatico && conteudo.telefone) {
+            await enviarMensagemTextoZApi(conteudo.telefone, mensagemWhatsApp);
         }
     } catch (error) {
         await registrarFalhaEnvioConfirmacao(conteudo, 'WhatsApp', error);
@@ -539,5 +552,9 @@ export async function notificarLinkPagamentoHospedagem(
         console.error('Erro ao registrar envio do link no histórico:', error);
     }
 
-    return { linkPagamento };
+    return {
+        linkPagamento,
+        mensagemWhatsApp,
+        telefone: conteudo.telefone ? conteudo.telefone : null,
+    };
 }

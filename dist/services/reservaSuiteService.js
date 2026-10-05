@@ -1295,9 +1295,15 @@ async function checkoutHospedagem(params) {
             console.error(`Erro ao notificar reserva recepção ${resultado.hospedagem.id}:`, error);
         }
     }
+    let whatsappLinkPagamentoManual;
     if (isLinkCliente && resultado.hospedagem.idTransacao) {
         try {
-            await (0, hospedagemConfirmacaoNotificacao_1.notificarLinkPagamentoHospedagem)(resultado.hospedagem.id);
+            const notificacao = await (0, hospedagemConfirmacaoNotificacao_1.notificarLinkPagamentoHospedagem)(resultado.hospedagem.id, { enviarWhatsAppAutomatico: false });
+            whatsappLinkPagamentoManual = {
+                telefone: notificacao.telefone,
+                mensagemWhatsApp: notificacao.mensagemWhatsApp,
+                linkPagamento: notificacao.linkPagamento,
+            };
         }
         catch (error) {
             console.error(`Erro ao enviar link de pagamento da reserva ${resultado.hospedagem.id}:`, error);
@@ -1307,7 +1313,7 @@ async function checkoutHospedagem(params) {
     await incrementarHospedagemRefreshVersion();
     const { hospedinOutboundEnqueueService } = await Promise.resolve().then(() => __importStar(require('../integrations/hospedin/outbound/HospedinOutboundEnqueueService')));
     await hospedinOutboundEnqueueService.markDirty(resultado.hospedagem.id);
-    return resultado;
+    return { ...resultado, whatsappLinkPagamentoManual };
 }
 function parseParamsDisponibilidade(query) {
     return {

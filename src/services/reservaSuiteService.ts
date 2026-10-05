@@ -1959,9 +1959,25 @@ export async function checkoutHospedagem(params: {
         }
     }
 
+    let whatsappLinkPagamentoManual:
+        | {
+              telefone: string | null;
+              mensagemWhatsApp: string;
+              linkPagamento: string;
+          }
+        | undefined;
+
     if (isLinkCliente && resultado.hospedagem.idTransacao) {
         try {
-            await notificarLinkPagamentoHospedagem(resultado.hospedagem.id);
+            const notificacao = await notificarLinkPagamentoHospedagem(
+                resultado.hospedagem.id,
+                { enviarWhatsAppAutomatico: false }
+            );
+            whatsappLinkPagamentoManual = {
+                telefone: notificacao.telefone,
+                mensagemWhatsApp: notificacao.mensagemWhatsApp,
+                linkPagamento: notificacao.linkPagamento,
+            };
         } catch (error) {
             console.error(
                 `Erro ao enviar link de pagamento da reserva ${resultado.hospedagem.id}:`,
@@ -1980,7 +1996,7 @@ export async function checkoutHospedagem(params: {
     );
     await hospedinOutboundEnqueueService.markDirty(resultado.hospedagem.id);
 
-    return resultado;
+    return { ...resultado, whatsappLinkPagamentoManual };
 }
 
 export function parseParamsDisponibilidade(query: any) {

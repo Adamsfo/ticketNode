@@ -4807,10 +4807,19 @@ export async function criarReservaRecepcaoAdmin(params: {
         pagamento: params.enviarParaCliente ? null : params.pagamento ?? null,
     });
 
-    return obterReservaAdminDetalhe(
+    const detalhe = await obterReservaAdminDetalhe(
         resultado.hospedagem.id,
         params.idUsuarioOperador
     );
+
+    if (params.enviarParaCliente && resultado.whatsappLinkPagamentoManual) {
+        return {
+            ...detalhe,
+            whatsappLinkPagamentoManual: resultado.whatsappLinkPagamentoManual,
+        };
+    }
+
+    return detalhe;
 }
 
 /** Reenvia o link de pagamento (WhatsApp/e-mail) — só AguardandoPagamento com token. */

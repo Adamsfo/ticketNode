@@ -83,7 +83,15 @@ export async function listarSuitesIndisponiveisReativacao(params: {
 export async function reativarReservaExpiradaAdmin(params: {
     idReservaHospedagem: number;
     idUsuarioOperador: number;
-}): Promise<{ id: number; notificacaoEnviada: boolean }> {
+}): Promise<{
+    id: number;
+    notificacaoEnviada: boolean;
+    whatsappLinkPagamentoManual?: {
+        telefone: string | null;
+        mensagemWhatsApp: string;
+        linkPagamento: string;
+    };
+}> {
     const idReserva = Number(params.idReservaHospedagem);
     const idUsuarioOperador = Number(params.idUsuarioOperador);
 
@@ -282,12 +290,27 @@ export async function reativarReservaExpiradaAdmin(params: {
         }
     });
 
+    let whatsappLinkPagamentoManual:
+        | {
+              telefone: string | null;
+              mensagemWhatsApp: string;
+              linkPagamento: string;
+          }
+        | undefined;
+
     if (prazo.gerarNovoToken && novoToken) {
         const { notificarLinkPagamentoHospedagem } = await import(
             './hospedagemConfirmacaoNotificacao'
         );
-        await notificarLinkPagamentoHospedagem(idReserva);
+        const notificacao = await notificarLinkPagamentoHospedagem(idReserva, {
+            enviarWhatsAppAutomatico: false,
+        });
         notificacaoEnviada = true;
+        whatsappLinkPagamentoManual = {
+            telefone: notificacao.telefone,
+            mensagemWhatsApp: notificacao.mensagemWhatsApp,
+            linkPagamento: notificacao.linkPagamento,
+        };
     }
 
     if (avaliacaoOutbound.deveMarkDirty) {
@@ -302,5 +325,9 @@ export async function reativarReservaExpiradaAdmin(params: {
     );
     await incrementarHospedagemRefreshVersion();
 
-    return { id: idReserva, notificacaoEnviada };
+    return {
+        id: idReserva,
+        notificacaoEnviada,
+        whatsappLinkPagamentoManual,
+    };
 }

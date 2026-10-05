@@ -358,7 +358,8 @@ async function notificarExpiracaoHospedagem(idReservaHospedagem) {
  * Envia link de pagamento reutilizando Z-API e Resend já existentes.
  * Não altera o fluxo de confirmação pós-pagamento.
  */
-async function notificarLinkPagamentoHospedagem(idReservaHospedagem) {
+async function notificarLinkPagamentoHospedagem(idReservaHospedagem, options) {
+    const enviarWhatsAppAutomatico = options?.enviarWhatsAppAutomatico !== false;
     const hospedagem = await ReservaHospedagem_1.ReservaHospedagem.findByPk(idReservaHospedagem);
     if (!hospedagem?.tokenPagamento || !hospedagem.idTransacao) {
         throw new Error('Reserva sem token/transação para envio do link.');
@@ -372,6 +373,7 @@ async function notificarLinkPagamentoHospedagem(idReservaHospedagem) {
         ...base,
         linkPagamento,
     };
+    const mensagemWhatsApp = montarMensagemWhatsAppLinkPagamentoHospedagem(conteudo);
     try {
         if (conteudo.email) {
             await (0, resend_1.enviarEmailCliente)(conteudo.email, `Finalize sua reserva - ${conteudo.nomeEvento}`, montarHtmlEmailLinkPagamentoHospedagem(conteudo));
@@ -381,8 +383,8 @@ async function notificarLinkPagamentoHospedagem(idReservaHospedagem) {
         await registrarFalhaEnvioConfirmacao(conteudo, 'e-mail', error);
     }
     try {
-        if (conteudo.telefone) {
-            await (0, zApiWhatsApp_1.enviarMensagemTextoZApi)(conteudo.telefone, montarMensagemWhatsAppLinkPagamentoHospedagem(conteudo));
+        if (enviarWhatsAppAutomatico && conteudo.telefone) {
+            await (0, zApiWhatsApp_1.enviarMensagemTextoZApi)(conteudo.telefone, mensagemWhatsApp);
         }
     }
     catch (error) {
@@ -401,5 +403,9 @@ async function notificarLinkPagamentoHospedagem(idReservaHospedagem) {
     catch (error) {
         console.error('Erro ao registrar envio do link no histórico:', error);
     }
-    return { linkPagamento };
+    return {
+        linkPagamento,
+        mensagemWhatsApp,
+        telefone: conteudo.telefone ? conteudo.telefone : null,
+    };
 }
