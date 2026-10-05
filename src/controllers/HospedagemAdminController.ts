@@ -506,7 +506,8 @@ module.exports = {
 
             return res.status(200).json({
                 success: true,
-                message: 'Link de pagamento reenviado ao cliente.',
+                message:
+                    'Link reenviado. Abra o WhatsApp para enviar o link de pagamento ao cliente.',
                 data,
             });
         } catch (error) {

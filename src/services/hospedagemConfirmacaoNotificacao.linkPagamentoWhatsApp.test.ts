@@ -47,7 +47,7 @@ describe('chamadores de notificarLinkPagamentoHospedagem', () => {
         assert.match(src, /whatsappLinkPagamentoManual/);
     });
 
-    it('reenviar link mantém WhatsApp automático (padrão)', () => {
+    it('reenviar link desativa WhatsApp automático e expõe dados manuais', () => {
         const src = readFileSync(
             join(__dirname, 'hospedagemAdminService.ts'),
             'utf8'
@@ -58,12 +58,9 @@ describe('chamadores de notificarLinkPagamentoHospedagem', () => {
         );
         assert.match(
             reenviarBlock,
-            /await notificarLinkPagamentoHospedagem\(reserva\.id\)/
+            /notificarLinkPagamentoHospedagem\(reserva\.id, \{\s*enviarWhatsAppAutomatico: false,/
         );
-        assert.doesNotMatch(
-            reenviarBlock,
-            /enviarWhatsAppAutomatico:\s*false/
-        );
+        assert.match(reenviarBlock, /whatsappLinkPagamentoManual/);
     });
 });
 

@@ -4848,9 +4848,19 @@ export async function reenviarLinkPagamentoReservaAdmin(
         await reserva.save();
     }
 
-    const { linkPagamento } = await notificarLinkPagamentoHospedagem(reserva.id);
+    const notificacao = await notificarLinkPagamentoHospedagem(reserva.id, {
+        enviarWhatsAppAutomatico: false,
+    });
     const detalhe = await obterReservaAdminDetalhe(idReserva, idUsuarioOperador);
-    return { ...detalhe, linkPagamento };
+    return {
+        ...detalhe,
+        linkPagamento: notificacao.linkPagamento,
+        whatsappLinkPagamentoManual: {
+            telefone: notificacao.telefone,
+            mensagemWhatsApp: notificacao.mensagemWhatsApp,
+            linkPagamento: notificacao.linkPagamento,
+        },
+    };
 }
 
 function statusPermiteTrocaSuite(status: string): boolean {
