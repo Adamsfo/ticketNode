@@ -47,6 +47,10 @@ import {
 } from '../utils/hospedagemPagamentoRecepcao';
 import { obterReservaAdminDetalhe } from './hospedagemAdminService';
 import apiJango from '../api/apiJango';
+import { logger } from '../utils/logger';
+import { garantirCaixaJangoAbertoParaHospedagem } from './hospedagemCaixaGarantia';
+
+export { garantirCaixaJangoAbertoParaHospedagem } from './hospedagemCaixaGarantia';
 
 /** id_forma_pagamento no legado Firebird — hospedagem replicada no PDV. */
 const ID_FORMA_PAGAMENTO_CAIXA_DINHEIRO = 38;
@@ -162,33 +166,9 @@ async function montarDescricaoCaixaRecebimentoHospedagem(
 }
 
 /**
- * Garante caixa do dia aberto no Jango PDV para fluxos de hospedagem.
- * Idempotente: se getCaixa() já retornar registro, não insere abertura.
- */
-export async function garantirCaixaJangoAbertoParaHospedagem(): Promise<
-    Record<string, unknown>
-> {
-    const caixaInicial = await apiJango().getCaixa();
-    if (caixaInicial?.[0]) {
-        return caixaInicial[0] as Record<string, unknown>;
-    }
-
-    await apiJango().inseriCaixaItemAbertura();
-
-    const caixaAposAbertura = await apiJango().getCaixa();
-    if (!caixaAposAbertura?.[0]) {
-        throw new Error(
-            'garantirCaixaJangoAbertoParaHospedagem: caixa não encontrado após abertura'
-        );
-    }
-
-    return caixaAposAbertura[0] as Record<string, unknown>;
-}
-
-/**
  * Lança um PagamentoHospedagem no caixa Jango e persiste idCaixaItem.
- * Retorna null quando a forma não entra no caixa ou não há caixa aberto.
- * Propaga erro se inseriCaixaItem falhar.
+ * Retorna null quando a forma não entra no caixa (PIX, cartão, etc.).
+ * Para Dinheiro/Antecipado, propaga erro se não for possível garantir caixa aberto ou inserir item.
  */
 export async function persistirCaixaPagamentoHospedagem(
     idPagamentoHospedagem: number
@@ -213,25 +193,51 @@ export async function persistirCaixaPagamentoHospedagem(
         return null;
     }
 
-    await garantirCaixaJangoAbertoParaHospedagem();
+    const contextoLog = {
+        idPagamentoHospedagem: pagamento.id,
+        formaPagamento: pagamento.formaPagamento,
+        valor: Number(pagamento.valor) || 0,
+    };
 
-    const caixa = await apiJango().getCaixa();
-    if (!caixa?.[0]) {
-        return null;
-    }
+    logger.info('Hospedagem caixa PDV: persistir pagamento', contextoLog);
+
+    const idCaixa = await garantirCaixaJangoAbertoParaHospedagem(contextoLog);
 
     const descricao = await montarDescricaoCaixaRecebimentoHospedagem(
         pagamento.id
     );
-    const idCaixaItem = await apiJango().inseriCaixaItem(
-        caixa[0].id_caixa,
-        Number(pagamento.valor) || 0,
-        idFormaPagamento,
-        pagamento.id,
-        descricao
-    );
+
+    let idCaixaItem: number;
+    try {
+        idCaixaItem = await apiJango().inseriCaixaItem(
+            String(idCaixa),
+            Number(pagamento.valor) || 0,
+            idFormaPagamento,
+            pagamento.id,
+            descricao
+        );
+    } catch (error) {
+        logger.error('Hospedagem caixa PDV: falha ao inserir CAIXA_ITEM', {
+            ...contextoLog,
+            idCaixa,
+            erro: (error as Error)?.message,
+        });
+        throw error;
+    }
+
+    if (!Number.isFinite(idCaixaItem) || idCaixaItem <= 0) {
+        const msg =
+            'persistirCaixaPagamentoHospedagem: inseriCaixaItem não retornou ID_CAIXA_ITEM válido';
+        logger.error(msg, { ...contextoLog, idCaixa, idCaixaItem });
+        throw new Error(msg);
+    }
 
     await pagamento.update({ idCaixaItem });
+    logger.info('Hospedagem caixa PDV: pagamento lançado', {
+        ...contextoLog,
+        idCaixa,
+        idCaixaItem,
+    });
     return idCaixaItem;
 }
 

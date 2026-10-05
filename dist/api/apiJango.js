@@ -4,6 +4,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const ConexaoJango_1 = require("../database/ConexaoJango");
 const reservaSuitePricing_1 = require("../utils/reservaSuitePricing");
 const reservaSuiteUtils_1 = require("../utils/reservaSuiteUtils");
+const caixaPdvAberto_1 = require("../utils/caixaPdvAberto");
 function assertDataIso(data, nome) {
     const raw = String(data ?? "").trim();
     if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
@@ -27,6 +28,23 @@ function pickCampoFirebird(row, ...nomes) {
     }
     return undefined;
 }
+function mapRowParaCaixaResumoPdv(row) {
+    const idCaixa = Number(pickCampoFirebird(row, "ID_CAIXA", "id_caixa"));
+    if (!Number.isFinite(idCaixa) || idCaixa <= 0) {
+        return null;
+    }
+    return {
+        idCaixa,
+        dataAbertura: pickCampoFirebird(row, "DATA_ABERTURA", "data_abertura") ?? null,
+        dataFechamento: pickCampoFirebird(row, "DATA_FECHAMENTO", "data_fechamento") ?? null,
+        status: String(pickCampoFirebird(row, "STATUS", "status") ?? "").trim() || null,
+        totalVendido: (0, reservaSuitePricing_1.roundMoney)((0, reservaSuiteUtils_1.toNumber)(pickCampoFirebird(row, "RECEITA_BRUTA", "receita_bruta"))),
+        totalRecebido: (0, reservaSuitePricing_1.roundMoney)((0, reservaSuiteUtils_1.toNumber)(pickCampoFirebird(row, "SALDO", "saldo"))),
+    };
+}
+/** Mesmo critério de dia que getCaixa() legado: CURRENT_DATE no Firebird. */
+const SQL_FILTRO_DIA_CAIXA_ATUAL = "CAST(CAIXA.DATA_ABERTURA AS DATE) = CURRENT_DATE";
+const SQL_CAIXA_ABERTO_HOJE = SQL_FILTRO_DIA_CAIXA_ATUAL + " AND CAIXA.DATA_FECHAMENTO IS NULL";
 const BASEAPI = process.env.JANGO_API_BASE || "";
 const BASEAPIFotos = process.env.JANGO_API_FOTOS_BASE || "";
 const apiFetchGet = async (endpoint, body = "") => {
@@ -235,6 +253,61 @@ const PdvApiJango = {
         }
     },
     /**
+     * Caixa aberto no dia corrente (PDV): DATA_ABERTURA = CURRENT_DATE e DATA_FECHAMENTO IS NULL.
+     * Usado pela hospedagem; não altera getCaixa() legado dos ingressos.
+     */
+    getCaixaAbertoDoDia: async () => {
+        const qry = `
+      SELECT FIRST 1
+        CAIXA.ID_CAIXA,
+        CAIXA.DATA_ABERTURA,
+        CAIXA.DATA_FECHAMENTO,
+        CAIXA.STATUS,
+        CAIXA.RECEITA_BRUTA,
+        CAIXA.SALDO
+      FROM CAIXA
+      WHERE ${SQL_CAIXA_ABERTO_HOJE}
+      ORDER BY CAIXA.ID_CAIXA DESC
+    `;
+        const rows = await (0, ConexaoJango_1.query)(qry);
+        const row = rows?.[0];
+        if (!row) {
+            return null;
+        }
+        const caixa = mapRowParaCaixaResumoPdv(row);
+        if (!caixa || !(0, caixaPdvAberto_1.isCaixaPdvAberto)(caixa)) {
+            return null;
+        }
+        return caixa;
+    },
+    /** Todos os caixas abertos hoje (detecção de concorrência). */
+    listCaixasAbertosDoDia: async () => {
+        const qry = `
+      SELECT
+        CAIXA.ID_CAIXA,
+        CAIXA.DATA_ABERTURA,
+        CAIXA.DATA_FECHAMENTO,
+        CAIXA.STATUS,
+        CAIXA.RECEITA_BRUTA,
+        CAIXA.SALDO
+      FROM CAIXA
+      WHERE ${SQL_CAIXA_ABERTO_HOJE}
+      ORDER BY CAIXA.ID_CAIXA DESC
+    `;
+        const rows = await (0, ConexaoJango_1.query)(qry);
+        if (!rows?.length) {
+            return [];
+        }
+        const caixas = [];
+        for (const row of rows) {
+            const caixa = mapRowParaCaixaResumoPdv(row);
+            if (caixa && (0, caixaPdvAberto_1.isCaixaPdvAberto)(caixa)) {
+                caixas.push(caixa);
+            }
+        }
+        return caixas;
+    },
+    /**
      * Resumo consolidado do caixa no PDV (tabela CAIXA / Firebird).
      * Mesma regra de identificação do dia que getCaixa(), porém por data informada.
      * RECEITA_BRUTA → total vendido; SALDO → total recebido (sem somar CAIXA_ITEM).
@@ -278,19 +351,11 @@ const PdvApiJango = {
             if (!row) {
                 return null;
             }
-            const idCaixa = Number(pickCampoFirebird(row, "ID_CAIXA", "id_caixa"));
-            if (!Number.isFinite(idCaixa) || idCaixa <= 0) {
+            const caixa = mapRowParaCaixaResumoPdv(row);
+            if (!caixa) {
                 throw new Error(`getCaixaResumo: ID_CAIXA inválido: ${JSON.stringify(row)}`);
             }
-            return {
-                idCaixa,
-                dataAbertura: pickCampoFirebird(row, "DATA_ABERTURA", "data_abertura") ?? null,
-                dataFechamento: pickCampoFirebird(row, "DATA_FECHAMENTO", "data_fechamento") ?? null,
-                status: String(pickCampoFirebird(row, "STATUS", "status") ?? "").trim() ||
-                    null,
-                totalVendido: (0, reservaSuitePricing_1.roundMoney)((0, reservaSuiteUtils_1.toNumber)(pickCampoFirebird(row, "RECEITA_BRUTA", "receita_bruta"))),
-                totalRecebido: (0, reservaSuitePricing_1.roundMoney)((0, reservaSuiteUtils_1.toNumber)(pickCampoFirebird(row, "SALDO", "saldo"))),
-            };
+            return caixa;
         }
         catch (error) {
             console.error("Erro ao buscar resumo do caixa no PDV:", error);
@@ -376,7 +441,7 @@ const PdvApiJango = {
     /**
      * Abertura de caixa via CAIXA_ITEM (TIPO_LANCAMENTO=0).
      * A trigger CAIXA_ITEM_AIO no Firebird cria o registro em CAIXA.
-     * Idempotência: o chamador deve usar getCaixa() antes de invocar esta função.
+     * Idempotência: o chamador deve usar getCaixaAbertoDoDia() antes de invocar esta função.
      * Não altera inseriCaixaItem — mesma camada /select/ e ID_USUARIO=3.
      */
     inseriCaixaItemAbertura: async () => {
