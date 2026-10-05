@@ -13,6 +13,8 @@ import { Empresa } from "../models/Empresa";
 import { Evento } from "../models/Evento";
 import { ProdutorAcesso, TipoAcesso } from "../models/Produtor";
 import apiJango from "../api/apiJango";
+import { tentarLancarCaixaItemIngressoDinheiro } from "../services/ingressoPagamentoCaixaService";
+import { logger } from "../utils/logger";
 import {
     assertTransacaoHospedagemPagaivel,
     confirmarHospedagem,
@@ -1467,20 +1469,25 @@ module.exports = {
                 statusPagamento: 'Pago',
             });
 
-            if (evento?.idProdutor === 1) {
-                const caixa = await apiJango().getCaixa();
-
-                if (caixa[0] && !transacaoPagamento.idCaixaItem) {
-                    const idCaixaItem = await apiJango().inseriCaixaItem(
-                        caixa[0].id_caixa,
-                        Number(valorTotal ?? 0),
-                        38,
-                        transacaoPagamento.id
-                    );
-                    if (idCaixaItem > 0) {
-                        await transacaoPagamento.update({
-                            idCaixaItem,
-                        });
+            if (evento?.idProdutor === 1 && !transacaoPagamento.idCaixaItem) {
+                const idCaixaItem = await tentarLancarCaixaItemIngressoDinheiro({
+                    idTransacao: Number(idTransacao),
+                    idTransacaoPagamento: Number(transacaoPagamento.id),
+                    valorTotal: Number(valorTotal ?? 0),
+                });
+                if (idCaixaItem != null && idCaixaItem > 0) {
+                    try {
+                        await transacaoPagamento.update({ idCaixaItem });
+                    } catch (error) {
+                        logger.error(
+                            'Ingresso caixa PDV: falha ao salvar idCaixaItem no MySQL (pagamento segue)',
+                            {
+                                idTransacao,
+                                idTransacaoPagamento: transacaoPagamento.id,
+                                idCaixaItem,
+                                erro: (error as Error)?.message,
+                            }
+                        );
                     }
                 }
             }

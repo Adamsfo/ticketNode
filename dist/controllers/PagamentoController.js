@@ -16,6 +16,8 @@ const Empresa_1 = require("../models/Empresa");
 const Evento_1 = require("../models/Evento");
 const Produtor_1 = require("../models/Produtor");
 const apiJango_1 = __importDefault(require("../api/apiJango"));
+const ingressoPagamentoCaixaService_1 = require("../services/ingressoPagamentoCaixaService");
+const logger_1 = require("../utils/logger");
 const reservaSuiteService_1 = require("../services/reservaSuiteService");
 const EventoIngresso_1 = require("../models/EventoIngresso");
 const sequelize_1 = require("sequelize");
@@ -1190,13 +1192,22 @@ module.exports = {
                 valor: valorTotal,
                 statusPagamento: 'Pago',
             });
-            if (evento?.idProdutor === 1) {
-                const caixa = await (0, apiJango_1.default)().getCaixa();
-                if (caixa[0] && !transacaoPagamento.idCaixaItem) {
-                    const idCaixaItem = await (0, apiJango_1.default)().inseriCaixaItem(caixa[0].id_caixa, Number(valorTotal ?? 0), 38, transacaoPagamento.id);
-                    if (idCaixaItem > 0) {
-                        await transacaoPagamento.update({
+            if (evento?.idProdutor === 1 && !transacaoPagamento.idCaixaItem) {
+                const idCaixaItem = await (0, ingressoPagamentoCaixaService_1.tentarLancarCaixaItemIngressoDinheiro)({
+                    idTransacao: Number(idTransacao),
+                    idTransacaoPagamento: Number(transacaoPagamento.id),
+                    valorTotal: Number(valorTotal ?? 0),
+                });
+                if (idCaixaItem != null && idCaixaItem > 0) {
+                    try {
+                        await transacaoPagamento.update({ idCaixaItem });
+                    }
+                    catch (error) {
+                        logger_1.logger.error('Ingresso caixa PDV: falha ao salvar idCaixaItem no MySQL (pagamento segue)', {
+                            idTransacao,
+                            idTransacaoPagamento: transacaoPagamento.id,
                             idCaixaItem,
+                            erro: error?.message,
                         });
                     }
                 }

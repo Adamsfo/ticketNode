@@ -8,7 +8,10 @@ import {
 
 export type GarantiaCaixaHospedagemContexto = {
     idPagamentoHospedagem?: number;
+    idTransacao?: number;
+    idTransacaoPagamento?: number;
     formaPagamento?: string;
+    origem?: string;
 };
 
 export type GarantiaCaixaHospedagemDeps = {
