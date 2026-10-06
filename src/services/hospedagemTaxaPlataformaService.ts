@@ -103,7 +103,7 @@ export function aplicarPercentualCobrancaInicialTransacao(
         return valores;
     }
     const valorTotal = roundMoney(valores.valorTotal * 0.5);
-    const taxaServico = roundMoney(valores.taxaServico * 0.5);
+    const taxaServico = valores.taxaServico;
     const preco = roundMoney(valorTotal - taxaServico);
     return { preco, taxaServico, valorTotal };
 }

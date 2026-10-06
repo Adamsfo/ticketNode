@@ -262,13 +262,37 @@ describe('percentualCobrancaInicial (link recepção → cliente)', () => {
 
         const cobranca50 = aplicarPercentualCobrancaInicialTransacao(montado, 50);
         assert.equal(cobranca50.valorTotal, 500);
-        assert.equal(cobranca50.taxaServico, 25);
-        assert.equal(cobranca50.preco, 475);
+        assert.equal(cobranca50.taxaServico, 50);
+        assert.equal(cobranca50.preco, 450);
         assert.equal(
             cobranca50.preco + cobranca50.taxaServico,
             cobranca50.valorTotal
         );
         assert.equal(valorTotalReserva, 1000);
+    });
+
+    it('50% — reserva maior (1350 / taxa 60) mantém taxa integral na cobrança', () => {
+        const montado = montarValoresTransacaoHospedagemSite({
+            transacaoCheckout: {
+                preco: 1290,
+                taxaServico: 30,
+                valorTotal: 1350,
+            },
+            linhas: [
+                { valorBaseCentavos: 100_000, adultosExtras: 1, noites: 2 },
+            ],
+        });
+        assert.equal(montado.valorTotal, 1350);
+        assert.equal(montado.taxaServico, 60);
+
+        const cobranca50 = aplicarPercentualCobrancaInicialTransacao(montado, 50);
+        assert.equal(cobranca50.valorTotal, 675);
+        assert.equal(cobranca50.taxaServico, 60);
+        assert.equal(cobranca50.preco, 615);
+        assert.equal(
+            cobranca50.preco + cobranca50.taxaServico,
+            cobranca50.valorTotal
+        );
     });
 
     it('confirmação simulada — pagamento 50% → Parcial e saldo 500', () => {
