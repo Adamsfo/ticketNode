@@ -11,8 +11,10 @@ process.env.RESEND_API_KEY = process.env.RESEND_API_KEY || 're_test_key';
 import {
     montarHtmlEmailExpiracaoHospedagem,
     montarHtmlEmailLinkPagamentoHospedagem,
+    montarMensagemWhatsAppConfirmacaoHospedagem,
     montarMensagemWhatsAppExpiracaoHospedagem,
     montarMensagemWhatsAppLinkPagamentoHospedagem,
+    montarTextoPlanoConfirmacaoHospedagem,
     type HospedagemConfirmacaoConteudo,
     type HospedagemLinkPagamentoConteudo,
 } from './hospedagemConfirmacaoNotificacao';
@@ -32,6 +34,9 @@ const conteudoBase: HospedagemConfirmacaoConteudo = {
     noites: 2,
     suites: [{ nome: 'Suíte 1', adultos: 2, criancas: 0 }],
     valorTotal: 'R$ 500,00',
+    valorTotalReserva: 500,
+    valorPago: 500,
+    saldoPendente: 0,
 };
 
 const conteudoLink: HospedagemLinkPagamentoConteudo = {
@@ -47,6 +52,42 @@ describe('constantes de expiração em reservaSuiteService', () => {
         );
         assert.match(src, /export const MINUTOS_EXPIRACAO_LINK_PAGAMENTO = 30;/);
         assert.match(src, /const MINUTOS_EXPIRACAO_RESERVA = 15;/);
+    });
+});
+
+describe('montarMensagemWhatsAppConfirmacaoHospedagem', () => {
+    it('pagamento parcial inclui bloco financeiro e preserva o texto original', () => {
+        const conteudo: HospedagemConfirmacaoConteudo = {
+            ...conteudoBase,
+            valorTotal: 'R$ 280,00',
+            valorTotalReserva: 280,
+            valorPago: 140,
+            saldoPendente: 140,
+        };
+        const corpoOriginal = montarTextoPlanoConfirmacaoHospedagem(conteudo);
+        const mensagem = montarMensagemWhatsAppConfirmacaoHospedagem(conteudo);
+
+        assert.match(mensagem, /Reserva confirmada com pagamento parcial/);
+        assert.match(mensagem, /Você pagou 50% do valor da reserva/);
+        assert.match(mensagem, /O restante deverá ser pago no check-in/);
+        assert.match(mensagem, /Total da reserva: R\$\s?280,00/);
+        assert.match(mensagem, /Total pago: R\$\s?140,00/);
+        assert.match(mensagem, /Restante a pagar no check-in: R\$\s?140,00/);
+        assert.ok(mensagem.endsWith(corpoOriginal));
+        assert.match(mensagem, /Reserva confirmada – PESQUE PAGUE JANGO/);
+    });
+
+    it('pagamento 100% não inclui bloco de pagamento parcial', () => {
+        const mensagem =
+            montarMensagemWhatsAppConfirmacaoHospedagem(conteudoBase);
+        const corpoOriginal =
+            montarTextoPlanoConfirmacaoHospedagem(conteudoBase);
+
+        assert.doesNotMatch(mensagem, /pagamento parcial/i);
+        assert.doesNotMatch(mensagem, /Total pago:/);
+        assert.doesNotMatch(mensagem, /Restante a pagar no check-in:/);
+        assert.equal(mensagem, corpoOriginal);
+        assert.match(mensagem, /Reserva confirmada – PESQUE PAGUE JANGO/);
     });
 });
 

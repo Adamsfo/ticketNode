@@ -53,8 +53,10 @@ import {
 } from '../utils/hospedagemPagamentoRecepcao';
 import { validarInputTaxaAdicional } from './reservaSuiteFinanceiroService';
 import {
+    aplicarPercentualCobrancaInicialTransacao,
     montarLinhasTaxaPlataformaDeCotacoesCheckout,
     montarValoresTransacaoHospedagemSite,
+    type PercentualCobrancaInicialLink,
 } from './hospedagemTaxaPlataformaService';
 import {
     calcularExtrasPousada,
@@ -1350,6 +1352,8 @@ export async function checkoutHospedagem(params: {
      * na infraestrutura de pagamentos existente (não altera fluxo de ingressos).
      */
     enviarParaCliente?: boolean;
+    /** Link recepção: 100 = cobrança integral (padrão); 50 = metade na Transacao do link. */
+    percentualCobrancaInicial?: PercentualCobrancaInicialLink;
     observacoes?: string | null;
     idUsuarioOperador?: number;
     /** Exclusivo recepção — pagamento antecipado (cria PagamentoHospedagem) */
@@ -1371,6 +1375,7 @@ export async function checkoutHospedagem(params: {
         suites,
         origem = 'online',
         enviarParaCliente = false,
+        percentualCobrancaInicial = 100,
         observacoes,
         idUsuarioOperador,
         pagamento = null,
@@ -1390,6 +1395,8 @@ export async function checkoutHospedagem(params: {
     const isIntegracao = origem === 'integracao';
     const isRecepcao = origem === 'recepcao' || isIntegracao;
     const isLinkCliente = origem === 'recepcao' && !!enviarParaCliente;
+    const percentualLink: PercentualCobrancaInicialLink =
+        isLinkCliente && percentualCobrancaInicial === 50 ? 50 : 100;
     /** Confirma na hora (recepção tradicional / integração). Link ao cliente NÃO confirma. */
     const confirmaImediatamente = isRecepcao && !isLinkCliente;
 
@@ -1747,12 +1754,19 @@ export async function checkoutHospedagem(params: {
             montarLinhasTaxaPlataformaDeCotacoesCheckout(suitesComTotais);
         const aplicarTaxaPlataformaNaTransacao =
             isReservaSite || isLinkCliente;
-        const valoresTransacao = aplicarTaxaPlataformaNaTransacao
+        const valoresTransacaoBase = aplicarTaxaPlataformaNaTransacao
             ? montarValoresTransacaoHospedagemSite({
                   transacaoCheckout,
                   linhas: linhasTaxaPlataformaCheckout,
               })
             : transacaoCheckout;
+        const valoresTransacao =
+            isLinkCliente && percentualLink === 50
+                ? aplicarPercentualCobrancaInicialTransacao(
+                      valoresTransacaoBase,
+                      50
+                  )
+                : valoresTransacaoBase;
         const transacao = await Transacao.create(
             {
                 idUsuario,
@@ -1874,6 +1888,11 @@ export async function checkoutHospedagem(params: {
             descricaoHistorico += `\n\nLink de pagamento gerado:\n${montarUrlPublicaReserva(
                 tokenPagamento
             )}`;
+            if (percentualLink === 50) {
+                descricaoHistorico += `\n\nCobrança inicial: 50% (${formatarMoedaHistorico(
+                    valoresTransacao.valorTotal
+                )} nesta transação).`;
+            }
         }
 
         await HistoricoTransacao.create(
@@ -1911,11 +1930,18 @@ export async function checkoutHospedagem(params: {
                         },
                         linhas: linhasTaxaPlataformaCheckout,
                     });
+                const valoresLinkFinal =
+                    percentualLink === 50
+                        ? aplicarPercentualCobrancaInicialTransacao(
+                              valoresLinkPosRecalculo,
+                              50
+                          )
+                        : valoresLinkPosRecalculo;
                 await transacao.update(
                     {
-                        preco: valoresLinkPosRecalculo.preco,
-                        taxaServico: valoresLinkPosRecalculo.taxaServico,
-                        valorTotal: valoresLinkPosRecalculo.valorTotal,
+                        preco: valoresLinkFinal.preco,
+                        taxaServico: valoresLinkFinal.taxaServico,
+                        valorTotal: valoresLinkFinal.valorTotal,
                     },
                     { transaction: t }
                 );
@@ -2283,6 +2309,8 @@ export type ReservaConfirmadaResumo = {
         preco: number;
         taxaServico: number;
         valorTotal: number;
+        valorPago: number;
+        saldoPendente: number;
         dataConfirmacao: Date | null;
     };
     evento: {
@@ -2358,6 +2386,21 @@ export async function obterReservaConfirmadaPorTransacao(
         >;
     }).ReservaSuite ?? [];
 
+    const valorTotalReserva = roundMoney(toNumber(hospedagem.valorTotal));
+    let valorPagoReserva = roundMoney(toNumber(hospedagem.valorPago ?? 0));
+    let saldoPendenteReserva =
+        hospedagem.saldoPendente != null
+            ? roundMoney(toNumber(hospedagem.saldoPendente))
+            : calcularSaldoPendente(valorTotalReserva, valorPagoReserva);
+
+    if (
+        valorPagoReserva <= 0.009 &&
+        saldoPendenteReserva <= 0.009 &&
+        hospedagem.status === StatusReservaHospedagem.Confirmada
+    ) {
+        valorPagoReserva = valorTotalReserva;
+    }
+
     return {
         reserva: {
             id: hospedagem.id,
@@ -2367,7 +2410,9 @@ export async function obterReservaConfirmadaPorTransacao(
             noites: hospedagem.noites,
             preco: toNumber(hospedagem.preco),
             taxaServico: toNumber(hospedagem.taxaServico),
-            valorTotal: toNumber(hospedagem.valorTotal),
+            valorTotal: valorTotalReserva,
+            valorPago: valorPagoReserva,
+            saldoPendente: saldoPendenteReserva,
             dataConfirmacao: hospedagem.dataConfirmacao ?? null,
         },
         evento: {

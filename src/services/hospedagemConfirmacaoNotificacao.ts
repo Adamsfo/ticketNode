@@ -9,6 +9,7 @@ import { enviarEmailCliente } from '../utils/resend';
 import { montarUrlPublicaReserva } from '../utils/siteUrl';
 import { enviarMensagemTextoZApi } from '../utils/zApiWhatsApp';
 import { toNumber } from '../utils/reservaSuiteUtils';
+import { calcularSaldoPendente } from '../utils/hospedagemPagamentoRecepcao';
 import { shouldSendAutomaticConfirmation } from './ReservationNotificationPolicy';
 
 export { montarUrlPublicaReserva };
@@ -34,7 +35,11 @@ export type HospedagemConfirmacaoConteudo = {
     dataSaida: string;
     noites: number;
     suites: SuiteConfirmacaoNotificacao[];
+    /** Valor total formatado (legado — e-mail de link, etc.). */
     valorTotal: string;
+    valorTotalReserva: number;
+    valorPago: number;
+    saldoPendente: number;
 };
 
 function formatarDataHospedagem(data: Date): string {
@@ -86,6 +91,13 @@ export async function carregarConteudoConfirmacaoHospedagem(
         ReservaSuite?: Array<ReservaSuite & { EventoSuite?: EventoSuite }>;
     }).ReservaSuite ?? [];
 
+    const valorTotalReserva = toNumber(hospedagem.valorTotal);
+    const valorPago = toNumber(hospedagem.valorPago ?? 0);
+    const saldoPendente =
+        hospedagem.saldoPendente != null
+            ? toNumber(hospedagem.saldoPendente)
+            : calcularSaldoPendente(valorTotalReserva, valorPago);
+
     return {
         idReserva: hospedagem.id,
         idTransacao,
@@ -104,8 +116,48 @@ export async function carregarConteudoConfirmacaoHospedagem(
             adultos: suite.adultos,
             criancas: suite.criancas,
         })),
-        valorTotal: formatarMoeda(toNumber(hospedagem.valorTotal)),
+        valorTotal: formatarMoeda(valorTotalReserva),
+        valorTotalReserva,
+        valorPago,
+        saldoPendente,
     };
+}
+
+function isPagamentoParcialConfirmacaoHospedagem(
+    valorPago: number,
+    saldoPendente: number
+): boolean {
+    return saldoPendente > 0.009 && valorPago > 0.009;
+}
+
+function percentualValorPagoSobreTotalReserva(
+    valorPago: number,
+    valorTotalReserva: number
+): number {
+    if (valorTotalReserva <= 0.009) {
+        return 0;
+    }
+    return Math.round((valorPago / valorTotalReserva) * 100);
+}
+
+function montarPrefixoWhatsAppConfirmacaoPagamentoParcial(
+    conteudo: HospedagemConfirmacaoConteudo
+): string {
+    const percentual = percentualValorPagoSobreTotalReserva(
+        conteudo.valorPago,
+        conteudo.valorTotalReserva
+    );
+
+    return `✅ Reserva confirmada com pagamento parcial!
+
+Você pagou ${percentual}% do valor da reserva.
+O restante deverá ser pago no check-in.
+
+Total da reserva: ${formatarMoeda(conteudo.valorTotalReserva)}
+Total pago: ${formatarMoeda(conteudo.valorPago)}
+Restante a pagar no check-in: ${formatarMoeda(conteudo.saldoPendente)}
+
+`;
 }
 
 export function montarTextoPlanoConfirmacaoHospedagem(
@@ -225,7 +277,18 @@ export function montarHtmlEmailConfirmacaoHospedagem(
 export function montarMensagemWhatsAppConfirmacaoHospedagem(
     conteudo: HospedagemConfirmacaoConteudo
 ): string {
-    return montarTextoPlanoConfirmacaoHospedagem(conteudo);
+    const corpo = montarTextoPlanoConfirmacaoHospedagem(conteudo);
+    if (
+        !isPagamentoParcialConfirmacaoHospedagem(
+            conteudo.valorPago,
+            conteudo.saldoPendente
+        )
+    ) {
+        return corpo;
+    }
+    return (
+        montarPrefixoWhatsAppConfirmacaoPagamentoParcial(conteudo) + corpo
+    );
 }
 
 export async function enviarEmailConfirmacaoHospedagem(

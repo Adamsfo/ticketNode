@@ -45,6 +45,7 @@ import {
 } from '../services/reservaSuiteService';
 import { parseDateTimeParam } from '../utils/reservaSuiteUtils';
 import { parsePagamentoRecepcao } from '../utils/hospedagemPagamentoRecepcao';
+import { parsePercentualCobrancaInicialLink } from '../services/hospedagemTaxaPlataformaService';
 import { obterHospedagemRefreshVersion } from '../services/hospedagemRefreshVersionService';
 
 /**
@@ -462,6 +463,18 @@ module.exports = {
 
             const suites = parseSuitesCheckout(req.body, { nomeOpcional: true });
             const taxasAdicionais = parseTaxasAdicionaisCheckout(req.body);
+            let percentualCobrancaInicial: 50 | 100 = 100;
+            try {
+                percentualCobrancaInicial = parsePercentualCobrancaInicialLink(
+                    req.body?.percentualCobrancaInicial
+                );
+            } catch {
+                throw new CustomError(
+                    'percentualCobrancaInicial deve ser 50 ou 100.',
+                    400,
+                    ''
+                );
+            }
             const data = await criarReservaRecepcaoAdmin({
                 idUsuarioOperador,
                 idEvento,
@@ -474,6 +487,7 @@ module.exports = {
                     ? String(req.body.observacoes)
                     : null,
                 enviarParaCliente: true,
+                percentualCobrancaInicial,
                 pagamento: null,
             });
 

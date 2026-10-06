@@ -4771,6 +4771,8 @@ export async function criarReservaRecepcaoAdmin(params: {
     pagamento?: import('../utils/hospedagemPagamentoRecepcao').PagamentoRecepcaoInput | null;
     /** Quando true: AguardandoPagamento + link para o cliente (não altera Salvar Reserva). */
     enviarParaCliente?: boolean;
+    /** Somente com enviarParaCliente: 50 ou 100 (padrão 100). */
+    percentualCobrancaInicial?: import('./hospedagemTaxaPlataformaService').PercentualCobrancaInicialLink;
 }) {
     const escopo = await resolverEscopoProdutor(params.idUsuarioOperador);
 
@@ -4802,6 +4804,7 @@ export async function criarReservaRecepcaoAdmin(params: {
         taxasAdicionais: params.taxasAdicionais ?? [],
         origem: 'recepcao',
         enviarParaCliente: !!params.enviarParaCliente,
+        percentualCobrancaInicial: params.percentualCobrancaInicial ?? 100,
         observacoes: params.observacoes,
         idUsuarioOperador: params.idUsuarioOperador,
         pagamento: params.enviarParaCliente ? null : params.pagamento ?? null,

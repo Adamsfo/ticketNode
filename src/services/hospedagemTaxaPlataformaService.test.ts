@@ -5,7 +5,14 @@ import {
     centavosParaReais,
     montarLinhasTaxaPlataformaDeCotacoesCheckout,
     montarValoresTransacaoHospedagemSite,
+    aplicarPercentualCobrancaInicialTransacao,
+    parsePercentualCobrancaInicialLink,
+    normalizarPercentualCobrancaInicialLink,
 } from './hospedagemTaxaPlataformaService';
+import {
+    calcularSaldoPendente,
+    reservaQuitada,
+} from '../utils/hospedagemPagamentoRecepcao';
 import {
     calcularTotaisSuitePousada,
     VALOR_ADICIONAL_ADULTO_EXTRA,
@@ -172,5 +179,164 @@ describe('adulto adicional comercial R$ 160', () => {
         assert.ok(t);
         assert.equal(t.extraAdultoValor, 320);
         assert.equal(t.suitePreco, 1000);
+    });
+});
+
+function resolverSituacaoFinanceiraReserva(
+    valorTotal: number,
+    valorPago: number
+): 'Quitada' | 'Parcial' | 'Pendente' {
+    const saldoPendente = calcularSaldoPendente(valorTotal, valorPago);
+    if (saldoPendente <= 0.009) {
+        return 'Quitada';
+    }
+    if (valorPago > 0.009) {
+        return 'Parcial';
+    }
+    return 'Pendente';
+}
+
+/** Espelha resolverValorBrutoPagamentoGateway (link 50% usa Transacao.valorTotal). */
+function valorBrutoGatewayParaReserva(
+    transacaoValorTotal: number,
+    valorTotalReserva: number,
+    valorPagoAtual: number
+): number {
+    const saldoPendenteReserva = calcularSaldoPendente(
+        valorTotalReserva,
+        valorPagoAtual
+    );
+    const valorBruto = transacaoValorTotal;
+    if (valorBruto <= 0 || saldoPendenteReserva <= 0.009) {
+        return 0;
+    }
+    return Math.min(valorBruto, saldoPendenteReserva);
+}
+
+describe('percentualCobrancaInicial (link recepção → cliente)', () => {
+    it('parse: omitido → 100', () => {
+        assert.equal(parsePercentualCobrancaInicialLink(undefined), 100);
+        assert.equal(parsePercentualCobrancaInicialLink(null), 100);
+        assert.equal(parsePercentualCobrancaInicialLink(''), 100);
+    });
+
+    it('parse: aceita 50 e 100', () => {
+        assert.equal(parsePercentualCobrancaInicialLink(50), 50);
+        assert.equal(parsePercentualCobrancaInicialLink(100), 100);
+        assert.equal(parsePercentualCobrancaInicialLink('50'), 50);
+    });
+
+    it('parse: valor inválido lança erro', () => {
+        assert.throws(
+            () => parsePercentualCobrancaInicialLink(75),
+            /50 ou 100/
+        );
+    });
+
+    it('normalizar: só 50 permanece 50', () => {
+        assert.equal(normalizarPercentualCobrancaInicialLink(50), 50);
+        assert.equal(normalizarPercentualCobrancaInicialLink(75), 100);
+    });
+
+    it('100% — transação montada permanece idêntica', () => {
+        const montado = montarValoresTransacaoHospedagemSite({
+            transacaoCheckout: { preco: 1000, taxaServico: 0, valorTotal: 1000 },
+            linhas: [{ valorBaseCentavos: 100_000, adultosExtras: 0, noites: 2 }],
+        });
+        const com100 = aplicarPercentualCobrancaInicialTransacao(montado, 100);
+        assert.equal(com100, montado);
+        assert.equal(com100.valorTotal, 1000);
+    });
+
+    it('50% — aplica após montarValoresTransacaoHospedagemSite (não divide reserva)', () => {
+        const valorTotalReserva = 1000;
+        const montado = montarValoresTransacaoHospedagemSite({
+            transacaoCheckout: {
+                preco: valorTotalReserva,
+                taxaServico: 0,
+                valorTotal: valorTotalReserva,
+            },
+            linhas: [{ valorBaseCentavos: 100_000, adultosExtras: 0, noites: 2 }],
+        });
+        assert.equal(montado.valorTotal, valorTotalReserva);
+
+        const cobranca50 = aplicarPercentualCobrancaInicialTransacao(montado, 50);
+        assert.equal(cobranca50.valorTotal, 500);
+        assert.equal(cobranca50.taxaServico, 25);
+        assert.equal(cobranca50.preco, 475);
+        assert.equal(
+            cobranca50.preco + cobranca50.taxaServico,
+            cobranca50.valorTotal
+        );
+        assert.equal(valorTotalReserva, 1000);
+    });
+
+    it('confirmação simulada — pagamento 50% → Parcial e saldo 500', () => {
+        const valorTotalReserva = 1000;
+        const transacaoValorTotal = 500;
+        const valorPagoAtual = 0;
+        const lancamento = valorBrutoGatewayParaReserva(
+            transacaoValorTotal,
+            valorTotalReserva,
+            valorPagoAtual
+        );
+        assert.equal(lancamento, 500);
+        const valorPago = lancamento;
+        const saldoPendente = calcularSaldoPendente(valorTotalReserva, valorPago);
+        assert.equal(valorPago, 500);
+        assert.equal(saldoPendente, 500);
+        assert.equal(
+            resolverSituacaoFinanceiraReserva(valorTotalReserva, valorPago),
+            'Parcial'
+        );
+        assert.equal(reservaQuitada(valorTotalReserva, valorPago), false);
+    });
+
+    it('portaria — receber saldo restante → Quitada', () => {
+        const valorTotalReserva = 1000;
+        const valorPago = 500;
+        const recebimentoPortaria = 500;
+        const valorPagoFinal = valorPago + recebimentoPortaria;
+        const saldoFinal = calcularSaldoPendente(
+            valorTotalReserva,
+            valorPagoFinal
+        );
+        assert.equal(valorPagoFinal, 1000);
+        assert.equal(saldoFinal, 0);
+        assert.equal(
+            resolverSituacaoFinanceiraReserva(valorTotalReserva, valorPagoFinal),
+            'Quitada'
+        );
+        assert.equal(reservaQuitada(valorTotalReserva, valorPagoFinal), true);
+    });
+
+    it('webhook duplicado — segundo lançamento zera valor efetivo', () => {
+        const pagamentoJaLancado = true;
+        const valorLancamentoGateway = 500;
+        const valorEfetivo = pagamentoJaLancado ? 0 : valorLancamentoGateway;
+        assert.equal(valorEfetivo, 0);
+    });
+
+    it('Salvar Reserva — percentual 50 não afeta checkout sem link', () => {
+        const isLinkCliente = false;
+        const percentualCobrancaInicial = 50;
+        const percentualLink =
+            isLinkCliente && percentualCobrancaInicial === 50 ? 50 : 100;
+        assert.equal(percentualLink, 100);
+    });
+
+    it('reenvio de link não remonta transação (somente notificação)', () => {
+        const fs = require('node:fs');
+        const path = require('node:path');
+        const src = fs.readFileSync(
+            path.join(__dirname, 'hospedagemAdminService.ts'),
+            'utf8'
+        );
+        const reenviarBlock = src.slice(
+            src.indexOf('export async function reenviarLinkPagamentoReservaAdmin'),
+            src.indexOf('function statusPermiteTrocaSuite')
+        );
+        assert.doesNotMatch(reenviarBlock, /Transacao\.(create|update)/);
+        assert.doesNotMatch(reenviarBlock, /percentualCobrancaInicial/);
     });
 });

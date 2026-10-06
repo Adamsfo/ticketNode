@@ -67,6 +67,47 @@ export type ValoresTransacaoCheckoutHospedagem = {
  * Monta os valores da Transacao para checkout online (site).
  * valorTotal permanece o total original; taxaServico = somente taxa da plataforma.
  */
+export type PercentualCobrancaInicialLink = 100 | 50;
+
+/** Link recepção → cliente: apenas 50 ou 100; omitido = 100. */
+export function normalizarPercentualCobrancaInicialLink(
+    raw: unknown
+): PercentualCobrancaInicialLink {
+    const n = Number(raw);
+    if (n === 50) return 50;
+    return 100;
+}
+
+export function parsePercentualCobrancaInicialLink(
+    raw: unknown
+): PercentualCobrancaInicialLink {
+    if (raw === undefined || raw === null || raw === '') {
+        return 100;
+    }
+    const n = Number(raw);
+    if (n === 50 || n === 100) {
+        return n as PercentualCobrancaInicialLink;
+    }
+    throw new Error('percentualCobrancaInicial deve ser 50 ou 100.');
+}
+
+/**
+ * Aplica percentual somente na Transacao do link (após montarValoresTransacaoHospedagemSite).
+ * 100% retorna cópia lógica idêntica (mesma referência de valores quando 100).
+ */
+export function aplicarPercentualCobrancaInicialTransacao(
+    valores: ValoresTransacaoCheckoutHospedagem,
+    percentual: PercentualCobrancaInicialLink
+): ValoresTransacaoCheckoutHospedagem {
+    if (percentual === 100) {
+        return valores;
+    }
+    const valorTotal = roundMoney(valores.valorTotal * 0.5);
+    const taxaServico = roundMoney(valores.taxaServico * 0.5);
+    const preco = roundMoney(valorTotal - taxaServico);
+    return { preco, taxaServico, valorTotal };
+}
+
 export function montarValoresTransacaoHospedagemSite(params: {
     transacaoCheckout: ValoresTransacaoCheckoutHospedagem;
     linhas: LinhaTaxaPlataformaHospedagem[];
