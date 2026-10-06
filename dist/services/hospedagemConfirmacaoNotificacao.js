@@ -26,6 +26,7 @@ const siteUrl_1 = require("../utils/siteUrl");
 Object.defineProperty(exports, "montarUrlPublicaReserva", { enumerable: true, get: function () { return siteUrl_1.montarUrlPublicaReserva; } });
 const zApiWhatsApp_1 = require("../utils/zApiWhatsApp");
 const reservaSuiteUtils_1 = require("../utils/reservaSuiteUtils");
+const hospedagemPagamentoRecepcao_1 = require("../utils/hospedagemPagamentoRecepcao");
 const ReservationNotificationPolicy_1 = require("./ReservationNotificationPolicy");
 function formatarDataHospedagem(data) {
     return (0, date_fns_tz_1.formatInTimeZone)(data, 'America/Cuiaba', 'dd/MM/yyyy HH:mm');
@@ -64,6 +65,11 @@ async function carregarConteudoConfirmacaoHospedagem(idReservaHospedagem, idTran
     const usuario = hospedagem.Usuario;
     const evento = hospedagem.Evento;
     const suites = hospedagem.ReservaSuite ?? [];
+    const valorTotalReserva = (0, reservaSuiteUtils_1.toNumber)(hospedagem.valorTotal);
+    const valorPago = (0, reservaSuiteUtils_1.toNumber)(hospedagem.valorPago ?? 0);
+    const saldoPendente = hospedagem.saldoPendente != null
+        ? (0, reservaSuiteUtils_1.toNumber)(hospedagem.saldoPendente)
+        : (0, hospedagemPagamentoRecepcao_1.calcularSaldoPendente)(valorTotalReserva, valorPago);
     return {
         idReserva: hospedagem.id,
         idTransacao,
@@ -82,8 +88,33 @@ async function carregarConteudoConfirmacaoHospedagem(idReservaHospedagem, idTran
             adultos: suite.adultos,
             criancas: suite.criancas,
         })),
-        valorTotal: formatarMoeda((0, reservaSuiteUtils_1.toNumber)(hospedagem.valorTotal)),
+        valorTotal: formatarMoeda(valorTotalReserva),
+        valorTotalReserva,
+        valorPago,
+        saldoPendente,
     };
+}
+function isPagamentoParcialConfirmacaoHospedagem(valorPago, saldoPendente) {
+    return saldoPendente > 0.009 && valorPago > 0.009;
+}
+function percentualValorPagoSobreTotalReserva(valorPago, valorTotalReserva) {
+    if (valorTotalReserva <= 0.009) {
+        return 0;
+    }
+    return Math.round((valorPago / valorTotalReserva) * 100);
+}
+function montarPrefixoWhatsAppConfirmacaoPagamentoParcial(conteudo) {
+    const percentual = percentualValorPagoSobreTotalReserva(conteudo.valorPago, conteudo.valorTotalReserva);
+    return `✅ Reserva confirmada com pagamento parcial!
+
+Você pagou ${percentual}% do valor da reserva.
+O restante deverá ser pago no check-in.
+
+Total da reserva: ${formatarMoeda(conteudo.valorTotalReserva)}
+Total pago: ${formatarMoeda(conteudo.valorPago)}
+Restante a pagar no check-in: ${formatarMoeda(conteudo.saldoPendente)}
+
+`;
 }
 function montarTextoPlanoConfirmacaoHospedagem(conteudo) {
     const { nomeCliente, dataEntrada, dataSaida } = conteudo;
@@ -191,7 +222,11 @@ function montarHtmlEmailConfirmacaoHospedagem(conteudo) {
   `;
 }
 function montarMensagemWhatsAppConfirmacaoHospedagem(conteudo) {
-    return montarTextoPlanoConfirmacaoHospedagem(conteudo);
+    const corpo = montarTextoPlanoConfirmacaoHospedagem(conteudo);
+    if (!isPagamentoParcialConfirmacaoHospedagem(conteudo.valorPago, conteudo.saldoPendente)) {
+        return corpo;
+    }
+    return (montarPrefixoWhatsAppConfirmacaoPagamentoParcial(conteudo) + corpo);
 }
 async function enviarEmailConfirmacaoHospedagem(conteudo) {
     if (!conteudo.email) {

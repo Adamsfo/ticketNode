@@ -409,6 +409,22 @@ export async function recalcularFinanceiroReservaComServicos(
             transacao?.status
         );
 
+        const { logHospedagemCheckoutDiagTransacaoWrite } = await import(
+            './hospedagemCheckoutDiagLog'
+        );
+        logHospedagemCheckoutDiagTransacaoWrite({
+            origem: 'recalcularFinanceiroReservaComServicos.Transacao.update',
+            operacao: 'update',
+            idTransacao: reserva.idTransacao,
+            idReserva: idReservaHospedagem,
+            valores: {
+                valorTotal: transacaoValores.valorTotal,
+                taxaServico: transacaoValores.taxaServico,
+                preco: transacaoValores.preco,
+            },
+            extra: { novoStatus },
+        });
+
         await Transacao.update(
             {
                 preco: transacaoValores.preco,

@@ -271,6 +271,107 @@ describe('percentualCobrancaInicial (link recepção → cliente)', () => {
         assert.equal(valorTotalReserva, 1000);
     });
 
+    /** Espelha montarValoresTransacaoCheckoutLinkHospedagem (reservaSuiteService). */
+    function remontarTransacaoLinkAposRecalc(
+        valorTotalReserva: number,
+        linhas: Array<{
+            valorBaseCentavos: number;
+            adultosExtras: number;
+            noites: number;
+        }>,
+        percentual: 50 | 100
+    ) {
+        const montado = montarValoresTransacaoHospedagemSite({
+            transacaoCheckout: {
+                preco: 0,
+                taxaServico: 0,
+                valorTotal: valorTotalReserva,
+            },
+            linhas,
+        });
+        return percentual === 50
+            ? aplicarPercentualCobrancaInicialTransacao(montado, 50)
+            : montado;
+    }
+
+    it('50% sem taxa adicional — suíte 280, cobrança 140/14/126', () => {
+        const linhas = [
+            { valorBaseCentavos: 28_000, adultosExtras: 0, noites: 1 },
+        ];
+        const final = remontarTransacaoLinkAposRecalc(280, linhas, 50);
+        assert.equal(final.valorTotal, 140);
+        assert.equal(final.taxaServico, 14);
+        assert.equal(final.preco, 126);
+        assert.equal(final.preco + final.taxaServico, final.valorTotal);
+    });
+
+    it('100% com taxa adicional — total 380 (280+100), transação 366/14/380', () => {
+        const linhas = [
+            { valorBaseCentavos: 28_000, adultosExtras: 0, noites: 1 },
+        ];
+        const final = remontarTransacaoLinkAposRecalc(380, linhas, 100);
+        assert.equal(final.valorTotal, 380);
+        assert.equal(final.taxaServico, 14);
+        assert.equal(final.preco, 366);
+        assert.equal(final.preco + final.taxaServico, final.valorTotal);
+    });
+
+    it('após recalc simulado (380/0/380) remonta link 50% → 190/14/176', () => {
+        const linhas = [
+            { valorBaseCentavos: 28_000, adultosExtras: 0, noites: 1 },
+        ];
+        const transacaoPosRecalc = { preco: 380, taxaServico: 0, valorTotal: 380 };
+        assert.equal(transacaoPosRecalc.valorTotal, 380);
+
+        const final = remontarTransacaoLinkAposRecalc(380, linhas, 50);
+        assert.equal(final.valorTotal, 190);
+        assert.equal(final.taxaServico, 14);
+        assert.equal(final.preco, 176);
+        assert.equal(final.preco + final.taxaServico, final.valorTotal);
+    });
+
+    it('múltiplas taxas + 50% — total 430 (280+100+50), cobrança 215/14/201', () => {
+        const linhas = [
+            { valorBaseCentavos: 28_000, adultosExtras: 0, noites: 1 },
+        ];
+        const final = remontarTransacaoLinkAposRecalc(430, linhas, 50);
+        assert.equal(final.valorTotal, 215);
+        assert.equal(final.taxaServico, 14);
+        assert.equal(final.preco, 201);
+        assert.equal(final.preco + final.taxaServico, final.valorTotal);
+    });
+
+    it('50% com taxa adicional da reserva — total 380 (280+100), cobrança 190/14/176', () => {
+        const { transacao: transacaoCheckout } = aplicarTaxasAdicionaisCheckout(
+            { preco: 280, taxaServico: 0, valorTotal: 280 },
+            100
+        );
+        assert.equal(transacaoCheckout.valorTotal, 380);
+
+        const linhas = [
+            { valorBaseCentavos: 28_000, adultosExtras: 0, noites: 1 },
+        ];
+        const montado = montarValoresTransacaoHospedagemSite({
+            transacaoCheckout: {
+                preco: 0,
+                taxaServico: 0,
+                valorTotal: 380,
+            },
+            linhas,
+        });
+        assert.equal(montado.valorTotal, 380);
+        assert.equal(montado.taxaServico, 14);
+
+        const cobranca50 = aplicarPercentualCobrancaInicialTransacao(montado, 50);
+        assert.equal(cobranca50.valorTotal, 190);
+        assert.equal(cobranca50.taxaServico, 14);
+        assert.equal(cobranca50.preco, 176);
+        assert.equal(
+            cobranca50.preco + cobranca50.taxaServico,
+            cobranca50.valorTotal
+        );
+    });
+
     it('50% — reserva maior (1350 / taxa 60) mantém taxa integral na cobrança', () => {
         const montado = montarValoresTransacaoHospedagemSite({
             transacaoCheckout: {

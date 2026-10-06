@@ -13,6 +13,10 @@ import { ReservaHospede, TipoReservaHospede } from '../models/ReservaHospede';
 import { ReservaHospedagemTaxaAdicional } from '../models/ReservaHospedagemTaxaAdicional';
 import { aplicarTaxasAdicionaisCheckout } from './reservaSuiteFinanceiroService';
 import {
+    logHospedagemCheckoutDiag,
+    logHospedagemCheckoutDiagTransacaoWrite,
+} from './hospedagemCheckoutDiagLog';
+import {
     Transacao,
     TransacaoPagamento,
     EventoSuiteTransacao,
@@ -56,8 +60,136 @@ import {
     aplicarPercentualCobrancaInicialTransacao,
     montarLinhasTaxaPlataformaDeCotacoesCheckout,
     montarValoresTransacaoHospedagemSite,
+    normalizarPercentualCobrancaInicialLink,
+    type LinhaTaxaPlataformaHospedagem,
     type PercentualCobrancaInicialLink,
+    type ValoresTransacaoCheckoutHospedagem,
 } from './hospedagemTaxaPlataformaService';
+
+/** Link/site: taxa plataforma + percentual inicial (50%) sobre o total integral da reserva. */
+function montarValoresTransacaoCheckoutLinkHospedagem(
+    valorTotalReserva: number,
+    linhas: LinhaTaxaPlataformaHospedagem[],
+    percentualLink: PercentualCobrancaInicialLink
+): ValoresTransacaoCheckoutHospedagem {
+    logHospedagemCheckoutDiag('montarValoresTransacaoCheckoutLinkHospedagem.entrada', {
+        valorTotalReserva: roundMoney(valorTotalReserva),
+        percentualInicial: percentualLink,
+        linhasTaxaPlataformaCheckout: linhas,
+    });
+    const base = montarValoresTransacaoHospedagemSite({
+        transacaoCheckout: {
+            preco: 0,
+            taxaServico: 0,
+            valorTotal: roundMoney(valorTotalReserva),
+        },
+        linhas,
+    });
+    const resultado =
+        percentualLink === 50
+            ? aplicarPercentualCobrancaInicialTransacao(base, 50)
+            : base;
+    logHospedagemCheckoutDiag('montarValoresTransacaoCheckoutLinkHospedagem.saida', {
+        valorTotal: resultado.valorTotal,
+        taxaServico: resultado.taxaServico,
+        preco: resultado.preco,
+        baseAntesPercentual: {
+            valorTotal: base.valorTotal,
+            taxaServico: base.taxaServico,
+            preco: base.preco,
+        },
+    });
+    return resultado;
+}
+
+/** Limite da coluna `HistoricoTransacao.descricao` (VARCHAR 255). */
+export const LIMITE_DESCRICAO_HISTORICO_TRANSACAO = 255;
+
+export function limitarDescricaoHistorico(
+    descricao: string,
+    limite = LIMITE_DESCRICAO_HISTORICO_TRANSACAO
+): string {
+    const texto = String(descricao ?? '').trim();
+    if (texto.length <= limite) {
+        return texto;
+    }
+    if (limite <= 1) {
+        return texto.slice(0, limite);
+    }
+    return `${texto.slice(0, limite - 1)}…`;
+}
+
+export type MontarDescricaoHistoricoCheckoutHospedagemParams = {
+    isLinkCliente: boolean;
+    isRecepcao: boolean;
+    confirmaImediatamente: boolean;
+    linhasDescontoHistorico: string[];
+    taxasAdicionais: TaxaAdicionalCheckoutInput[];
+    valorTotalReserva: number;
+    valorPagoRecepcao: number;
+    saldoPendenteRecepcao: number | null;
+    percentualLink: PercentualCobrancaInicialLink;
+    valorCobrancaInicialTransacao: number;
+    possuiLinkPagamento: boolean;
+};
+
+/** Texto do histórico no checkout — sem URL longa; limite final 255 caracteres. */
+export function montarDescricaoHistoricoCheckoutHospedagem(
+    params: MontarDescricaoHistoricoCheckoutHospedagemParams
+): string {
+    const partes: string[] = [];
+
+    if (params.isLinkCliente) {
+        partes.push(
+            'Reserva criada pela recepção — aguardando pagamento do cliente (link).'
+        );
+    } else if (params.isRecepcao) {
+        partes.push('Reserva criada pela recepção.');
+    } else {
+        partes.push(
+            'Transação criada para hospedagem com múltiplas suítes (checkout pousada).'
+        );
+    }
+
+    if (params.taxasAdicionais.length > 0) {
+        const totalTaxas = roundMoney(
+            params.taxasAdicionais.reduce(
+                (acc, taxa) => acc + Number(taxa.valor),
+                0
+            )
+        );
+        partes.push(`Taxas adicionais: ${formatarMoedaHistorico(totalTaxas)}`);
+    }
+
+    if (params.isLinkCliente && params.percentualLink === 50) {
+        partes.push(
+            `Cobrança inicial: 50% (${formatarMoedaHistorico(
+                params.valorCobrancaInicialTransacao
+            )})`
+        );
+    }
+
+    if (params.isRecepcao && params.linhasDescontoHistorico.length > 0) {
+        partes.push(
+            `Desconto aplicado: ${params.linhasDescontoHistorico.join('; ')}`
+        );
+    }
+
+    if (params.confirmaImediatamente) {
+        partes.push(
+            `Valor total: ${formatarMoedaHistorico(params.valorTotalReserva)}`,
+            `Pagamento recebido: ${formatarMoedaHistorico(params.valorPagoRecepcao)}`,
+            `Saldo pendente: ${formatarMoedaHistorico(params.saldoPendenteRecepcao ?? 0)}`
+        );
+    }
+
+    if (params.isLinkCliente && params.possuiLinkPagamento) {
+        partes.push('Link de pagamento gerado.');
+    }
+
+    return limitarDescricaoHistorico(partes.join('\n\n'));
+}
+
 import {
     calcularExtrasPousada,
     calcularNoitesHotelaria,
@@ -81,7 +213,6 @@ import {
     type StatusReservaDisponibilidade,
 } from './suiteDisponibilidadeService';
 import {
-    montarUrlPublicaReserva,
     notificarConfirmacaoHospedagem,
     notificarExpiracaoHospedagem,
     notificarLinkPagamentoHospedagem,
@@ -1395,8 +1526,9 @@ export async function checkoutHospedagem(params: {
     const isIntegracao = origem === 'integracao';
     const isRecepcao = origem === 'recepcao' || isIntegracao;
     const isLinkCliente = origem === 'recepcao' && !!enviarParaCliente;
-    const percentualLink: PercentualCobrancaInicialLink =
-        isLinkCliente && percentualCobrancaInicial === 50 ? 50 : 100;
+    const percentualLink: PercentualCobrancaInicialLink = isLinkCliente
+        ? normalizarPercentualCobrancaInicialLink(percentualCobrancaInicial)
+        : 100;
     /** Confirma na hora (recepção tradicional / integração). Link ao cliente NÃO confirma. */
     const confirmaImediatamente = isRecepcao && !isLinkCliente;
 
@@ -1754,19 +1886,28 @@ export async function checkoutHospedagem(params: {
             montarLinhasTaxaPlataformaDeCotacoesCheckout(suitesComTotais);
         const aplicarTaxaPlataformaNaTransacao =
             isReservaSite || isLinkCliente;
-        const valoresTransacaoBase = aplicarTaxaPlataformaNaTransacao
-            ? montarValoresTransacaoHospedagemSite({
-                  transacaoCheckout,
-                  linhas: linhasTaxaPlataformaCheckout,
-              })
+        const valoresTransacao = aplicarTaxaPlataformaNaTransacao
+            ? isLinkCliente
+              ? montarValoresTransacaoCheckoutLinkHospedagem(
+                    valorTotalReserva,
+                    linhasTaxaPlataformaCheckout,
+                    percentualLink
+                )
+              : montarValoresTransacaoHospedagemSite({
+                    transacaoCheckout,
+                    linhas: linhasTaxaPlataformaCheckout,
+                })
             : transacaoCheckout;
-        const valoresTransacao =
-            isLinkCliente && percentualLink === 50
-                ? aplicarPercentualCobrancaInicialTransacao(
-                      valoresTransacaoBase,
-                      50
-                  )
-                : valoresTransacaoBase;
+        logHospedagemCheckoutDiag('checkoutHospedagem.antesTransacaoCreate', {
+            idReserva: hospedagem.id,
+            percentualCobrancaInicial,
+            percentualLink,
+            isLinkCliente,
+            taxasAdicionaisLength: taxasAdicionais.length,
+            hospedagemValorTotal: toNumber(hospedagem.valorTotal),
+            valorTotalReserva,
+            valoresTransacaoMontados: valoresTransacao,
+        });
         const transacao = await Transacao.create(
             {
                 idUsuario,
@@ -1795,6 +1936,17 @@ export async function checkoutHospedagem(params: {
             },
             { transaction: t }
         );
+        logHospedagemCheckoutDiagTransacaoWrite({
+            origem: 'checkoutHospedagem.Transacao.create',
+            operacao: 'create',
+            idTransacao: transacao.id,
+            idReserva: hospedagem.id,
+            valores: {
+                valorTotal: toNumber(transacao.valorTotal),
+                taxaServico: toNumber(transacao.taxaServico),
+                preco: toNumber(transacao.preco),
+            },
+        });
 
         for (const suite of suitesComTotais) {
             const { item, cotacao } = suite;
@@ -1856,44 +2008,19 @@ export async function checkoutHospedagem(params: {
                 })}`;
             });
 
-        let descricaoHistorico = isLinkCliente
-            ? 'Reserva criada pela recepção — aguardando pagamento do cliente (link).'
-            : isRecepcao
-              ? 'Reserva criada pela recepção.'
-              : 'Transação criada para hospedagem com múltiplas suítes (checkout pousada).';
-
-        if (isRecepcao && linhasDescontoHistorico.length > 0) {
-            descricaoHistorico += `\n\nDesconto aplicado:\n${linhasDescontoHistorico.join('\n')}`;
-        }
-
-        if (taxasAdicionais.length > 0) {
-            const linhasTaxas = taxasAdicionais.map(
-                (taxa) =>
-                    `${taxa.descricao}: ${formatarMoedaHistorico(taxa.valor)}`
-            );
-            descricaoHistorico += `\n\nTaxas adicionais:\n${linhasTaxas.join('\n')}`;
-        }
-
-        if (confirmaImediatamente) {
-            descricaoHistorico += `\n\nValor total:\n${formatarMoedaHistorico(
-                valorTotalReserva
-            )}\n\nPagamento recebido:\n${formatarMoedaHistorico(
-                valorPagoRecepcao
-            )}\n\nSaldo pendente:\n${formatarMoedaHistorico(
-                saldoPendenteRecepcao ?? 0
-            )}`;
-        }
-
-        if (isLinkCliente && tokenPagamento) {
-            descricaoHistorico += `\n\nLink de pagamento gerado:\n${montarUrlPublicaReserva(
-                tokenPagamento
-            )}`;
-            if (percentualLink === 50) {
-                descricaoHistorico += `\n\nCobrança inicial: 50% (${formatarMoedaHistorico(
-                    valoresTransacao.valorTotal
-                )} nesta transação).`;
-            }
-        }
+        const descricaoHistorico = montarDescricaoHistoricoCheckoutHospedagem({
+            isLinkCliente,
+            isRecepcao,
+            confirmaImediatamente,
+            linhasDescontoHistorico,
+            taxasAdicionais,
+            valorTotalReserva,
+            valorPagoRecepcao,
+            saldoPendenteRecepcao,
+            percentualLink,
+            valorCobrancaInicialTransacao: valoresTransacao.valorTotal,
+            possuiLinkPagamento: Boolean(isLinkCliente && tokenPagamento),
+        });
 
         await HistoricoTransacao.create(
             {
@@ -1911,6 +2038,21 @@ export async function checkoutHospedagem(params: {
         await hospedagem.save({ transaction: t });
 
         if (taxasAdicionais.length > 0) {
+            logHospedagemCheckoutDiag('checkoutHospedagem.antesRecalc', {
+                idReserva: hospedagem.id,
+                idTransacao: transacao.id,
+                percentualCobrancaInicial,
+                percentualLink,
+                isLinkCliente,
+                taxasAdicionaisLength: taxasAdicionais.length,
+                hospedagemValorTotal: toNumber(hospedagem.valorTotal),
+                valorTotalReserva,
+                transacao: {
+                    valorTotal: toNumber(transacao.valorTotal),
+                    taxaServico: toNumber(transacao.taxaServico),
+                    preco: toNumber(transacao.preco),
+                },
+            });
             const { recalcularFinanceiroReservaComServicos } = await import(
                 './reservaSuiteFinanceiroService'
             );
@@ -1918,25 +2060,43 @@ export async function checkoutHospedagem(params: {
                 hospedagem.id,
                 t
             );
+            await transacao.reload({ transaction: t });
+            await hospedagem.reload({ transaction: t });
+            logHospedagemCheckoutDiag('checkoutHospedagem.aposRecalc', {
+                idReserva: hospedagem.id,
+                idTransacao: transacao.id,
+                hospedagemValorTotal: toNumber(hospedagem.valorTotal),
+                transacao: {
+                    valorTotal: toNumber(transacao.valorTotal),
+                    taxaServico: toNumber(transacao.taxaServico),
+                    preco: toNumber(transacao.preco),
+                },
+            });
 
+            // Recálculo grava Transacao no valor integral da reserva; link restaura 50%/100%.
+            logHospedagemCheckoutDiag('checkoutHospedagem.antesRemountLink', {
+                idReserva: hospedagem.id,
+                idTransacao: transacao.id,
+                isLinkCliente,
+                percentualLink,
+                hospedagemValorTotal: toNumber(hospedagem.valorTotal),
+                vaiExecutarRemount: isLinkCliente,
+            });
             if (isLinkCliente) {
-                await transacao.reload({ transaction: t });
-                const valoresLinkPosRecalculo =
-                    montarValoresTransacaoHospedagemSite({
-                        transacaoCheckout: {
-                            preco: toNumber(transacao.preco),
-                            taxaServico: toNumber(transacao.taxaServico),
-                            valorTotal: toNumber(transacao.valorTotal),
-                        },
-                        linhas: linhasTaxaPlataformaCheckout,
-                    });
+                const valorTotalIntegralLink = roundMoney(
+                    toNumber(hospedagem.valorTotal)
+                );
                 const valoresLinkFinal =
-                    percentualLink === 50
-                        ? aplicarPercentualCobrancaInicialTransacao(
-                              valoresLinkPosRecalculo,
-                              50
-                          )
-                        : valoresLinkPosRecalculo;
+                    montarValoresTransacaoCheckoutLinkHospedagem(
+                        valorTotalIntegralLink,
+                        linhasTaxaPlataformaCheckout,
+                        percentualLink
+                    );
+                logHospedagemCheckoutDiag('checkoutHospedagem.remountValoresComputados', {
+                    idTransacao: transacao.id,
+                    valorTotalIntegralLink,
+                    valoresLinkFinal,
+                });
                 await transacao.update(
                     {
                         preco: valoresLinkFinal.preco,
@@ -1944,6 +2104,29 @@ export async function checkoutHospedagem(params: {
                         valorTotal: valoresLinkFinal.valorTotal,
                     },
                     { transaction: t }
+                );
+                logHospedagemCheckoutDiagTransacaoWrite({
+                    origem: 'checkoutHospedagem.remountTransacao.update',
+                    operacao: 'update',
+                    idTransacao: transacao.id,
+                    idReserva: hospedagem.id,
+                    valores: {
+                        valorTotal: valoresLinkFinal.valorTotal,
+                        taxaServico: valoresLinkFinal.taxaServico,
+                        preco: valoresLinkFinal.preco,
+                    },
+                });
+                await transacao.reload({ transaction: t });
+                logHospedagemCheckoutDiag(
+                    'checkoutHospedagem.aposRemountTransacaoReload',
+                    {
+                        idTransacao: transacao.id,
+                        transacaoPersistida: {
+                            valorTotal: toNumber(transacao.valorTotal),
+                            taxaServico: toNumber(transacao.taxaServico),
+                            preco: toNumber(transacao.preco),
+                        },
+                    }
                 );
             }
         }
@@ -1955,6 +2138,30 @@ export async function checkoutHospedagem(params: {
             transacao,
         };
     });
+
+    if (resultado.hospedagem.idTransacao) {
+        const transacaoPosCommit = await Transacao.findByPk(
+            resultado.hospedagem.idTransacao
+        );
+        logHospedagemCheckoutDiag('checkoutHospedagem.posCommitLeituraTransacao', {
+            idReserva: resultado.hospedagem.id,
+            idTransacao: resultado.hospedagem.idTransacao,
+            transacaoInstanciaRetorno: resultado.transacao
+                ? {
+                      valorTotal: toNumber(resultado.transacao.valorTotal),
+                      taxaServico: toNumber(resultado.transacao.taxaServico),
+                      preco: toNumber(resultado.transacao.preco),
+                  }
+                : null,
+            transacaoBancoPosCommit: transacaoPosCommit
+                ? {
+                      valorTotal: toNumber(transacaoPosCommit.valorTotal),
+                      taxaServico: toNumber(transacaoPosCommit.taxaServico),
+                      preco: toNumber(transacaoPosCommit.preco),
+                  }
+                : null,
+        });
+    }
 
     if (idPagamentoCheckoutCriado) {
         try {
@@ -1998,6 +2205,27 @@ export async function checkoutHospedagem(params: {
             const notificacao = await notificarLinkPagamentoHospedagem(
                 resultado.hospedagem.id,
                 { enviarWhatsAppAutomatico: false }
+            );
+            const transacaoAposNotificacao = await Transacao.findByPk(
+                resultado.hospedagem.idTransacao
+            );
+            logHospedagemCheckoutDiag(
+                'checkoutHospedagem.posNotificarLinkPagamento',
+                {
+                    idReserva: resultado.hospedagem.id,
+                    idTransacao: resultado.hospedagem.idTransacao,
+                    transacaoBanco: transacaoAposNotificacao
+                        ? {
+                              valorTotal: toNumber(
+                                  transacaoAposNotificacao.valorTotal
+                              ),
+                              taxaServico: toNumber(
+                                  transacaoAposNotificacao.taxaServico
+                              ),
+                              preco: toNumber(transacaoAposNotificacao.preco),
+                          }
+                        : null,
+                }
             );
             whatsappLinkPagamentoManual = {
                 telefone: notificacao.telefone,
@@ -2238,6 +2466,14 @@ function parseHospedesSuite(
     return parsed;
 }
 
+export type ResumoPagamentoHospedagemTaxaAdicional = {
+    id: number;
+    descricao: string;
+    valor: number;
+    ordem: number;
+    idReservaSuite: number | null;
+};
+
 export type ResumoPagamentoHospedagem = {
     checkin: Date;
     checkout: Date;
@@ -2249,6 +2485,8 @@ export type ResumoPagamentoHospedagem = {
         subtotal: number;
     }>;
     subtotalGeral: number;
+    taxasAdicionais: ResumoPagamentoHospedagemTaxaAdicional[];
+    valorTaxasAdicionais: number;
     taxaServico: number;
     valorTotal: number;
 };
@@ -2270,6 +2508,13 @@ export async function obterResumoPagamentoPorTransacao(
                     },
                 ],
             },
+            {
+                model: ReservaHospedagemTaxaAdicional,
+                as: 'TaxaAdicional',
+                required: false,
+                separate: true,
+                order: [['ordem', 'ASC'], ['id', 'ASC']],
+            },
         ],
     });
 
@@ -2283,6 +2528,13 @@ export async function obterResumoPagamentoPorTransacao(
         >;
     }).ReservaSuite ?? [];
 
+    const { taxasAdicionais, valorTaxasAdicionais } =
+        serializarTaxasAdicionaisReservaPublica(
+            (hospedagem as ReservaHospedagem & {
+                TaxaAdicional?: ReservaHospedagemTaxaAdicional[];
+            }).TaxaAdicional
+        );
+
     return {
         checkin: hospedagem.checkin,
         checkout: hospedagem.checkout,
@@ -2294,6 +2546,8 @@ export async function obterResumoPagamentoPorTransacao(
             subtotal: toNumber(item.preco),
         })),
         subtotalGeral: toNumber(hospedagem.preco),
+        taxasAdicionais,
+        valorTaxasAdicionais,
         taxaServico: toNumber(hospedagem.taxaServico),
         valorTotal: toNumber(hospedagem.valorTotal),
     };
@@ -2312,6 +2566,8 @@ export type ReservaConfirmadaResumo = {
         valorPago: number;
         saldoPendente: number;
         dataConfirmacao: Date | null;
+        taxasAdicionais: ResumoPagamentoHospedagemTaxaAdicional[];
+        valorTaxasAdicionais: number;
     };
     evento: {
         id: number;
@@ -2362,6 +2618,13 @@ export async function obterReservaConfirmadaPorTransacao(
                     },
                 ],
             },
+            {
+                model: ReservaHospedagemTaxaAdicional,
+                as: 'TaxaAdicional',
+                required: false,
+                separate: true,
+                order: [['ordem', 'ASC'], ['id', 'ASC']],
+            },
         ],
     });
 
@@ -2372,6 +2635,13 @@ export async function obterReservaConfirmadaPorTransacao(
     const evento = (hospedagem as ReservaHospedagem & {
         Evento?: { id: number; nome: string; imagem?: string | null };
     }).Evento;
+
+    const { taxasAdicionais, valorTaxasAdicionais } =
+        serializarTaxasAdicionaisReservaPublica(
+            (hospedagem as ReservaHospedagem & {
+                TaxaAdicional?: ReservaHospedagemTaxaAdicional[];
+            }).TaxaAdicional
+        );
 
     const suites = (hospedagem as ReservaHospedagem & {
         ReservaSuite?: Array<
@@ -2414,6 +2684,8 @@ export async function obterReservaConfirmadaPorTransacao(
             valorPago: valorPagoReserva,
             saldoPendente: saldoPendenteReserva,
             dataConfirmacao: hospedagem.dataConfirmacao ?? null,
+            taxasAdicionais,
+            valorTaxasAdicionais,
         },
         evento: {
             id: evento?.id ?? hospedagem.idEvento,
