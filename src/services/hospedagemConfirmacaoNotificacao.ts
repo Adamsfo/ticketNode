@@ -11,6 +11,7 @@ import { enviarMensagemTextoZApi } from '../utils/zApiWhatsApp';
 import { toNumber } from '../utils/reservaSuiteUtils';
 import { calcularSaldoPendente } from '../utils/hospedagemPagamentoRecepcao';
 import { shouldSendAutomaticConfirmation } from './ReservationNotificationPolicy';
+import { enviarWhatsAppNotificacaoOperador7192SeElegivel } from './hospedagemNotificacaoOperador7192';
 
 export { montarUrlPublicaReserva };
 
@@ -360,7 +361,7 @@ export async function notificarConfirmacaoHospedagem(
     idTransacao: number
 ): Promise<void> {
     const origemRow = await ReservaHospedagem.findByPk(idReservaHospedagem, {
-        attributes: ['id', 'origemReserva'],
+        attributes: ['id', 'origemReserva', 'idUsuarioCriacao'],
     });
     if (
         !shouldSendAutomaticConfirmation(
@@ -395,6 +396,14 @@ export async function notificarConfirmacaoHospedagem(
     } catch (error) {
         await registrarFalhaEnvioConfirmacao(conteudo, 'WhatsApp', error);
     }
+
+    await enviarWhatsAppNotificacaoOperador7192SeElegivel({
+        idReservaHospedagem,
+        conteudo,
+        origemReserva: origemRow?.origemReserva ?? null,
+        idUsuarioCriacao: origemRow?.idUsuarioCriacao ?? null,
+        tipo: 'confirmacao',
+    });
 }
 
 export type HospedagemLinkPagamentoConteudo = HospedagemConfirmacaoConteudo & {
@@ -479,7 +488,14 @@ export async function notificarExpiracaoHospedagem(
     idReservaHospedagem: number
 ): Promise<void> {
     const hospedagem = await ReservaHospedagem.findByPk(idReservaHospedagem, {
-        attributes: ['id', 'status', 'idTransacao', 'tokenPagamento'],
+        attributes: [
+            'id',
+            'status',
+            'idTransacao',
+            'tokenPagamento',
+            'origemReserva',
+            'idUsuarioCriacao',
+        ],
     });
 
     if (!hospedagem) {
@@ -537,6 +553,14 @@ export async function notificarExpiracaoHospedagem(
             error
         );
     }
+
+    await enviarWhatsAppNotificacaoOperador7192SeElegivel({
+        idReservaHospedagem,
+        conteudo,
+        origemReserva: hospedagem.origemReserva ?? null,
+        idUsuarioCriacao: hospedagem.idUsuarioCriacao ?? null,
+        tipo: 'expiracao',
+    });
 }
 
 export type NotificarLinkPagamentoHospedagemOptions = {
