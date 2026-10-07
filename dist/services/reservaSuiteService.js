@@ -1520,11 +1520,12 @@ function parseSuitesCheckout(body, options) {
         throw new customError_1.CustomError('suites deve ser um array com ao menos um item.', 400, '');
     }
     const nomeOpcional = options?.nomeOpcional === true;
+    const dataNascimentoCriancaOpcional = options?.dataNascimentoCriancaOpcional === true;
     return suites.map((s, index) => {
         const idEventoSuite = (0, reservaSuiteUtils_1.parsePositiveInt)(s.idEventoSuite, `suites[${index}].idEventoSuite`, 1);
         const adultos = (0, reservaSuiteUtils_1.parsePositiveInt)(s.adultos, `suites[${index}].adultos`, 1);
         const criancas = (0, reservaSuiteUtils_1.parsePositiveInt)(s.criancas ?? 0, `suites[${index}].criancas`, 0);
-        const hospedes = parseHospedesSuite(s, index, adultos, criancas, nomeOpcional);
+        const hospedes = parseHospedesSuite(s, index, adultos, criancas, { nomeOpcional, dataNascimentoCriancaOpcional });
         const desconto = (0, hospedagemDescontoRecepcao_1.parseDescontoRecepcao)(s?.desconto, index);
         return { idEventoSuite, adultos, criancas, hospedes, desconto };
     });
@@ -1556,7 +1557,9 @@ function parseTaxasAdicionaisCheckout(body) {
         };
     });
 }
-function parseHospedesSuite(suite, index, adultos, criancas, nomeOpcional = false) {
+function parseHospedesSuite(suite, index, adultos, criancas, options = {}) {
+    const nomeOpcional = options.nomeOpcional === true;
+    const dataNascimentoCriancaOpcional = options.dataNascimentoCriancaOpcional === true;
     const hospedes = suite?.hospedes;
     if (!Array.isArray(hospedes)) {
         throw new customError_1.CustomError(`suites[${index}].hospedes é obrigatório.`, 400, '');
@@ -1589,7 +1592,15 @@ function parseHospedesSuite(suite, index, adultos, criancas, nomeOpcional = fals
         }
         criancasInformadas += 1;
         if (!hospede?.dataNascimento) {
-            throw new customError_1.CustomError(`suites[${index}].hospedes[${hospedeIndex}].dataNascimento é obrigatório para crianças.`, 400, '');
+            if (!dataNascimentoCriancaOpcional) {
+                throw new customError_1.CustomError(`suites[${index}].hospedes[${hospedeIndex}].dataNascimento é obrigatório para crianças.`, 400, '');
+            }
+            parsed.push({
+                nome,
+                tipo,
+                dataNascimento: null,
+            });
+            continue;
         }
         const dataNascimento = new Date(hospede.dataNascimento);
         if (Number.isNaN(dataNascimento.getTime())) {

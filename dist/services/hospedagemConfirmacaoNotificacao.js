@@ -28,6 +28,7 @@ const zApiWhatsApp_1 = require("../utils/zApiWhatsApp");
 const reservaSuiteUtils_1 = require("../utils/reservaSuiteUtils");
 const hospedagemPagamentoRecepcao_1 = require("../utils/hospedagemPagamentoRecepcao");
 const ReservationNotificationPolicy_1 = require("./ReservationNotificationPolicy");
+const hospedagemNotificacaoOperador7192_1 = require("./hospedagemNotificacaoOperador7192");
 function formatarDataHospedagem(data) {
     return (0, date_fns_tz_1.formatInTimeZone)(data, 'America/Cuiaba', 'dd/MM/yyyy HH:mm');
 }
@@ -266,7 +267,7 @@ async function registrarFalhaEnvioConfirmacao(conteudo, canal, error) {
 }
 async function notificarConfirmacaoHospedagem(idReservaHospedagem, idTransacao) {
     const origemRow = await ReservaHospedagem_1.ReservaHospedagem.findByPk(idReservaHospedagem, {
-        attributes: ['id', 'origemReserva'],
+        attributes: ['id', 'origemReserva', 'idUsuarioCriacao'],
     });
     if (!(0, ReservationNotificationPolicy_1.shouldSendAutomaticConfirmation)(origemRow?.origemReserva ?? null)) {
         // Origem externa (HOSPEDIN, providers futuros): não tenta envio
@@ -290,6 +291,13 @@ async function notificarConfirmacaoHospedagem(idReservaHospedagem, idTransacao) 
     catch (error) {
         await registrarFalhaEnvioConfirmacao(conteudo, 'WhatsApp', error);
     }
+    await (0, hospedagemNotificacaoOperador7192_1.enviarWhatsAppNotificacaoOperador7192SeElegivel)({
+        idReservaHospedagem,
+        conteudo,
+        origemReserva: origemRow?.origemReserva ?? null,
+        idUsuarioCriacao: origemRow?.idUsuarioCriacao ?? null,
+        tipo: 'confirmacao',
+    });
 }
 function montarMensagemWhatsAppLinkPagamentoHospedagem(conteudo) {
     return `Olá, ${conteudo.nomeCliente}.
@@ -355,7 +363,14 @@ Pesque Pague Jango`;
  */
 async function notificarExpiracaoHospedagem(idReservaHospedagem) {
     const hospedagem = await ReservaHospedagem_1.ReservaHospedagem.findByPk(idReservaHospedagem, {
-        attributes: ['id', 'status', 'idTransacao', 'tokenPagamento'],
+        attributes: [
+            'id',
+            'status',
+            'idTransacao',
+            'tokenPagamento',
+            'origemReserva',
+            'idUsuarioCriacao',
+        ],
     });
     if (!hospedagem) {
         console.error(`Reserva ${idReservaHospedagem} não encontrada para notificação de expiração.`);
@@ -388,6 +403,13 @@ async function notificarExpiracaoHospedagem(idReservaHospedagem) {
     catch (error) {
         console.error(`Erro ao enviar WhatsApp de expiração da reserva ${idReservaHospedagem}:`, error);
     }
+    await (0, hospedagemNotificacaoOperador7192_1.enviarWhatsAppNotificacaoOperador7192SeElegivel)({
+        idReservaHospedagem,
+        conteudo,
+        origemReserva: hospedagem.origemReserva ?? null,
+        idUsuarioCriacao: hospedagem.idUsuarioCriacao ?? null,
+        tipo: 'expiracao',
+    });
 }
 /**
  * Envia link de pagamento reutilizando Z-API e Resend já existentes.

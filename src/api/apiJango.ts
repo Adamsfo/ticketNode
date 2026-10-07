@@ -13,6 +13,21 @@ export type CaixaResumoPdv = {
   totalRecebido: number;
 };
 
+/** Resumo de período (vários dias) — soma no Node; não representa um único caixa. */
+export type CaixaResumoPdvPeriodoAgregado = {
+  idCaixa: null;
+  dataAbertura: null;
+  dataFechamento: null;
+  status: null;
+  totalVendido: number;
+  totalRecebido: number;
+};
+
+export type CaixaResumoPdvResult =
+  | CaixaResumoPdv
+  | CaixaResumoPdvPeriodoAgregado
+  | null;
+
 function assertDataIso(data: string, nome: string): string {
   const raw = String(data ?? "").trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
@@ -39,6 +54,96 @@ function pickCampoFirebird(
     }
   }
   return undefined;
+}
+
+/** Filtro de um único dia civil (mesma regra da consulta legada de resumo). */
+export function buildFiltroDataCaixaResumoPdvDia(dataIso: string): string {
+  return `CAST(CAIXA.DATA_ABERTURA AS DATE) = DATE '${dataIso}'`;
+}
+
+function isoDateAddDays(isoDate: string, days: number): string {
+  const [ano, mes, dia] = isoDate.split("-").map((p) => Number(p));
+  const utc = new Date(Date.UTC(ano, mes - 1, dia + days));
+  const y = utc.getUTCFullYear();
+  const m = String(utc.getUTCMonth() + 1).padStart(2, "0");
+  const d = String(utc.getUTCDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+/** Dias inclusivos [dataInicio, dataFim] em AAAA-MM-DD. */
+export function listarDiasIsoCaixaResumoPdv(
+  dataInicio: string,
+  dataFim: string
+): string[] {
+  const dias: string[] = [];
+  let cursor = dataInicio;
+  while (cursor <= dataFim) {
+    dias.push(cursor);
+    if (cursor === dataFim) {
+      break;
+    }
+    cursor = isoDateAddDays(cursor, 1);
+  }
+  return dias;
+}
+
+/** SQL diária (FIRST 1) — única forma de leitura no Firebird para resumo. */
+export function sqlResumoCaixaPdvDia(dataIso: string): string {
+  const filtroData = buildFiltroDataCaixaResumoPdvDia(dataIso);
+  return `
+      SELECT FIRST 1
+        CAIXA.ID_CAIXA,
+        CAIXA.DATA_ABERTURA,
+        CAIXA.DATA_FECHAMENTO,
+        CAIXA.STATUS,
+        CAIXA.RECEITA_BRUTA,
+        CAIXA.SALDO
+      FROM CAIXA
+      WHERE ${filtroData}
+      ORDER BY CAIXA.ID_CAIXA DESC
+    `;
+}
+
+/** Soma no Node dos resumos diários (dia sem caixa → null na lista). */
+export function agregarResumoCaixaPdvDias(
+  resumosPorDia: Array<CaixaResumoPdv | null>
+): CaixaResumoPdvPeriodoAgregado {
+  let totalVendido = 0;
+  let totalRecebido = 0;
+  for (const resumoDia of resumosPorDia) {
+    if (!resumoDia) {
+      continue;
+    }
+    totalVendido = roundMoney(totalVendido + resumoDia.totalVendido);
+    totalRecebido = roundMoney(totalRecebido + resumoDia.totalRecebido);
+  }
+  return {
+    idCaixa: null,
+    dataAbertura: null,
+    dataFechamento: null,
+    status: null,
+    totalVendido,
+    totalRecebido,
+  };
+}
+
+async function obterResumoCaixaPdvDia(
+  dataIso: string
+): Promise<CaixaResumoPdv | null> {
+  const qry = sqlResumoCaixaPdvDia(dataIso);
+  const rows = await query<Record<string, unknown>>(qry);
+  const row = rows?.[0];
+  if (!row) {
+    return null;
+  }
+
+  const caixa = mapRowParaCaixaResumoPdv(row);
+  if (!caixa) {
+    throw new Error(
+      `getCaixaResumo: ID_CAIXA inválido (dia ${dataIso}): ${JSON.stringify(row)}`
+    );
+  }
+  return caixa;
 }
 
 function mapRowParaCaixaResumoPdv(
@@ -408,7 +513,7 @@ const PdvApiJango = {
   getCaixaResumo: async (params: {
     dataInicio: string;
     dataFim?: string;
-  }): Promise<CaixaResumoPdv | null> => {
+  }): Promise<CaixaResumoPdvResult> => {
     const dataInicio = assertDataIso(params.dataInicio, "Data inicial");
     const dataFim = assertDataIso(params.dataFim ?? params.dataInicio, "Data final");
 
@@ -416,51 +521,27 @@ const PdvApiJango = {
       throw new Error("Data inicial não pode ser posterior à data final.");
     }
 
-    const filtroData =
-      dataInicio === dataFim
-        ? `CAST(CAIXA.DATA_ABERTURA AS DATE) = DATE '${dataInicio}'`
-        : `CAST(CAIXA.DATA_ABERTURA AS DATE) BETWEEN DATE '${dataInicio}' AND DATE '${dataFim}'`;
-
-    const qry =
-      dataInicio === dataFim
-        ? `
-      SELECT FIRST 1
-        CAIXA.ID_CAIXA,
-        CAIXA.DATA_ABERTURA,
-        CAIXA.DATA_FECHAMENTO,
-        CAIXA.STATUS,
-        CAIXA.RECEITA_BRUTA,
-        CAIXA.SALDO
-      FROM CAIXA
-      WHERE ${filtroData}
-      ORDER BY CAIXA.ID_CAIXA DESC
-    `
-        : `
-      SELECT
-        MAX(CAIXA.ID_CAIXA) AS ID_CAIXA,
-        MIN(CAIXA.DATA_ABERTURA) AS DATA_ABERTURA,
-        MAX(CAIXA.DATA_FECHAMENTO) AS DATA_FECHAMENTO,
-        MAX(CAIXA.STATUS) AS STATUS,
-        COALESCE(SUM(CAIXA.RECEITA_BRUTA), 0) AS RECEITA_BRUTA,
-        COALESCE(SUM(CAIXA.SALDO), 0) AS SALDO
-      FROM CAIXA
-      WHERE ${filtroData}
-    `;
-
     try {
-      const rows = await query<Record<string, unknown>>(qry);
-      const row = rows?.[0];
-      if (!row) {
-        return null;
+      if (dataInicio === dataFim) {
+        return await obterResumoCaixaPdvDia(dataInicio);
       }
 
-      const caixa = mapRowParaCaixaResumoPdv(row);
-      if (!caixa) {
-        throw new Error(
-          `getCaixaResumo: ID_CAIXA inválido: ${JSON.stringify(row)}`
-        );
+      const dias = listarDiasIsoCaixaResumoPdv(dataInicio, dataFim);
+      const resumosPorDia: Array<CaixaResumoPdv | null> = [];
+
+      for (const dia of dias) {
+        try {
+          resumosPorDia.push(await obterResumoCaixaPdvDia(dia));
+        } catch (error) {
+          console.error(
+            `Erro ao buscar resumo do caixa no PDV (dia ${dia}):`,
+            error
+          );
+          throw error;
+        }
       }
-      return caixa;
+
+      return agregarResumoCaixaPdvDias(resumosPorDia);
     } catch (error) {
       console.error("Erro ao buscar resumo do caixa no PDV:", error);
       throw error;
