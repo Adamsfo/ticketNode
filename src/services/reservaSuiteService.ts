@@ -2274,6 +2274,8 @@ export function parseParamsCotacao(query: any) {
 export type ParseSuitesCheckoutOptions = {
     /** Recepção/atendente: nome do hóspede é opcional (persiste string vazia). */
     nomeOpcional?: boolean;
+    /** Nova reserva recepção: criança pode ser persistida sem data de nascimento. */
+    dataNascimentoCriancaOpcional?: boolean;
 };
 
 export function parseSuitesCheckout(
@@ -2290,6 +2292,8 @@ export function parseSuitesCheckout(
     }
 
     const nomeOpcional = options?.nomeOpcional === true;
+    const dataNascimentoCriancaOpcional =
+        options?.dataNascimentoCriancaOpcional === true;
 
     return suites.map((s: any, index: number) => {
         const idEventoSuite = parsePositiveInt(
@@ -2304,7 +2308,7 @@ export function parseSuitesCheckout(
             index,
             adultos,
             criancas,
-            nomeOpcional
+            { nomeOpcional, dataNascimentoCriancaOpcional }
         );
         const desconto = parseDescontoRecepcao(s?.desconto, index);
         return { idEventoSuite, adultos, criancas, hospedes, desconto };
@@ -2359,8 +2363,14 @@ function parseHospedesSuite(
     index: number,
     adultos: number,
     criancas: number,
-    nomeOpcional = false
+    options: {
+        nomeOpcional?: boolean;
+        dataNascimentoCriancaOpcional?: boolean;
+    } = {}
 ): HospedeCheckoutItem[] {
+    const nomeOpcional = options.nomeOpcional === true;
+    const dataNascimentoCriancaOpcional =
+        options.dataNascimentoCriancaOpcional === true;
     const hospedes = suite?.hospedes;
     if (!Array.isArray(hospedes)) {
         throw new CustomError(
@@ -2415,11 +2425,19 @@ function parseHospedesSuite(
 
         criancasInformadas += 1;
         if (!hospede?.dataNascimento) {
-            throw new CustomError(
-                `suites[${index}].hospedes[${hospedeIndex}].dataNascimento é obrigatório para crianças.`,
-                400,
-                ''
-            );
+            if (!dataNascimentoCriancaOpcional) {
+                throw new CustomError(
+                    `suites[${index}].hospedes[${hospedeIndex}].dataNascimento é obrigatório para crianças.`,
+                    400,
+                    ''
+                );
+            }
+            parsed.push({
+                nome,
+                tipo,
+                dataNascimento: null,
+            });
+            continue;
         }
 
         const dataNascimento = new Date(hospede.dataNascimento);

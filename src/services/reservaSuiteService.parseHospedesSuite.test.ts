@@ -32,6 +32,24 @@ function criarBody(
 }
 
 describe('parseSuitesCheckout — site/conferência (nome obrigatório)', () => {
+    it('criança sem data no checkout default → rejeita', () => {
+        assert.throws(
+            () =>
+                parseSuitesCheckout(
+                    criarBody(1, 1, [
+                        { nome: 'Adulto', tipo: TipoReservaHospede.Adulto },
+                        {
+                            nome: 'João',
+                            tipo: TipoReservaHospede.Crianca,
+                        },
+                    ])
+                ),
+            (err: unknown) =>
+                err instanceof CustomError &&
+                String(err.message).includes('dataNascimento é obrigatório')
+        );
+    });
+
     it('rejeita adulto sem nome quando nomeOpcional não é informado', () => {
         assert.throws(
             () =>
@@ -118,7 +136,7 @@ describe('parseSuitesCheckout — recepção (nomeOpcional: true)', () => {
         assert.ok(suites[0].hospedes[1].dataNascimento instanceof Date);
     });
 
-    it('criança sem data de nascimento continua obrigatória', () => {
+    it('criança sem data de nascimento continua obrigatória sem dataNascimentoCriancaOpcional', () => {
         assert.throws(
             () =>
                 parseSuitesCheckout(
@@ -134,6 +152,48 @@ describe('parseSuitesCheckout — recepção (nomeOpcional: true)', () => {
             (err: unknown) =>
                 err instanceof CustomError &&
                 String(err.message).includes('dataNascimento é obrigatório')
+        );
+    });
+
+    it('criança sem data com dataNascimentoCriancaOpcional → dataNascimento null', () => {
+        const suites = parseSuitesCheckout(
+            criarBody(1, 1, [
+                { nome: 'Adulto', tipo: TipoReservaHospede.Adulto },
+                {
+                    nome: 'João',
+                    tipo: TipoReservaHospede.Crianca,
+                },
+            ]),
+            {
+                nomeOpcional: true,
+                dataNascimentoCriancaOpcional: true,
+            }
+        );
+
+        assert.equal(suites[0].criancas, 1);
+        assert.equal(suites[0].hospedes[1].dataNascimento, null);
+    });
+
+    it('criança com idade acima do limite na recepção → rejeita', () => {
+        assert.throws(
+            () =>
+                parseSuitesCheckout(
+                    criarBody(1, 1, [
+                        { nome: 'Adulto', tipo: TipoReservaHospede.Adulto },
+                        {
+                            nome: 'Criança',
+                            tipo: TipoReservaHospede.Crianca,
+                            dataNascimento: '2010-01-01',
+                        },
+                    ]),
+                    {
+                        nomeOpcional: true,
+                        dataNascimentoCriancaOpcional: true,
+                    }
+                ),
+            (err: unknown) =>
+                err instanceof CustomError &&
+                String(err.message).includes('categoria Criança')
         );
     });
 

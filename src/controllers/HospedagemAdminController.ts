@@ -406,7 +406,10 @@ module.exports = {
                 );
             }
 
-            const suites = parseSuitesCheckout(req.body, { nomeOpcional: true });
+            const suites = parseSuitesCheckout(req.body, {
+                nomeOpcional: true,
+                dataNascimentoCriancaOpcional: true,
+            });
             const taxasAdicionais = parseTaxasAdicionaisCheckout(req.body);
             const pagamento = parsePagamentoRecepcao(req.body?.pagamento);
             const data = await criarReservaRecepcaoAdmin({
@@ -461,7 +464,10 @@ module.exports = {
                 );
             }
 
-            const suites = parseSuitesCheckout(req.body, { nomeOpcional: true });
+            const suites = parseSuitesCheckout(req.body, {
+                nomeOpcional: true,
+                dataNascimentoCriancaOpcional: true,
+            });
             const taxasAdicionais = parseTaxasAdicionaisCheckout(req.body);
             let percentualCobrancaInicial: 50 | 100 = 100;
             try {
