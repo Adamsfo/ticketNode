@@ -2434,6 +2434,7 @@ function mapearCardSuiteOperacional(
         id: suite.id,
         idEventoSuite: suite.id,
         nome: suite.nome,
+        qtdeMaximaPessoas: suite.qtdeMaximaPessoas ?? null,
         descricao: suite.descricao ?? null,
         idEvento: suite.idEvento,
         eventoNome: suite.Evento?.nome ?? null,
