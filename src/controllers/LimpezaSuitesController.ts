@@ -5,8 +5,27 @@ import {
     concluirLimpezaSuiteAdmin,
     criarLimpezaManualSuiteAdmin,
 } from '../services/eventoSuiteLimpezaAdminService';
+import { listarPrevisaoLimpezaSuitesAdmin } from '../services/eventoSuiteLimpezaPrevisaoService';
 
 module.exports = {
+    async previsao(req: any, res: any, next: any) {
+        try {
+            const idUsuario = Number(req.user?.id);
+            if (!idUsuario) {
+                throw new CustomError('Usuário não autenticado.', 401, '');
+            }
+
+            const resultado = await listarPrevisaoLimpezaSuitesAdmin({
+                idUsuario,
+                data: req.query.data,
+            });
+
+            return res.status(200).json(resultado);
+        } catch (error) {
+            next(error);
+        }
+    },
+
     async listar(req: any, res: any, next: any) {
         try {
             const idUsuario = Number(req.user?.id);

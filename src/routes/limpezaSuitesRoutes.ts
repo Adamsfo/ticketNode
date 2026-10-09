@@ -10,6 +10,12 @@ router.get(
     LimpezaSuitesController.listar
 );
 
+router.get(
+    '/limpeza/suites/previsao',
+    authenticate,
+    LimpezaSuitesController.previsao
+);
+
 router.post(
     '/limpeza/suites/manual',
     authenticate,
