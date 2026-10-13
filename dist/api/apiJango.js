@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.buildFiltroDataCaixaResumoPdvDia = buildFiltroDataCaixaResumoPdvDia;
 exports.listarDiasIsoCaixaResumoPdv = listarDiasIsoCaixaResumoPdv;
 exports.sqlResumoCaixaPdvDia = sqlResumoCaixaPdvDia;
+exports.agregarResumoCaixaPdvCaixasDoDia = agregarResumoCaixaPdvCaixasDoDia;
 exports.agregarResumoCaixaPdvDias = agregarResumoCaixaPdvDias;
 /* eslint-disable import/no-anonymous-default-export */
 const ConexaoJango_1 = require("../database/ConexaoJango");
@@ -57,11 +58,11 @@ function listarDiasIsoCaixaResumoPdv(dataInicio, dataFim) {
     }
     return dias;
 }
-/** SQL diária (FIRST 1) — única forma de leitura no Firebird para resumo. */
+/** SQL diária — todos os caixas com DATA_ABERTURA no dia (consolidação no Node). */
 function sqlResumoCaixaPdvDia(dataIso) {
     const filtroData = buildFiltroDataCaixaResumoPdvDia(dataIso);
     return `
-      SELECT FIRST 1
+      SELECT
         CAIXA.ID_CAIXA,
         CAIXA.DATA_ABERTURA,
         CAIXA.DATA_FECHAMENTO,
@@ -70,8 +71,18 @@ function sqlResumoCaixaPdvDia(dataIso) {
         CAIXA.SALDO
       FROM CAIXA
       WHERE ${filtroData}
-      ORDER BY CAIXA.ID_CAIXA DESC
+      ORDER BY CAIXA.ID_CAIXA ASC
     `;
+}
+/** Um caixa → registro; vários no mesmo dia → totais agregados (idCaixa null). */
+function agregarResumoCaixaPdvCaixasDoDia(caixas) {
+    if (!caixas.length) {
+        return null;
+    }
+    if (caixas.length === 1) {
+        return caixas[0];
+    }
+    return agregarResumoCaixaPdvDias(caixas);
 }
 /** Soma no Node dos resumos diários (dia sem caixa → null na lista). */
 function agregarResumoCaixaPdvDias(resumosPorDia) {
@@ -96,15 +107,18 @@ function agregarResumoCaixaPdvDias(resumosPorDia) {
 async function obterResumoCaixaPdvDia(dataIso) {
     const qry = sqlResumoCaixaPdvDia(dataIso);
     const rows = await (0, ConexaoJango_1.query)(qry);
-    const row = rows?.[0];
-    if (!row) {
+    if (!rows?.length) {
         return null;
     }
-    const caixa = mapRowParaCaixaResumoPdv(row);
-    if (!caixa) {
-        throw new Error(`getCaixaResumo: ID_CAIXA inválido (dia ${dataIso}): ${JSON.stringify(row)}`);
+    const caixas = [];
+    for (const row of rows) {
+        const caixa = mapRowParaCaixaResumoPdv(row);
+        if (!caixa) {
+            throw new Error(`getCaixaResumo: ID_CAIXA inválido (dia ${dataIso}): ${JSON.stringify(row)}`);
+        }
+        caixas.push(caixa);
     }
-    return caixa;
+    return agregarResumoCaixaPdvCaixasDoDia(caixas);
 }
 function mapRowParaCaixaResumoPdv(row) {
     const idCaixa = Number(pickCampoFirebird(row, "ID_CAIXA", "id_caixa"));

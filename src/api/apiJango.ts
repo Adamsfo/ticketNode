@@ -28,6 +28,11 @@ export type CaixaResumoPdvResult =
   | CaixaResumoPdvPeriodoAgregado
   | null;
 
+/** Entrada para soma de totais (dia único, vários caixas ou vários dias). */
+export type CaixaResumoPdvSomavel =
+  | CaixaResumoPdv
+  | CaixaResumoPdvPeriodoAgregado;
+
 function assertDataIso(data: string, nome: string): string {
   const raw = String(data ?? "").trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
@@ -87,11 +92,11 @@ export function listarDiasIsoCaixaResumoPdv(
   return dias;
 }
 
-/** SQL diária (FIRST 1) — única forma de leitura no Firebird para resumo. */
+/** SQL diária — todos os caixas com DATA_ABERTURA no dia (consolidação no Node). */
 export function sqlResumoCaixaPdvDia(dataIso: string): string {
   const filtroData = buildFiltroDataCaixaResumoPdvDia(dataIso);
   return `
-      SELECT FIRST 1
+      SELECT
         CAIXA.ID_CAIXA,
         CAIXA.DATA_ABERTURA,
         CAIXA.DATA_FECHAMENTO,
@@ -100,13 +105,26 @@ export function sqlResumoCaixaPdvDia(dataIso: string): string {
         CAIXA.SALDO
       FROM CAIXA
       WHERE ${filtroData}
-      ORDER BY CAIXA.ID_CAIXA DESC
+      ORDER BY CAIXA.ID_CAIXA ASC
     `;
+}
+
+/** Um caixa → registro; vários no mesmo dia → totais agregados (idCaixa null). */
+export function agregarResumoCaixaPdvCaixasDoDia(
+  caixas: CaixaResumoPdv[]
+): CaixaResumoPdv | CaixaResumoPdvPeriodoAgregado | null {
+  if (!caixas.length) {
+    return null;
+  }
+  if (caixas.length === 1) {
+    return caixas[0];
+  }
+  return agregarResumoCaixaPdvDias(caixas);
 }
 
 /** Soma no Node dos resumos diários (dia sem caixa → null na lista). */
 export function agregarResumoCaixaPdvDias(
-  resumosPorDia: Array<CaixaResumoPdv | null>
+  resumosPorDia: Array<CaixaResumoPdvSomavel | null>
 ): CaixaResumoPdvPeriodoAgregado {
   let totalVendido = 0;
   let totalRecebido = 0;
@@ -129,21 +147,24 @@ export function agregarResumoCaixaPdvDias(
 
 async function obterResumoCaixaPdvDia(
   dataIso: string
-): Promise<CaixaResumoPdv | null> {
+): Promise<CaixaResumoPdv | CaixaResumoPdvPeriodoAgregado | null> {
   const qry = sqlResumoCaixaPdvDia(dataIso);
   const rows = await query<Record<string, unknown>>(qry);
-  const row = rows?.[0];
-  if (!row) {
+  if (!rows?.length) {
     return null;
   }
 
-  const caixa = mapRowParaCaixaResumoPdv(row);
-  if (!caixa) {
-    throw new Error(
-      `getCaixaResumo: ID_CAIXA inválido (dia ${dataIso}): ${JSON.stringify(row)}`
-    );
+  const caixas: CaixaResumoPdv[] = [];
+  for (const row of rows) {
+    const caixa = mapRowParaCaixaResumoPdv(row);
+    if (!caixa) {
+      throw new Error(
+        `getCaixaResumo: ID_CAIXA inválido (dia ${dataIso}): ${JSON.stringify(row)}`
+      );
+    }
+    caixas.push(caixa);
   }
-  return caixa;
+  return agregarResumoCaixaPdvCaixasDoDia(caixas);
 }
 
 function mapRowParaCaixaResumoPdv(
@@ -527,7 +548,7 @@ const PdvApiJango = {
       }
 
       const dias = listarDiasIsoCaixaResumoPdv(dataInicio, dataFim);
-      const resumosPorDia: Array<CaixaResumoPdv | null> = [];
+      const resumosPorDia: Array<CaixaResumoPdvSomavel | null> = [];
 
       for (const dia of dias) {
         try {

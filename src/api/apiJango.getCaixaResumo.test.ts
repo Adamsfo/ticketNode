@@ -5,6 +5,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
+    agregarResumoCaixaPdvCaixasDoDia,
     agregarResumoCaixaPdvDias,
     buildFiltroDataCaixaResumoPdvDia,
     listarDiasIsoCaixaResumoPdv,
@@ -37,10 +38,10 @@ describe('buildFiltroDataCaixaResumoPdvDia', () => {
 });
 
 describe('sqlResumoCaixaPdvDia', () => {
-    it('usa FIRST 1 e ORDER BY ID_CAIXA DESC', () => {
+    it('lista todos os caixas do dia (sem FIRST 1)', () => {
         const sql = sqlResumoCaixaPdvDia('2026-10-05');
-        assert.match(sql, /SELECT FIRST 1/i);
-        assert.match(sql, /ORDER BY CAIXA\.ID_CAIXA DESC/i);
+        assert.doesNotMatch(sql, /\bFIRST\s+1\b/i);
+        assert.match(sql, /ORDER BY CAIXA\.ID_CAIXA ASC/i);
         assert.match(
             sql,
             /CAST\(CAIXA\.DATA_ABERTURA AS DATE\) = DATE '2026-10-05'/
@@ -53,6 +54,29 @@ describe('sqlResumoCaixaPdvDia', () => {
         assert.doesNotMatch(sql, /\bMAX\s*\(/i);
         assert.doesNotMatch(sql, /\bGROUP BY\b/i);
         assert.doesNotMatch(sql, /\bBETWEEN\b/i);
+    });
+});
+
+describe('agregarResumoCaixaPdvCaixasDoDia', () => {
+    it('um caixa no dia → retorna o registro', () => {
+        const unico = resumoDia(100, 80, 42);
+        const agregado = agregarResumoCaixaPdvCaixasDoDia([unico]);
+        assert.deepEqual(agregado, unico);
+    });
+
+    it('dois ou mais caixas no mesmo dia → soma RECEITA_BRUTA e SALDO', () => {
+        const agregado = agregarResumoCaixaPdvCaixasDoDia([
+            resumoDia(100, 80, 1),
+            resumoDia(50, 40, 2),
+        ]);
+        assert.ok(agregado);
+        assert.equal(agregado!.idCaixa, null);
+        assert.equal(agregado!.totalVendido, 150);
+        assert.equal(agregado!.totalRecebido, 120);
+    });
+
+    it('sem caixa → null', () => {
+        assert.equal(agregarResumoCaixaPdvCaixasDoDia([]), null);
     });
 });
 
