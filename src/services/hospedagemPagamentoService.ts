@@ -813,7 +813,10 @@ export async function consultarPagamentoTefHospedagem(params: {
         const response = await axios(config);
         data = response.data || {};
         console.log('Dados do pagamento (hospedagem):', data);
-    } catch (error) {
+    } catch (error: any) {
+        if (error?.response?.status === 429) {
+            throw new CustomError('SUPERTEF_RATE_LIMIT', 429, 'SUPERTEF_RATE_LIMIT');
+        }
         console.error('Erro ao processar POS hospedagem:', error);
         throw new CustomError('Erro ao processar POS', 500, '');
     }

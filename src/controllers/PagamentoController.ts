@@ -1427,7 +1427,10 @@ module.exports = {
                         ...data, payment_message: statusTransacao != 'Pendente' ? statusTransacao : data.payment_message,
                     }
                 });
-            } catch (error) {
+            } catch (error: any) {
+                if (error?.response?.status === 429) {
+                    return res.status(429).json({ message: 'SUPERTEF_RATE_LIMIT' });
+                }
                 console.error('Erro ao processar POS:', error);
                 res.status(500).json({ error: 'Erro ao processar POS' });
             }
