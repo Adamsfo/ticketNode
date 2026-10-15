@@ -5,6 +5,7 @@ import nodemailer from 'nodemailer'
 import { sendCodeSMS, sendCodeWhatsApp } from '../utils/twilioService'
 import { resend } from '../utils/resend'
 import { Visitas } from '../models/Visitas'
+import { databaseReady } from '../database'
 import {
   enviarCodigoAtivacaoWhatsApp,
   enviarCodigoLoginWhatsApp,
@@ -394,6 +395,7 @@ module.exports = {
   },
 
   visitasNoSite: async (req: any, res: any) => {
+    await databaseReady;
 
     let visitas = await Visitas.findByPk(1);
     if (!visitas) {

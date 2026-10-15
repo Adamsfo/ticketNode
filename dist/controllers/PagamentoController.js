@@ -1158,6 +1158,9 @@ module.exports = {
                 });
             }
             catch (error) {
+                if (error?.response?.status === 429) {
+                    return res.status(429).json({ message: 'SUPERTEF_RATE_LIMIT' });
+                }
                 console.error('Erro ao processar POS:', error);
                 res.status(500).json({ error: 'Erro ao processar POS' });
             }

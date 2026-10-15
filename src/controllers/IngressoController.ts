@@ -12,6 +12,10 @@ import { Usuario } from "../models/Usuario";
 import { formatInTimeZone } from "date-fns-tz";
 import apiJango from "../api/apiJango";
 import { col, fn, Op } from "sequelize";
+import {
+    cancelarCortesia,
+    listarCortesiasPainel,
+} from "../services/ingressoCortesiaService";
 
 export const addIngressoTransacao = async (idTransacao: number, idIngresso: number, preco: number, taxaServico: number, valorTotal: number) => {
     try {
@@ -84,6 +88,39 @@ module.exports = {
             res.status(200).json({
                 data: dataComQrCode,
                 meta
+            });
+        } catch (err) {
+            next(err);
+        }
+    },
+
+    async getCortesiasPainel(req: any, res: any, next: any) {
+        try {
+            const result = await listarCortesiasPainel({
+                idEvento: Number(req.query.idEvento),
+                page: Number(req.query.page) || 1,
+                pageSize: Number(req.query.pageSize) || 20,
+                search: req.query.search,
+            });
+
+            const dataComQrCode = await Promise.all(
+                result.data.map(async (registro: any) => {
+                    const payload = {
+                        idqrcode: registro.qrcode,
+                    };
+                    const qrCodeBase64 = await QRCode.toDataURL(
+                        JSON.stringify(payload),
+                    );
+                    return {
+                        ...registro,
+                        qrCodeBase64,
+                    };
+                }),
+            );
+
+            res.status(200).json({
+                data: dataComQrCode,
+                meta: result.meta,
             });
         } catch (err) {
             next(err);
@@ -516,6 +553,23 @@ module.exports = {
             return res.status(200).json('Ingressos validados com sucesso!');
         } catch (error) {
             next(error); // Passa o erro para o middleware de tratamento de erros
+        }
+    },
+
+    async cancelarCortesia(req: any, res: any, next: any) {
+        try {
+            const id = Number(req.params.id);
+            const idUsuario = Number(req.body?.idUsuario ?? req.user?.id);
+
+            const registro = await cancelarCortesia(id, idUsuario);
+
+            return res.status(200).json({
+                success: true,
+                message: "Cortesia cancelada com sucesso.",
+                data: registro,
+            });
+        } catch (error) {
+            next(error);
         }
     },
 

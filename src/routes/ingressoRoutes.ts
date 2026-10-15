@@ -3,6 +3,7 @@ const router = express.Router()
 const { authenticate } = require('../middlewares/authMiddleware')
 const IngressoController = require('../controllers/IngressoController')
 
+router.get('/ingresso/cortesias', authenticate, IngressoController.getCortesiasPainel)
 router.get('/ingresso', IngressoController.get)
 router.post('/ingresso', authenticate, IngressoController.add)
 router.put('/ingresso/:id', authenticate, IngressoController.edit)
@@ -13,5 +14,6 @@ router.post('/validadorjango', authenticate, IngressoController.validadorJango)
 router.post('/validadorqrcode', authenticate, IngressoController.validadorQrCode)
 router.get('/dadosingressos', authenticate, IngressoController.getDadosIngressos)
 router.post('/enviaingressowhatsapp', authenticate, IngressoController.enviarIngressoWhatsApp)
+router.post('/ingresso/:id/cancelar-cortesia', authenticate, IngressoController.cancelarCortesia)
 
 module.exports = router

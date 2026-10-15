@@ -6,6 +6,7 @@ const customError_1 = require("../utils/customError");
 const twilioService_1 = require("../utils/twilioService");
 const resend_1 = require("../utils/resend");
 const Visitas_1 = require("../models/Visitas");
+const database_1 = require("../database");
 const zApiOtpService_1 = require("../services/zApiOtpService");
 // import chatpro from '@api/chatpro'
 const codeStore = new Map();
@@ -344,6 +345,7 @@ module.exports = {
         }
     },
     visitasNoSite: async (req, res) => {
+        await database_1.databaseReady;
         let visitas = await Visitas_1.Visitas.findByPk(1);
         if (!visitas) {
             const novaVisita = await Visitas_1.Visitas.create({ quantidade: 1 });
