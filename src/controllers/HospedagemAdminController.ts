@@ -47,6 +47,12 @@ import { parseDateTimeParam } from '../utils/reservaSuiteUtils';
 import { parsePagamentoRecepcao } from '../utils/hospedagemPagamentoRecepcao';
 import { parsePercentualCobrancaInicialLink } from '../services/hospedagemTaxaPlataformaService';
 import { obterHospedagemRefreshVersion } from '../services/hospedagemRefreshVersionService';
+import {
+    atualizarFechamentoExcepcionalAdmin,
+    criarFechamentoExcepcionalAdmin,
+    listarEventosPousadaAdmin,
+    listarFechamentosExcepcionaisAdmin,
+} from '../services/hospedagemFechamentoExcepcionalService';
 
 /**
  * Administração de reservas de hospedagem (produtor / admin).
@@ -1134,6 +1140,97 @@ module.exports = {
                 idUsuario,
                 req.query.data ? String(req.query.data) : undefined
             );
+            return res.status(200).json({ data });
+        } catch (error) {
+            next(error);
+        }
+    },
+
+    async listarEventosPousada(req: any, res: any, next: any) {
+        try {
+            const idUsuario = Number(req.user?.id);
+            if (!idUsuario) {
+                throw new CustomError('Usuário não autenticado.', 401, '');
+            }
+            const data = await listarEventosPousadaAdmin(idUsuario);
+            return res.status(200).json({ data });
+        } catch (error) {
+            next(error);
+        }
+    },
+
+    async listarFechamentosExcepcionais(req: any, res: any, next: any) {
+        try {
+            const idUsuario = Number(req.user?.id);
+            const idEvento = Number(req.query.idEvento);
+            if (!idUsuario) {
+                throw new CustomError('Usuário não autenticado.', 401, '');
+            }
+            if (!idEvento) {
+                throw new CustomError('idEvento é obrigatório.', 400, '');
+            }
+            const incluirInativos =
+                String(req.query.incluirInativos || '').toLowerCase() ===
+                'true';
+            const data = await listarFechamentosExcepcionaisAdmin({
+                idUsuario,
+                idEvento,
+                incluirInativos,
+            });
+            return res.status(200).json({ data });
+        } catch (error) {
+            next(error);
+        }
+    },
+
+    async criarFechamentoExcepcional(req: any, res: any, next: any) {
+        try {
+            const idUsuario = Number(req.user?.id);
+            if (!idUsuario) {
+                throw new CustomError('Usuário não autenticado.', 401, '');
+            }
+            const idEvento = Number(req.body?.idEvento);
+            if (!idEvento) {
+                throw new CustomError('idEvento é obrigatório.', 400, '');
+            }
+            const data = await criarFechamentoExcepcionalAdmin({
+                idUsuario,
+                idEvento,
+                dataInicio: String(req.body?.dataInicio ?? ''),
+                dataFim: String(req.body?.dataFim ?? req.body?.dataInicio ?? ''),
+                motivo: req.body?.motivo ?? null,
+            });
+            return res.status(201).json({ data });
+        } catch (error) {
+            next(error);
+        }
+    },
+
+    async atualizarFechamentoExcepcional(req: any, res: any, next: any) {
+        try {
+            const idUsuario = Number(req.user?.id);
+            const id = Number(req.params.id);
+            if (!idUsuario) {
+                throw new CustomError('Usuário não autenticado.', 401, '');
+            }
+            if (!id) {
+                throw new CustomError('id é obrigatório.', 400, '');
+            }
+            const body = req.body ?? {};
+            const data = await atualizarFechamentoExcepcionalAdmin({
+                idUsuario,
+                id,
+                dataInicio:
+                    body.dataInicio !== undefined
+                        ? String(body.dataInicio)
+                        : undefined,
+                dataFim:
+                    body.dataFim !== undefined
+                        ? String(body.dataFim)
+                        : undefined,
+                motivo: body.motivo,
+                ativo: body.ativo,
+            });
             return res.status(200).json({ data });
         } catch (error) {
             next(error);

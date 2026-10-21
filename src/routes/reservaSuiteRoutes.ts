@@ -4,6 +4,10 @@ const router = express.Router();
 const { authenticate } = require('../middlewares/authMiddleware');
 const ReservaSuiteController = require('../controllers/ReservaSuiteController');
 
+router.get(
+    '/reservasuite/fechamentos-excepcionais',
+    ReservaSuiteController.fechamentosExcepcionais
+);
 router.get('/reservasuite/disponibilidade', ReservaSuiteController.disponibilidade);
 router.get('/reservasuite/cotacao', ReservaSuiteController.cotacao);
 router.post('/reservasuite', authenticate, ReservaSuiteController.criar);

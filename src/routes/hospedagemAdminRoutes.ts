@@ -11,6 +11,26 @@ router.get(
     HospedagemAdminController.refreshVersion
 );
 router.get(
+    '/hospedagem/eventos-pousada',
+    authenticate,
+    HospedagemAdminController.listarEventosPousada
+);
+router.get(
+    '/hospedagem/fechamentos-excepcionais',
+    authenticate,
+    HospedagemAdminController.listarFechamentosExcepcionais
+);
+router.post(
+    '/hospedagem/fechamentos-excepcionais',
+    authenticate,
+    HospedagemAdminController.criarFechamentoExcepcional
+);
+router.patch(
+    '/hospedagem/fechamentos-excepcionais/:id',
+    authenticate,
+    HospedagemAdminController.atualizarFechamentoExcepcional
+);
+router.get(
     '/hospedagem/reservas',
     authenticate,
     HospedagemAdminController.listarReservas
@@ -153,6 +173,26 @@ router.get(
     '/hospedagem-admin/refresh-version',
     authenticate,
     HospedagemAdminController.refreshVersion
+);
+router.get(
+    '/hospedagem-admin/eventos-pousada',
+    authenticate,
+    HospedagemAdminController.listarEventosPousada
+);
+router.get(
+    '/hospedagem-admin/fechamentos-excepcionais',
+    authenticate,
+    HospedagemAdminController.listarFechamentosExcepcionais
+);
+router.post(
+    '/hospedagem-admin/fechamentos-excepcionais',
+    authenticate,
+    HospedagemAdminController.criarFechamentoExcepcional
+);
+router.patch(
+    '/hospedagem-admin/fechamentos-excepcionais/:id',
+    authenticate,
+    HospedagemAdminController.atualizarFechamentoExcepcional
 );
 router.get(
     '/hospedagem-admin/reservas',

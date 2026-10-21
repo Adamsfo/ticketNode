@@ -153,6 +153,7 @@ function montarDescricaoHistoricoCheckoutHospedagem(params) {
     return limitarDescricaoHistorico(partes.join('\n\n'));
 }
 const reservaSuiteUtils_1 = require("../utils/reservaSuiteUtils");
+const hospedagemFechamentoExcepcionalService_1 = require("./hospedagemFechamentoExcepcionalService");
 const suiteDisponibilidadeService_1 = require("./suiteDisponibilidadeService");
 const hospedagemConfirmacaoNotificacao_1 = require("./hospedagemConfirmacaoNotificacao");
 const reservaObservacoesUtils_1 = require("../utils/reservaObservacoesUtils");
@@ -806,6 +807,7 @@ async function calcularCotacao(params) {
     if (!suite) {
         throw new customError_1.CustomError('Suíte não encontrada.', 404, '');
     }
+    await (0, hospedagemFechamentoExcepcionalService_1.validarPeriodoReservaPousada)(Number(suite.idEvento), checkin, checkout);
     const statusesPermitidos = statusesPermitidosCotacao(catalogoInterno);
     if (!statusesPermitidos.includes(suite.status)) {
         throw new customError_1.CustomError('Suíte não disponível para venda.', 400, '');
@@ -914,7 +916,7 @@ async function calcularCotacao(params) {
 }
 async function listarSuitesDisponiveis(params) {
     const { idEvento, checkin, checkout, catalogoInterno = false } = params;
-    (0, reservaSuiteUtils_1.validarDiasFechadosEntradaSaidaHospedagem)(checkin, checkout);
+    await (0, hospedagemFechamentoExcepcionalService_1.validarPeriodoReservaPousada)(idEvento, checkin, checkout);
     const noites = (0, reservaSuiteUtils_1.calcularNoitesHotelaria)(checkin, checkout);
     const statusesCatalogo = statusesCatalogoDisponibilidade(catalogoInterno);
     const suites = await EventoSuite_1.EventoSuite.findAll({
@@ -988,7 +990,7 @@ async function checkoutHospedagem(params) {
     if (!suites?.length) {
         throw new customError_1.CustomError('Informe ao menos uma suíte no checkout.', 400, '');
     }
-    (0, reservaSuiteUtils_1.validarDiasFechadosEntradaSaidaHospedagem)(checkin, checkout);
+    await (0, hospedagemFechamentoExcepcionalService_1.validarPeriodoReservaPousada)(idEvento, checkin, checkout);
     validarSuitesSemDuplicata(suites);
     const isIntegracao = origem === 'integracao';
     const isRecepcao = origem === 'recepcao' || isIntegracao;

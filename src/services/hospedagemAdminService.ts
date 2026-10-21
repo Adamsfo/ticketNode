@@ -5335,6 +5335,18 @@ export async function alterarPeriodoReservaAdmin(params: {
         );
     }
 
+    const idEventoReserva = Number(reserva.Evento?.id ?? reserva.idEvento);
+    if (idEventoReserva > 0) {
+        const { validarPeriodoReservaPousada } = await import(
+            './hospedagemFechamentoExcepcionalService'
+        );
+        await validarPeriodoReservaPousada(
+            idEventoReserva,
+            checkinNovo,
+            checkoutNovo
+        );
+    }
+
     const checkinAnterior = new Date(reserva.checkin);
     const checkoutAnterior = new Date(reserva.checkout);
     if (

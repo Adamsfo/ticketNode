@@ -315,6 +315,16 @@ export const DIAS_FECHADOS_HOSPEDAGEM = [2, 3];
 export const MSG_DIAS_FECHADOS_HOSPEDAGEM =
     'Não é possível realizar reservas em períodos que incluam terças ou quartas-feiras, pois a pousada não funciona nesses dias. Escolha outro período.';
 
+export const MSG_PERIODO_FECHADO_EXCEPCIONAL_HOSPEDAGEM =
+    'Não é possível realizar reservas em períodos que incluam datas em que a pousada não funciona. Escolha outro período.';
+
+export type IntervaloDataCivilFechamento = {
+    inicio: string;
+    fim: string;
+};
+
+export type VerificadorDataCivilFechada = (dataCivil: string) => boolean;
+
 /** Dia da semana da data civil em America/Cuiabá (0=domingo … 6=sábado). */
 export function diaSemanaCivilHospedagem(value: Date): number {
     const iso = Number(formatInTimeZone(value, TZ_HOSPEDAGEM, 'i'));
@@ -325,49 +335,118 @@ export function isDiaFechadoEntradaSaidaHospedagem(value: Date): boolean {
     return DIAS_FECHADOS_HOSPEDAGEM.includes(diaSemanaCivilHospedagem(value));
 }
 
-function isDataCivilFechadaHospedagem(dataCivil: string): boolean {
+export function isDataCivilFechadaSemanalHospedagem(dataCivil: string): boolean {
     const instante = fromZonedTime(`${dataCivil} 12:00:00`, TZ_HOSPEDAGEM);
     return isDiaFechadoEntradaSaidaHospedagem(instante);
 }
 
-function avancarDataCivilHospedagem(dataCivil: string): string {
+export function avancarDataCivilHospedagem(dataCivil: string): string {
     const instante = fromZonedTime(`${dataCivil} 12:00:00`, TZ_HOSPEDAGEM);
     return formatInTimeZone(addDays(instante, 1), TZ_HOSPEDAGEM, 'yyyy-MM-dd');
 }
 
-/**
- * True se o período inclui terça/quarta (Cuiabá): cada dia civil de CI até o dia
- * anterior ao CO, mais o dia civil do check-out.
- */
-export function periodoHospedagemIncluiDiaFechado(
-    checkin: Date,
-    checkout: Date
+export function criarVerificadorFechamentosExcepcionais(
+    intervalos: IntervaloDataCivilFechamento[]
+): VerificadorDataCivilFechada {
+    const normalizados = intervalos.map((i) => ({
+        inicio: i.inicio,
+        fim: i.fim,
+    }));
+    return (dataCivil: string) =>
+        normalizados.some(
+            (i) => dataCivil >= i.inicio && dataCivil <= i.fim
+        );
+}
+
+export function isDataCivilFechadaPousada(
+    dataCivil: string,
+    excepcional?: VerificadorDataCivilFechada
 ): boolean {
+    if (isDataCivilFechadaSemanalHospedagem(dataCivil)) {
+        return true;
+    }
+    return excepcional ? excepcional(dataCivil) : false;
+}
+
+function periodoIncluiDiaFechadoComVerificador(
+    checkin: Date,
+    checkout: Date,
+    excepcional?: VerificadorDataCivilFechada
+): { bloqueado: boolean; semanal: boolean; excepcional: boolean } {
     const ci = dataCivilHospedagem(checkin);
     const co = dataCivilHospedagem(checkout);
 
-    if (isDataCivilFechadaHospedagem(co)) {
-        return true;
+    const testar = (dataCivil: string) => {
+        const sem = isDataCivilFechadaSemanalHospedagem(dataCivil);
+        const exc = excepcional ? excepcional(dataCivil) : false;
+        return { sem, exc, bloqueado: sem || exc };
+    };
+
+    const coTest = testar(co);
+    if (coTest.bloqueado) {
+        return {
+            bloqueado: true,
+            semanal: coTest.sem,
+            excepcional: coTest.exc,
+        };
     }
 
     let cursor = ci;
     while (cursor < co) {
-        if (isDataCivilFechadaHospedagem(cursor)) {
-            return true;
+        const t = testar(cursor);
+        if (t.bloqueado) {
+            return {
+                bloqueado: true,
+                semanal: t.sem,
+                excepcional: t.exc,
+            };
         }
         cursor = avancarDataCivilHospedagem(cursor);
     }
 
-    return false;
+    return { bloqueado: false, semanal: false, excepcional: false };
+}
+
+/**
+ * True se o período inclui dia fechado (Cuiabá): cada dia civil de CI até o dia
+ * anterior ao CO, mais o dia civil do check-out.
+ */
+export function periodoHospedagemIncluiDiaFechado(
+    checkin: Date,
+    checkout: Date,
+    excepcional?: VerificadorDataCivilFechada
+): boolean {
+    return periodoIncluiDiaFechadoComVerificador(
+        checkin,
+        checkout,
+        excepcional
+    ).bloqueado;
+}
+
+export function validarPeriodoPousadaFechado(
+    checkin: Date,
+    checkout: Date,
+    excepcional?: VerificadorDataCivilFechada
+): void {
+    const resultado = periodoIncluiDiaFechadoComVerificador(
+        checkin,
+        checkout,
+        excepcional
+    );
+    if (!resultado.bloqueado) {
+        return;
+    }
+    if (resultado.semanal) {
+        throw new CustomError(MSG_DIAS_FECHADOS_HOSPEDAGEM, 400, '');
+    }
+    throw new CustomError(MSG_PERIODO_FECHADO_EXCEPCIONAL_HOSPEDAGEM, 400, '');
 }
 
 export function validarDiasFechadosEntradaSaidaHospedagem(
     checkin: Date,
     checkout: Date
 ): void {
-    if (periodoHospedagemIncluiDiaFechado(checkin, checkout)) {
-        throw new CustomError(MSG_DIAS_FECHADOS_HOSPEDAGEM, 400, '');
-    }
+    validarPeriodoPousadaFechado(checkin, checkout);
 }
 
 export function parseDateTimeParam(value: unknown, fieldName: string): Date {

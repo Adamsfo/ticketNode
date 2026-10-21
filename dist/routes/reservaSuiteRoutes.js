@@ -7,6 +7,7 @@ const express_1 = __importDefault(require("express"));
 const router = express_1.default.Router();
 const { authenticate } = require('../middlewares/authMiddleware');
 const ReservaSuiteController = require('../controllers/ReservaSuiteController');
+router.get('/reservasuite/fechamentos-excepcionais', ReservaSuiteController.fechamentosExcepcionais);
 router.get('/reservasuite/disponibilidade', ReservaSuiteController.disponibilidade);
 router.get('/reservasuite/cotacao', ReservaSuiteController.cotacao);
 router.post('/reservasuite', authenticate, ReservaSuiteController.criar);

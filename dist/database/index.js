@@ -45,6 +45,7 @@ const IntegrationProviderState_1 = require("../models/IntegrationProviderState")
 const IntegrationSyncExecution_1 = require("../models/IntegrationSyncExecution");
 const IntegrationEntitySyncEvent_1 = require("../models/IntegrationEntitySyncEvent");
 const HospedagemRefreshState_1 = require("../models/HospedagemRefreshState");
+const HospedagemFechamentoExcepcional_1 = require("../models/HospedagemFechamentoExcepcional");
 const sequelizePoolMonitor_1 = require("./sequelizePoolMonitor");
 const ConfigIniciais = require('./ConfigIniciais');
 const FuncaoSistema = require('./FuncaoSistema');
@@ -108,6 +109,7 @@ exports.databaseReady = new Promise((resolve, reject) => {
         (0, ClienteMetodoPagamento_1.UsuarioMetodoPagamentoInit)(connection);
         (0, Visitas_1.VisitasInit)(connection);
         (0, HospedagemRefreshState_1.HospedagemRefreshStateInit)(connection);
+        (0, HospedagemFechamentoExcepcional_1.HospedagemFechamentoExcepcionalInit)(connection);
         // EventoSuiteLimpezaInit(connection)
         // Sincronizando os modelos com o banco de dados        
         // await connection.sync();

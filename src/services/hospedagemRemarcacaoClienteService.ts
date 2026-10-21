@@ -222,6 +222,18 @@ export async function validarDisponibilidadeRemarcacao(
     checkinNovo: Date,
     checkoutNovo: Date
 ): Promise<void> {
+    const idEvento = Number(reserva.Evento?.id ?? reserva.idEvento);
+    if (idEvento > 0) {
+        const { validarPeriodoReservaPousada } = await import(
+            './hospedagemFechamentoExcepcionalService'
+        );
+        await validarPeriodoReservaPousada(
+            idEvento,
+            checkinNovo,
+            checkoutNovo
+        );
+    }
+
     const linhas = reserva.ReservaSuite ?? [];
     if (!linhas.length) {
         throw new CustomError('Reserva sem suíte vinculada.', 400, '');

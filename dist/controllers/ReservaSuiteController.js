@@ -8,7 +8,27 @@ const hospedagemCancelamentoClienteService_1 = require("../services/hospedagemCa
 const hospedagemRemarcacaoClienteService_1 = require("../services/hospedagemRemarcacaoClienteService");
 const hospedagemRemarcacaoPagamentoService_1 = require("../services/hospedagemRemarcacaoPagamentoService");
 const hospedagemRemarcacaoWebhookService_1 = require("../services/hospedagemRemarcacaoWebhookService");
+const hospedagemFechamentoExcepcionalService_1 = require("../services/hospedagemFechamentoExcepcionalService");
 module.exports = {
+    async fechamentosExcepcionais(req, res, next) {
+        try {
+            const idEvento = Number(req.query.idEvento);
+            if (!idEvento) {
+                throw new customError_1.CustomError('idEvento é obrigatório.', 400, '');
+            }
+            const de = String(req.query.de ?? '');
+            const ate = String(req.query.ate ?? '');
+            const data = await (0, hospedagemFechamentoExcepcionalService_1.listarFechamentosPublicosPorPeriodo)({
+                idEvento,
+                de,
+                ate,
+            });
+            return res.status(200).json({ data });
+        }
+        catch (error) {
+            next(error);
+        }
+    },
     async disponibilidade(req, res, next) {
         try {
             const params = (0, reservaSuiteService_1.parseParamsDisponibilidade)(req.query);

@@ -42,6 +42,7 @@ import { IntegrationProviderStateInit } from '../models/IntegrationProviderState
 import { IntegrationSyncExecutionInit } from '../models/IntegrationSyncExecution';
 import { IntegrationEntitySyncEventInit } from '../models/IntegrationEntitySyncEvent';
 import { HospedagemRefreshStateInit } from '../models/HospedagemRefreshState';
+import { HospedagemFechamentoExcepcionalInit } from '../models/HospedagemFechamentoExcepcional';
 import { startSequelizePoolMonitor } from './sequelizePoolMonitor';
 const ConfigIniciais = require('./ConfigIniciais')
 const FuncaoSistema = require('./FuncaoSistema')
@@ -111,6 +112,7 @@ export const databaseReady = new Promise<void>((resolve, reject) => {
     UsuarioMetodoPagamentoInit(connection)
     VisitasInit(connection)
     HospedagemRefreshStateInit(connection)
+    HospedagemFechamentoExcepcionalInit(connection)
     // EventoSuiteLimpezaInit(connection)
 
     // Sincronizando os modelos com o banco de dados        

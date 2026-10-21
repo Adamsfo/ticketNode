@@ -204,9 +204,9 @@ import {
     validarHorarioCheckoutHospedagem,
     validarCheckinNaoEmDataPassada,
     validarCheckinPosteriorAoAgoraSeHoje,
-    validarDiasFechadosEntradaSaidaHospedagem,
     type IntervaloDateTime,
 } from '../utils/reservaSuiteUtils';
+import { validarPeriodoReservaPousada } from './hospedagemFechamentoExcepcionalService';
 import {
     calcularDisponibilidadePeriodo,
     type ReservaDisponibilidadeInput,
@@ -1254,6 +1254,12 @@ export async function calcularCotacao(params: {
         throw new CustomError('Suíte não encontrada.', 404, '');
     }
 
+    await validarPeriodoReservaPousada(
+        Number(suite.idEvento),
+        checkin,
+        checkout
+    );
+
     const statusesPermitidos: readonly StatusCotacaoPermitido[] =
         statusesPermitidosCotacao(catalogoInterno);
     if (!statusesPermitidos.includes(suite.status as StatusCotacaoPermitido)) {
@@ -1382,7 +1388,7 @@ export async function listarSuitesDisponiveis(params: {
     catalogoInterno?: boolean;
 }) {
     const { idEvento, checkin, checkout, catalogoInterno = false } = params;
-    validarDiasFechadosEntradaSaidaHospedagem(checkin, checkout);
+    await validarPeriodoReservaPousada(idEvento, checkin, checkout);
     const noites = calcularNoitesHotelaria(checkin, checkout);
     const statusesCatalogo = statusesCatalogoDisponibilidade(catalogoInterno);
 
@@ -1519,7 +1525,7 @@ export async function checkoutHospedagem(params: {
         throw new CustomError('Informe ao menos uma suíte no checkout.', 400, '');
     }
 
-    validarDiasFechadosEntradaSaidaHospedagem(checkin, checkout);
+    await validarPeriodoReservaPousada(idEvento, checkin, checkout);
 
     validarSuitesSemDuplicata(suites);
 

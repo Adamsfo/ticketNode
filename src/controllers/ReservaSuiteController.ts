@@ -43,10 +43,30 @@ import {
     obterPixRemarcacaoPendenteCliente,
 } from '../services/hospedagemRemarcacaoPagamentoService';
 import { processarWebhookMercadoPagoRemarcacao } from '../services/hospedagemRemarcacaoWebhookService';
+import { listarFechamentosPublicosPorPeriodo } from '../services/hospedagemFechamentoExcepcionalService';
 
 
 
 module.exports = {
+
+    async fechamentosExcepcionais(req: any, res: any, next: any) {
+        try {
+            const idEvento = Number(req.query.idEvento);
+            if (!idEvento) {
+                throw new CustomError('idEvento é obrigatório.', 400, '');
+            }
+            const de = String(req.query.de ?? '');
+            const ate = String(req.query.ate ?? '');
+            const data = await listarFechamentosPublicosPorPeriodo({
+                idEvento,
+                de,
+                ate,
+            });
+            return res.status(200).json({ data });
+        } catch (error) {
+            next(error);
+        }
+    },
 
     async disponibilidade(req: any, res: any, next: any) {
 
