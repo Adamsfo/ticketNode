@@ -1,0 +1,80 @@
+﻿posicao;nomeCliente;cpfMascarado;telefone;qtdHospedagens;qtdDiarias;qtdSuitesDistintas;valorTotalReservas;valorPagoTotal;primeiraHospedagem;ultimaHospedagem;idUsuario
+1;Igor lucas pinheiro de;***.***.161-**;(66) 98441-9621;6;6;3;2700;0;Sat Jul 25 2026 17:00:00 GMT-0400 (Horário Padrão do Amazonas);Sat Jul 25 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1138
+2;Thiago amorim;***.***.171-**;(65) 99607-4980;4;4;2;3460;0;Sat Jul 25 2026 17:00:00 GMT-0400 (Horário Padrão do Amazonas);Sat Jul 25 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1147
+3;Francieli Aparecida;***.***.121-**;(66) 99908-3601;2;4;1;1600;0;Fri Jul 24 2026 17:00:00 GMT-0400 (Horário Padrão do Amazonas);Fri Jul 24 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1142
+4;MAGNUS;***.***.271-**;(65) 99238-1867;2;2;1;12600;0;Sat Jul 25 2026 17:00:00 GMT-0400 (Horário Padrão do Amazonas);Sat Jul 25 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);284
+5;Thais Alves;***.***.871-**;(65) 99674-7074;2;2;1;2690;0;Sat Aug 01 2026 17:00:00 GMT-0400 (Horário Padrão do Amazonas);Sat Aug 01 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1134
+6;Tiago vieira;***.***.561-**;(65) 99255-5959;2;2;1;1640;0;Sat Jul 25 2026 17:00:00 GMT-0400 (Horário Padrão do Amazonas);Sat Jul 25 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1139
+7;Jose fernando ramos da;***.***.211-**;(65) 99209-9555;2;2;1;1500;0;Sat Aug 01 2026 17:00:00 GMT-0400 (Horário Padrão do Amazonas);Sat Aug 01 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1130
+8;Fernanda;***.***.902-**;(65) 99346-9308;2;2;1;1400;0;Fri Jul 24 2026 17:00:00 GMT-0400 (Horário Padrão do Amazonas);Fri Jul 24 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1141
+9;Andreia Micheli Soares de;***.***.861-**;(65) 99985-4187;2;2;1;1340;0;Sat Jul 25 2026 17:00:00 GMT-0400 (Horário Padrão do Amazonas);Sat Jul 25 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1136
+10;Rogério Ribeiro;***.***.211-**;(65) 98140-0115;2;2;1;1300;1300;Sat Aug 01 2026 17:00:00 GMT-0400 (Horário Padrão do Amazonas);Sat Aug 01 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1132
+11;Pedro Henrique fontes de;***.***.321-**;(65) 98448-8516;2;2;1;1150;0;Sat Sep 05 2026 17:00:00 GMT-0400 (Horário Padrão do Amazonas);Sat Oct 10 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1128
+12;Eder alexandre;***.***.561-**;(66) 99652-5307;2;2;2;1100;0;Sun Sep 06 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);Sun Sep 06 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1185
+13;MARCO ANTONIO;***.***.641-**;(65) 99249-0497;2;2;1;1040;0;Sat Jul 25 2026 17:00:00 GMT-0400 (Horário Padrão do Amazonas);Sat Jul 25 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1145
+14;CAMILA;***.***.211-**;(65) 99645-6044;2;2;1;1000;0;Sat Aug 15 2026 17:00:00 GMT-0400 (Horário Padrão do Amazonas);Sat Oct 10 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);847
+15;Rogerio;***.***.451-**;(65) 99249-0001;2;2;1;950;950;Thu Jul 30 2026 17:00:00 GMT-0400 (Horário Padrão do Amazonas);Thu Jul 30 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1133
+16;Franciel;***.***.049-**;(42) 99989-5381;2;2;1;920;0;Sat Jul 25 2026 17:00:00 GMT-0400 (Horário Padrão do Amazonas);Sat Jul 25 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1144
+17;Ranses segundo de;***.***.461-**;(66) 99982-6021;2;2;1;920;0;Sat Jul 25 2026 17:00:00 GMT-0400 (Horário Padrão do Amazonas);Sat Jul 25 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1146
+18;Tarcísio Reame;***.***.941-**;(65) 99357-9480;2;2;1;900;0;Sat Jul 25 2026 17:00:00 GMT-0400 (Horário Padrão do Amazonas);Sat Jul 25 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1143
+19;Laura Pereira de;***.***.963-**;(65) 98100-1920;2;2;1;800;0;Sat Aug 22 2026 17:00:00 GMT-0400 (Horário Padrão do Amazonas);Sat Aug 22 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1127
+20;Gabriel Marques da Silva;***.***.931-**;(65) 99906-7383;2;2;1;800;0;Sat Aug 08 2026 17:00:00 GMT-0400 (Horário Padrão do Amazonas);Sat Aug 08 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1129
+21;Diogo de Melo;***.***.551-**;(65) 99699-4318;2;2;1;800;0;Sat Aug 08 2026 17:00:00 GMT-0400 (Horário Padrão do Amazonas);Sat Aug 08 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1131
+22;Marly Mota de;***.***.388-**;(65) 99255-9313;2;2;1;800;0;Sat Aug 01 2026 17:00:00 GMT-0400 (Horário Padrão do Amazonas);Sat Aug 01 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1135
+23;Alexandre Santos Pereira;***.***.818-**;(66) 99985-6292;2;2;1;800;0;Sat Jul 25 2026 17:00:00 GMT-0400 (Horário Padrão do Amazonas);Sat Jul 25 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1137
+24;LARISSA JAUDY ARRUDA;***.***.861-**;(65) 99939-1576;2;2;1;800;0;Sat Jul 25 2026 17:00:00 GMT-0400 (Horário Padrão do Amazonas);Sat Jul 25 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1140
+25;Emanuel Jonadab Diniz;***.***.861-**;(65) 99992-3870;2;2;1;800;0;Sat Jul 25 2026 17:00:00 GMT-0400 (Horário Padrão do Amazonas);Sat Jul 25 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1148
+26;Alexsandra Ferreira;***.***.611-**;(65) 99333-8218;1;2;1;1340;0;Sat Oct 31 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);Sat Oct 31 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1186
+27;Almir Rogério;***.***.391-**;(66) 99605-3990;1;2;1;1220;0;Sat Sep 05 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);Sat Sep 05 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1187
+28;Lucas Alexandre Guimarães;***.***.471-**;(66) 99281-7216;1;2;1;1100;0;Thu Sep 03 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);Thu Sep 03 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1160
+29;Doraci Cervone;***.***.819-**;(65) 99234-7276;1;2;1;1100;0;Sat Sep 12 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);Sat Sep 12 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1159
+30;Afonso henrique dourado de;***.***.511-**;(62) 99309-5834;1;2;1;1040;0;Sat Sep 05 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);Sat Sep 05 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1168
+31;Fernando sonni;***.***.001-**;(65) 99991-7735;1;2;1;1040;0;Fri Sep 11 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);Fri Sep 11 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1202
+32;Flavio Borges de;***.***.361-**;(66) 99914-3910;1;2;1;1000;0;Fri Oct 16 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);Fri Oct 16 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1166
+33;Angelo Carlos Dias;***.***.049-**;(65) 99287-3936;1;2;1;900;0;Sat Sep 05 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);Sat Sep 05 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1162
+34;Fabricia Alves;***.***.341-**;(62) 99309-5834;1;2;1;800;0;Sat Sep 05 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);Sat Sep 05 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1167
+35;Breno Duarte;***.***.931-**;(65) 99969-7031;1;1;1;835;0;Sun Sep 06 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);Sun Sep 06 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1195
+36;Milena goncalves;***.***.301-**;(65) 99227-8524;1;1;1;820;0;Sat Aug 29 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);Sat Aug 29 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1171
+37;REBECA;***.***.371-**;(65) 99207-5572;1;1;1;770;0;Sat Sep 19 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);Sat Sep 19 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1010
+38;Angela pereira;***.***.251-**;(65) 99227-8524;1;1;1;700;0;Sat Aug 29 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);Sat Aug 29 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1170
+39;Fernanda Barbosa Lopes da;***.***.131-**;(65) 99351-6524;1;1;1;670;0;Sat Aug 01 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);Sat Aug 01 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1152
+40;Marcielle dos Reis;***.***.751-**;(65) 98103-8830;1;1;1;670;0;Sun Sep 06 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);Sun Sep 06 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1192
+41;Lucilene;***.***.921-**;(65) 99363-4386;1;1;1;670;0;Sat Sep 19 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);Sat Sep 19 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1204
+42;Elissandra vieira da;***.***.551-**;(65) 99331-5636;1;1;1;650;0;Sat Sep 05 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);Sat Sep 05 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1193
+43;Bianca maria;***.***.561-**;(65) 99332-4164;1;1;1;640;0;Sat Aug 01 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);Sat Aug 01 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1151
+44;Maxiane damaceno;***.***.011-**;;1;1;1;630;0;Sat Aug 29 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);Sat Aug 29 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1183
+45;Fabiana Rodrigues;***.***.451-**;(65) 99994-0712;1;1;1;600;0;Sat Sep 05 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);Sat Sep 05 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1188
+46;Ana Paula Almeida da;***.***.111-**;(65) 99933-9989;1;1;1;580;0;Sat Aug 29 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);Sat Aug 29 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1179
+47;Yasmim ketlyn silva da;***.***.701-**;(65) 98118-1995;1;1;1;570;0;Sat Aug 01 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);Sat Aug 01 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1155
+48;Fernando;***.***.041-**;(65) 99963-9494;1;1;1;570;0;Sun Sep 06 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);Sun Sep 06 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1196
+49;Cristiano silva do;***.***.371-**;(65) 99682-3503;1;1;1;560;0;Fri Aug 28 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);Fri Aug 28 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1177
+50;Diego Rondon;***.***.571-**;(65) 99244-3110;1;1;1;550;0;Sat Aug 29 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);Sat Aug 29 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1182
+51;Adriana Andreguetto;***.***.848-**;(65) 98155-1890;1;1;1;550;0;Fri Sep 04 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);Fri Sep 04 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1194
+52;Marta Palmeira dos Santos;***.***.361-**;(66) 98136-3107;1;1;1;550;0;Sat Sep 05 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);Sat Sep 05 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1189
+53;Lucas Rafael De Araújo;***.***.231-**;(65) 99276-4996;1;1;1;520;0;Sat Aug 29 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);Sat Aug 29 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1181
+54;Daiany Suellen de freitas;***.***.171-**;(65) 99929-7016;1;1;1;520;0;Sat Sep 05 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);Sat Sep 05 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1158
+55;Aline Soares;***.***.921-**;(65) 98156-6826;1;1;1;520;0;Sat Aug 29 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);Sat Aug 29 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1164
+56;Kelly Tagliari;***.***.071-**;(65) 99941-6635;1;1;1;520;0;Sun Sep 06 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);Sun Sep 06 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1184
+57;Tania da Silva Farias;***.***.881-**;(65) 99204-6424;1;1;1;520;0;Sat Aug 29 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);Sat Aug 29 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1172
+58;Nubia Vanessa M da;***.***.501-**;(66) 99996-1028;1;1;1;520;0;Sat Sep 05 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);Sat Sep 05 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1175
+59;Wagner Santos da;***.***.671-**;(65) 98126-4722;1;1;1;500;0;Sat Sep 12 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);Sat Sep 12 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1157
+60;JULIA MANUELA BARCELO DE SOUZA;***.***.661-**;(65) 97400-1642;1;1;1;500;0;Sat Aug 01 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);Sat Aug 01 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1153
+61;Márcia Magalhães de;***.***.801-**;(65) 99925-2208;1;1;1;500;0;Sat Aug 08 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);Sat Aug 08 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1150
+62;Marcus Vinicius;***.***.791-**;(65) 99338-9840;1;1;1;500;0;Sun Sep 06 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);Sun Sep 06 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1197
+63;Rafael;***.***.321-**;(65) 99243-0803;1;1;1;500;0;Sat Sep 05 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);Sat Sep 05 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1200
+64;Jessica caroline Moura da;***.***.611-**;(65) 99625-1169;1;1;1;480.24;0;Sat Sep 12 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);Sat Sep 12 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1203
+65;Sergio Luciano;***.***.801-**;(65) 99850-4532;1;1;1;460;0;Sat Aug 01 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);Sat Aug 01 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1154
+66;Cristiane A Ferreira;***.***.512-**;(65) 98465-2392;1;1;1;460;0;Fri Sep 04 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);Fri Sep 04 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1174
+67;João Henrique Vilela de;***.***.441-**;(65) 98132-4077;1;1;1;450;0;Sat Sep 05 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);Sat Sep 05 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1178
+68;Claudiney da;***.***.261-**;(65) 99237-1440;1;1;1;450;0;Sat Sep 26 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);Sat Sep 26 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1198
+69;Rafaela vianna Ferreira;***.***.651-**;(65) 99360-7226;1;1;1;440;0;Sat Sep 19 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);Sat Sep 19 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1169
+70;Wellington alves de;***.***.991-**;(65) 99265-3115;1;1;1;400;0;Sat Aug 29 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);Sat Aug 29 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1176
+71;Reginaldo Henrique;***.***.608-**;(65) 98147-2237;1;1;1;400;0;Sat Sep 12 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);Sat Sep 12 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1165
+72;Maiara;***.***.361-**;(65) 99624-0508;1;1;1;400;0;Sat Aug 01 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);Sat Aug 01 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1156
+73;Laura Kelly Hortenci de;***.***.411-**;(66) 99952-1884;1;1;1;400;0;Sun Sep 06 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);Sun Sep 06 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1190
+74;Nome completo : Maycon Wendisley Fernandes Moraes;***.***.201-**;(65) 99635-8702;1;1;1;400;0;Sat Sep 05 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);Sat Sep 05 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1161
+75;Maria Aparecida da;***.***.081-**;(65) 99276-6127;1;1;1;400;0;Sat Aug 29 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);Sat Aug 29 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1173
+76;Gabriela;***.***.011-**;(65) 99353-5839;1;1;1;400;0;Sat Sep 19 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);Sat Sep 19 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1205
+77;Wellington torres;***.***.358-**;(66) 99944-6300;1;1;1;300;0;Fri Jul 31 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);Fri Jul 31 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1149
+78;WESLEY;***.***.391-**;(65) 99210-9009;1;1;1;280;0;Sat Sep 19 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);Sat Sep 19 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1006
+79;Ketelen Dias;***.***.641-**;(65) 98433-8538;1;1;1;0;0;Sat Sep 05 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);Sat Sep 05 2026 20:00:00 GMT-0400 (Horário Padrão do Amazonas);1180
