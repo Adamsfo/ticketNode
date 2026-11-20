@@ -5369,13 +5369,6 @@ export async function alterarPeriodoReservaAdmin(params: {
     }
 
     const hojeStr = formatInTimeZone(new Date(), TZ, 'yyyy-MM-dd');
-    const dataCiNovo = formatInTimeZone(checkinNovo, TZ, 'yyyy-MM-dd');
-    const jaHospedada =
-        reserva.status === StatusReservaHospedagem.Hospedada ||
-        Boolean(
-            (reserva as ReservaHospedagem & { dataHoraCheckinReal?: Date | null })
-                .dataHoraCheckinReal
-        );
 
     for (const linha of linhas) {
         const suite = linha.EventoSuite;
@@ -5413,18 +5406,6 @@ export async function alterarPeriodoReservaAdmin(params: {
                 409,
                 ''
             );
-        }
-
-        // Mesma regra da Nova Reserva no dia do CI, quando o CI ainda é futuro/hoje.
-        // Estadia já iniciada (CI no passado): valida só conflito (prorrogação/antecipação).
-        if (dataCiNovo >= hojeStr || !jaHospedada) {
-            if (!disp.disponibilidadeNoDiaCheckin.podeReservar) {
-                throw new CustomError(
-                    `Suíte indisponível no período: ${suite.nome}.`,
-                    409,
-                    ''
-                );
-            }
         }
     }
 
