@@ -330,13 +330,13 @@ const PdvApiJango = {
         for (const row of json) {
           const desc = String(
             (row as { descricao?: unknown; DESCRICAO?: unknown }).descricao ??
-              (row as { DESCRICAO?: unknown }).DESCRICAO ??
-              ""
+            (row as { DESCRICAO?: unknown }).DESCRICAO ??
+            ""
           );
           const qtd = Number(
             (row as { qtd?: unknown; QTD?: unknown }).qtd ??
-              (row as { QTD?: unknown }).QTD ??
-              0
+            (row as { QTD?: unknown }).QTD ??
+            0
           );
           if (desc === "Adulto") {
             adultos = qtd;
@@ -397,9 +397,9 @@ const PdvApiJango = {
     const suiteHospedagem = options?.suite === true;
     const qry = suiteHospedagem
       ? "insert into VENDA (ID_CLIENTE, TIPO, STATUS, ID_USUARIO, SUITE) " +
-        `values (${idClienteNum}, 3, 0, 152, 'SIM') returning ID_VENDA`
+      `values (${idClienteNum}, 3, 0, 152, 'SIM') returning ID_VENDA`
       : "insert into VENDA (ID_CLIENTE, TIPO, STATUS, ID_USUARIO) " +
-        `values (${idClienteNum}, 3, 0, 152) returning ID_VENDA`;
+      `values (${idClienteNum}, 3, 0, 152) returning ID_VENDA`;
     const url = BASEAPI + "/select/" + qry;
 
     let res: Response;
@@ -439,7 +439,7 @@ const PdvApiJango = {
     const idVendaRaw =
       row && typeof row === "object"
         ? (row as { id_venda?: unknown; ID_VENDA?: unknown }).id_venda ??
-          (row as { id_venda?: unknown; ID_VENDA?: unknown }).ID_VENDA
+        (row as { id_venda?: unknown; ID_VENDA?: unknown }).ID_VENDA
         : undefined;
 
     const idVenda = Number(idVendaRaw);
@@ -593,7 +593,7 @@ const PdvApiJango = {
 
     const existentes = await apiFetchGet(
       "/select/" +
-        `select ID_CAIXA_ITEM, DESCRICAO from caixa_item where DESCRICAO = '${descricao}'`
+      `select ID_CAIXA_ITEM, DESCRICAO from caixa_item where DESCRICAO = '${descricao}'`
     );
 
     if (Array.isArray(existentes) && existentes.length > 0) {
@@ -601,9 +601,9 @@ const PdvApiJango = {
       const idCaixaItemRaw =
         row && typeof row === "object"
           ? (row as { id_caixa_item?: unknown; ID_CAIXA_ITEM?: unknown })
-              .id_caixa_item ??
-            (row as { id_caixa_item?: unknown; ID_CAIXA_ITEM?: unknown })
-              .ID_CAIXA_ITEM
+            .id_caixa_item ??
+          (row as { id_caixa_item?: unknown; ID_CAIXA_ITEM?: unknown })
+            .ID_CAIXA_ITEM
           : undefined;
 
       const idCaixaItem = Number(idCaixaItemRaw);
@@ -659,9 +659,9 @@ const PdvApiJango = {
     const idCaixaItemRaw =
       row && typeof row === "object"
         ? (row as { id_caixa_item?: unknown; ID_CAIXA_ITEM?: unknown })
-            .id_caixa_item ??
-          (row as { id_caixa_item?: unknown; ID_CAIXA_ITEM?: unknown })
-            .ID_CAIXA_ITEM
+          .id_caixa_item ??
+        (row as { id_caixa_item?: unknown; ID_CAIXA_ITEM?: unknown })
+          .ID_CAIXA_ITEM
         : undefined;
 
     const idCaixaItem = Number(idCaixaItemRaw);
@@ -727,9 +727,9 @@ const PdvApiJango = {
     const idCaixaItemRaw =
       row && typeof row === "object"
         ? (row as { id_caixa_item?: unknown; ID_CAIXA_ITEM?: unknown })
-            .id_caixa_item ??
-          (row as { id_caixa_item?: unknown; ID_CAIXA_ITEM?: unknown })
-            .ID_CAIXA_ITEM
+          .id_caixa_item ??
+        (row as { id_caixa_item?: unknown; ID_CAIXA_ITEM?: unknown })
+          .ID_CAIXA_ITEM
         : undefined;
 
     const idCaixaItem = Number(idCaixaItemRaw);
@@ -765,7 +765,7 @@ const PdvApiJango = {
             on pi.id_pedido = p.id_pedido
         inner join venda_item vi 
             on vi.id_venda = p.id_venda 
-           and vi.id_produto = pi.id_produto
+           and vi.id_pedido_item = pi.id_pedido_item
         inner join usuario u 
             on u.id_usuario = p.id_usuario
         where p.status = 5
@@ -786,7 +786,7 @@ const PdvApiJango = {
             on pi.id_pedido = p.id_pedido
         inner join venda_item vi 
             on vi.id_venda = p.id_venda 
-           and vi.id_produto = pi.id_produto
+           and vi.id_pedido_item = pi.id_pedido_item
         inner join pedido_status ps 
             on ps.id_pedido = p.id_pedido 
            and ps.status = 5
