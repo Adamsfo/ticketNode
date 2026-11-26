@@ -587,7 +587,7 @@ const PdvApiJango = {
             on pi.id_pedido = p.id_pedido
         inner join venda_item vi 
             on vi.id_venda = p.id_venda 
-           and vi.id_produto = pi.id_produto
+           and vi.id_pedido_item = pi.id_pedido_item
         inner join usuario u 
             on u.id_usuario = p.id_usuario
         where p.status = 5
@@ -608,7 +608,7 @@ const PdvApiJango = {
             on pi.id_pedido = p.id_pedido
         inner join venda_item vi 
             on vi.id_venda = p.id_venda 
-           and vi.id_produto = pi.id_produto
+           and vi.id_pedido_item = pi.id_pedido_item
         inner join pedido_status ps 
             on ps.id_pedido = p.id_pedido 
            and ps.status = 5
